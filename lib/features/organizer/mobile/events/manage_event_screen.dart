@@ -1,0 +1,1113 @@
+﻿import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../../shared/widgets/app_loader.dart';
+import '../../../../shared/widgets/app_alert.dart';
+import '../../../../core/app_colors.dart';
+
+
+// â”€â”€ Static lookup tables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const List<(String, IconData, Color)> _kTypeData = [
+  ('Concert',  Icons.music_note_rounded,  Color(0xFF7C3AED)),
+  ('Sports',   Icons.sports_rounded,      Color(0xFF2563EB)),
+  ('Workshop', Icons.build_rounded,       Color(0xFFEA580C)),
+  ('Seminar',  Icons.school_rounded,      Color(0xFF0D9488)),
+  ('Other',    Icons.more_horiz_rounded,  Color(0xFF6B7280)),
+];
+
+const List<(String, String, IconData, Color)> _kStatusData = [
+  ('upcoming',  'Upcoming',  Icons.schedule_rounded,     Color(0xFFE87A00)),
+  ('ongoing',   'Ongoing',   Icons.play_circle_rounded,  Color(0xFF16A34A)),
+  ('completed', 'Completed', Icons.check_circle_rounded, Color(0xFF6B7280)),
+  ('cancelled', 'Cancelled', Icons.cancel_rounded,       Colors.red),
+];
+
+class ManageEventScreen extends StatefulWidget {
+  final Map<String, dynamic> eventData;
+  const ManageEventScreen({super.key, required this.eventData});
+
+  @override
+  State<ManageEventScreen> createState() => _ManageEventScreenState();
+}
+
+class _ManageEventScreenState extends State<ManageEventScreen> {
+  // â”€â”€ Controllers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _venueCtrl;
+  late final TextEditingController _descCtrl;
+  late final TextEditingController _capacityCtrl;
+  late final TextEditingController _otherTypeCtrl;
+
+  // â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  String _selectedType   = 'Concert';
+  String _currentStatus  = 'upcoming';
+  bool   _isSaving       = false;
+
+  // â”€â”€ Derived from eventData â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  String get _eventId =>
+      (widget.eventData['event_id'] as String?) ??
+      (widget.eventData['id']       as String?) ?? '';
+  int get _registered  => widget.eventData['registered']          as int? ?? 0;
+  int get _checkedIn   => widget.eventData['checkedIn']           as int? ?? 0;
+  int get _capacity    => int.tryParse(_capacityCtrl.text)        ?? 0;
+
+  // â”€â”€ Date / time formatting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  String get _displayDate {
+    final iso = widget.eventData['event_date'] as String?;
+    if (iso == null) return widget.eventData['date'] as String? ?? 'â€”';
+    try {
+      final dt = DateTime.parse(iso);
+      const m = ['JAN','FEB','MAR','APR','MAY','JUN',
+                  'JUL','AUG','SEP','OCT','NOV','DEC'];
+      return '${m[dt.month - 1]} ${dt.day}, ${dt.year}';
+    } catch (_) { return iso; }
+  }
+
+  String get _displayTime {
+    final s  = widget.eventData['start_time'] as String?;
+    final en = widget.eventData['end_time']   as String?;
+    if (s == null) return widget.eventData['time'] as String? ?? 'â€”';
+    String fmt(String t) {
+      final p = t.split(':');
+      if (p.length < 2) return t;
+      final h = int.tryParse(p[0]) ?? 0;
+      return '${h % 12 == 0 ? 12 : h % 12}:${p[1]} ${h >= 12 ? 'PM' : 'AM'}';
+    }
+    return en != null ? '${fmt(s)} - ${fmt(en)}' : fmt(s);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.eventData;
+    // Accept both the raw Supabase column names and the legacy short keys.
+    _nameCtrl     = TextEditingController(
+      text: (d['title']    as String?) ?? (d['name']  as String?) ?? '');
+    _venueCtrl    = TextEditingController(
+      text: (d['location'] as String?) ?? (d['venue'] as String?) ?? '');
+    _descCtrl     = TextEditingController(text: d['description'] as String? ?? '');
+    _capacityCtrl = TextEditingController(
+      text: d['max_participants'] != null
+          ? '${d['max_participants']}'
+          : d['capacity'] != null ? '${d['capacity']}' : '',
+    );
+    _otherTypeCtrl = TextEditingController();
+
+    // Resolve type â€” if it doesn't match a known type, fall back to 'Other'
+    final rawType = (d['event_type'] as String?) ?? (d['type'] as String?) ?? 'Concert';
+    _selectedType = _kTypeData.any((t) => t.$1 == rawType) ? rawType : 'Other';
+    if (_selectedType == 'Other') _otherTypeCtrl.text = rawType;
+
+    // Resolve status
+    _currentStatus = ((d['event_status'] as String?) ??
+        (d['status'] as String?) ?? 'upcoming').toLowerCase();
+    if (!_kStatusData.any((s) => s.$1 == _currentStatus)) {
+      _currentStatus = 'upcoming';
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _venueCtrl.dispose();
+    _descCtrl.dispose();
+    _capacityCtrl.dispose();
+    _otherTypeCtrl.dispose();
+    super.dispose();
+  }
+
+  // â”€â”€ Save to Supabase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Future<void> _saveChanges() async {
+    if (_nameCtrl.text.trim().isEmpty) {
+      _snack('Event name is required', isError: true);
+      return;
+    }
+    if (_venueCtrl.text.trim().isEmpty) {
+      _snack('Venue is required', isError: true);
+      return;
+    }
+    if (_selectedType == 'Other' && _otherTypeCtrl.text.trim().isEmpty) {
+      _snack('Please specify the event type', isError: true);
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      final eventType = _selectedType == 'Other'
+          ? _otherTypeCtrl.text.trim()
+          : _selectedType;
+
+      await Supabase.instance.client.from('events').update({
+        'title':            _nameCtrl.text.trim(),
+        'location':         _venueCtrl.text.trim(),
+        'description':      _descCtrl.text.trim(),
+        'event_type':       eventType,
+        'max_participants': int.tryParse(_capacityCtrl.text),
+        'event_status':     _currentStatus,
+      }).eq('event_id', _eventId);
+
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      await AppAlert.success(
+        context,
+        title: 'Event Updated',
+        message: 'Your changes have been saved successfully.',
+        buttonText: 'Done',
+        onDismiss: () => Navigator.pop(context, true),
+      );
+      return;
+    } catch (e) {
+      if (!mounted) return;
+      AppAlert.error(context, title: 'Save Failed', message: e.toString());
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _confirmStatusRevert(String targetKey) async {
+    final targetDisplay  = _statusDisplay(targetKey);
+    final currentDisplay = _statusDisplay(_currentStatus);
+    bool confirmed = false;
+    await AppAlert.confirm(
+      context,
+      title: 'Change Status?',
+      message: 'This event is currently "$currentDisplay". '
+          'Changing it to "$targetDisplay" will make it active again. '
+          'Are you sure?',
+      confirmText: 'Change to $targetDisplay',
+      cancelText:  'Keep as $currentDisplay',
+      onConfirm:   () => confirmed = true,
+    );
+    if (confirmed && mounted) {
+      setState(() => _currentStatus = targetKey);
+      _snack('Status set to $targetDisplay â€” save to apply');
+    }
+  }
+
+  Future<void> _confirmCancelEvent() async {
+    bool confirmed = false;
+    await AppAlert.confirm(
+      context,
+      title: 'Cancel This Event?',
+      message: 'Marking this event as cancelled will disable new registrations. '
+          'This action can be reversed by changing the status again.',
+      confirmText: 'Cancel Event',
+      cancelText: 'Keep Event',
+      confirmColor: Colors.red.shade600,
+      onConfirm: () => confirmed = true,
+    );
+    if (confirmed && mounted) {
+      setState(() => _currentStatus = 'cancelled');
+      _snack('Status set to Cancelled â€” save to apply');
+    }
+  }
+
+  void _adjustCapacity(int delta) {
+    final current = int.tryParse(_capacityCtrl.text) ?? 0;
+    final next    = (current + delta).clamp(0, 99999);
+    setState(() => _capacityCtrl.text = next == 0 ? '' : '$next');
+  }
+
+  void _snack(String msg, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, style: const TextStyle(fontFamily: 'Poppins')),
+        backgroundColor: isError ? Colors.red.shade600 : Colors.green.shade600,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  // â”€â”€ Status helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Color _statusColor(String status) {
+    for (final s in _kStatusData) {
+      if (s.$1 == status) return s.$4;
+    }
+    return kGold;
+  }
+
+  String _statusDisplay(String status) {
+    for (final s in _kStatusData) {
+      if (s.$1 == status) return s.$2;
+    }
+    return 'Upcoming';
+  }
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // BUILD
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBackgroundAlt,
+      bottomNavigationBar: _buildBottomBar(),
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Column(
+              children: [
+                _buildHeader(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    child: Column(
+                      children: [
+                        _buildStatsRow(),
+                        const SizedBox(height: 16),
+                        _buildEventInfoSection(),
+                        const SizedBox(height: 14),
+                        _buildScheduleSection(),
+                        const SizedBox(height: 14),
+                        _buildDetailsSection(),
+                        const SizedBox(height: 14),
+                        _buildStatusSection(),
+                        const SizedBox(height: 8),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_isSaving) const AppOverlayLoader(message: 'Saving changesâ€¦'),
+        ],
+      ),
+    );
+  }
+
+  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildHeader() {
+    final statusColor = _statusColor(_currentStatus);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 16, 16, 8),
+      child: Row(
+        children: [
+          // Back button
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.07),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                size: 18,
+                color: kText,
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+
+          // Title + subtitle
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Manage Event',
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: kText,
+                    height: 1.1,
+                  ),
+                ),
+                Text(
+                  _nameCtrl.text.isNotEmpty
+                      ? _nameCtrl.text
+                      : 'Edit event details',
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 12,
+                    color: kSubText,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+
+          // Current status badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: statusColor.withValues(alpha: 0.35), width: 1.2,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: statusColor,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  _statusDisplay(_currentStatus),
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: statusColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // â”€â”€ Stats row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildStatsRow() {
+    final cap    = int.tryParse(_capacityCtrl.text) ?? 0;
+    final fillPct = cap > 0 ? ((_registered / cap) * 100).toInt() : 0;
+
+    return Row(
+      children: [
+        _statTile('$_registered', 'Registered', Icons.confirmation_num_outlined, kGold),
+        const SizedBox(width: 10),
+        _statTile('$_checkedIn', 'Checked In', Icons.how_to_reg_rounded, const Color(0xFF16A34A)),
+        const SizedBox(width: 10),
+        _statTile(
+          cap > 0 ? '$fillPct%' : 'â€”',
+          'Attendance',
+          Icons.bar_chart_rounded,
+          const Color(0xFF2563EB),
+        ),
+      ],
+    );
+  }
+
+  Widget _statTile(String value, String label, IconData icon, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 10),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.18), width: 1.5),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: color,
+                height: 1.1,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 10,
+                color: kMuted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // â”€â”€ Section: Event Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildEventInfoSection() {
+    return _sectionCard(
+      icon: Icons.event_note_rounded,
+      iconBg: kGoldLight,
+      iconColor: kGold,
+      title: 'Event Info',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _inputField(
+            label: 'Event Name',
+            required: true,
+            controller: _nameCtrl,
+            icon: Icons.title_rounded,
+          ),
+          const SizedBox(height: 18),
+          _fieldLabel('Event Type', required: true),
+          const SizedBox(height: 10),
+          _buildTypeChips(),
+          if (_selectedType == 'Other') ...[
+            const SizedBox(height: 12),
+            _inputField(
+              label: 'Specify type',
+              controller: _otherTypeCtrl,
+              hint: 'e.g.  Cultural Night, Quiz Beeâ€¦',
+              icon: Icons.edit_note_rounded,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTypeChips() {
+    return SizedBox(
+      height: 80,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.zero,
+        itemCount: _kTypeData.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (_, i) {
+          final (label, icon, color) = _kTypeData[i];
+          final selected = _selectedType == label;
+          return GestureDetector(
+            onTap: () => setState(() => _selectedType = label),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 74,
+              decoration: BoxDecoration(
+                color: selected ? kGold : Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: selected ? kGold : Colors.grey.shade200,
+                  width: 1.5,
+                ),
+                boxShadow: selected
+                    ? [
+                        BoxShadow(
+                          color: kGold.withValues(alpha: 0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 24, color: selected ? Colors.white : color),
+                  const SizedBox(height: 5),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: selected ? Colors.white : kText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // â”€â”€ Section: Schedule â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildScheduleSection() {
+    return _sectionCard(
+      icon: Icons.schedule_rounded,
+      iconBg: const Color(0x1A2563EB),
+      iconColor: const Color(0xFF2563EB),
+      title: 'Schedule',
+      child: Column(
+        children: [
+          // Date read-only
+          _readOnlyTile(
+            icon: Icons.calendar_today_rounded,
+            label: 'Event Date',
+            value: _displayDate,
+          ),
+          const SizedBox(height: 10),
+          // Time read-only
+          _readOnlyTile(
+            icon: Icons.access_time_rounded,
+            label: 'Time',
+            value: _displayTime,
+          ),
+          const SizedBox(height: 14),
+          // Venue editable
+          _inputField(
+            label: 'Venue / Location',
+            required: true,
+            controller: _venueCtrl,
+            icon: Icons.location_on_outlined,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _readOnlyTile({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200, width: 1.2),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: kMuted),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins', fontSize: 10, color: kMuted,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: kSubText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.lock_outline_rounded, size: 14, color: kMuted),
+        ],
+      ),
+    );
+  }
+
+  // â”€â”€ Section: Description & Capacity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildDetailsSection() {
+    return _sectionCard(
+      icon: Icons.tune_rounded,
+      iconBg: const Color(0x1A16A34A),
+      iconColor: const Color(0xFF16A34A),
+      title: 'Details',
+      child: Column(
+        children: [
+          _inputField(
+            label: 'Description',
+            controller: _descCtrl,
+            hint: 'Describe what this event is aboutâ€¦',
+            icon: Icons.notes_rounded,
+            maxLines: 4,
+          ),
+          const SizedBox(height: 18),
+          _buildCapacityField(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCapacityField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _fieldLabel('Max Participants', optional: true),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _stepBtn(Icons.remove_rounded, () => _adjustCapacity(-10)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextFormField(
+                controller: _capacityCtrl,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onChanged: (_) => setState(() {}),
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: kText,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'â€”',
+                  hintStyle: const TextStyle(
+                    fontFamily: 'Poppins', fontSize: 16, color: kMuted,
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade200),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade200),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: kGold, width: 2),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            _stepBtn(Icons.add_rounded, () => _adjustCapacity(10)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        // Registered / capacity bar
+        if (_capacity > 0 && _registered > 0) ...[
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: (_registered / _capacity).clamp(0.0, 1.0),
+                    minHeight: 5,
+                    backgroundColor: Colors.grey.shade200,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      _registered >= _capacity ? Colors.red : kGold,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '$_registered / $_capacity',
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: kSubText,
+                ),
+              ),
+            ],
+          ),
+        ] else
+          Text(
+            'Leave blank for unlimited participants',
+            style: const TextStyle(
+              fontFamily: 'Poppins', fontSize: 11, color: kMuted,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _stepBtn(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 44,
+        height: 48,
+        decoration: BoxDecoration(
+          color: kGoldLight,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: kGold.withValues(alpha: 0.3), width: 1.5,
+          ),
+        ),
+        child: Icon(icon, color: kGold, size: 20),
+      ),
+    );
+  }
+
+  // â”€â”€ Section: Event Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildStatusSection() {
+    return _sectionCard(
+      icon: Icons.toggle_on_rounded,
+      iconBg: _statusColor(_currentStatus).withValues(alpha: 0.12),
+      iconColor: _statusColor(_currentStatus),
+      title: 'Event Status',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Changing the status affects registration availability '
+            'and what students see in the app.',
+            style: const TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 12,
+              color: kMuted,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 14),
+          // 2 Ã— 2 status grid
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 2.8,
+            children: _kStatusData.map((s) {
+              final (key, display, icon, color) = s;
+              final selected = _currentStatus == key;
+              return GestureDetector(
+                onTap: () {
+                  if (key == _currentStatus) return;
+                  if (key == 'cancelled') {
+                    _confirmCancelEvent();
+                  } else if (_currentStatus == 'completed' ||
+                             _currentStatus == 'cancelled') {
+                    _confirmStatusRevert(key);
+                  } else if (_currentStatus == 'ongoing' &&
+                             key == 'upcoming') {
+                    _confirmStatusRevert(key);
+                  } else {
+                    setState(() => _currentStatus = key);
+                  }
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 0,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected ? color.withValues(alpha: 0.1) : Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: selected
+                          ? color.withValues(alpha: 0.45)
+                          : Colors.grey.shade200,
+                      width: selected ? 1.8 : 1.2,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        icon,
+                        size: 17,
+                        color: selected ? color : kMuted,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        display,
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 12,
+                          fontWeight: selected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: selected ? color : kSubText,
+                        ),
+                      ),
+                      if (selected) ...[
+                        const Spacer(),
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: color,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // â”€â”€ Bottom action bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildBottomBar() {
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 20,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            // Cancel event (danger)
+            Expanded(
+              flex: 2,
+              child: OutlinedButton.icon(
+                onPressed: _isSaving ? null : _confirmCancelEvent,
+                icon: Icon(Icons.cancel_outlined, size: 16, color: Colors.red.shade500),
+                label: Text(
+                  'Cancel',
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.red.shade500,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: Colors.red.shade300, width: 1.5),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Save changes â€” gradient when idle, muted when saving
+            Expanded(
+              flex: 3,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: _isSaving ? null : kGoldGradient,
+                  color:    _isSaving ? Colors.grey.shade300 : null,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: _isSaving
+                      ? null
+                      : [
+                          BoxShadow(
+                            color:  kGold.withValues(alpha: 0.40),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                ),
+                child: ElevatedButton.icon(
+                  onPressed: _isSaving ? null : _saveChanges,
+                  icon: _isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Icon(Icons.save_rounded, size: 18),
+                  label: Text(
+                    _isSaving ? 'Savingâ€¦' : 'Save Changes',
+                    style: const TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:         Colors.transparent,
+                    foregroundColor:         Colors.white,
+                    disabledBackgroundColor: Colors.transparent,
+                    disabledForegroundColor: Colors.white70,
+                    elevation:   0,
+                    shadowColor: Colors.transparent,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // â”€â”€ Shared widget helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _sectionCard({
+    required IconData icon,
+    required Color iconBg,
+    required Color iconColor,
+    required String title,
+    required Widget child,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: iconBg,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Icon(icon, color: iconColor, size: 16),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: kText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Divider(height: 1, thickness: 1, color: Colors.grey.shade100),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+            child: child,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _inputField({
+    required String label,
+    required TextEditingController controller,
+    String? hint,
+    IconData? icon,
+    int maxLines  = 1,
+    bool required = false,
+    TextInputType? keyboard,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _fieldLabel(label, required: required),
+        const SizedBox(height: 7),
+        TextFormField(
+          controller: controller,
+          maxLines: maxLines,
+          keyboardType: keyboard,
+          style: const TextStyle(
+            fontFamily: 'Poppins', fontSize: 13, color: kText,
+          ),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: const TextStyle(
+              fontFamily: 'Poppins', fontSize: 13, color: kMuted,
+            ),
+            prefixIcon: icon != null
+                ? Icon(icon, color: kGold, size: 18)
+                : null,
+            filled: true,
+            fillColor: Colors.grey.shade50,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14, vertical: 14,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade200),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade200),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: kGold, width: 2),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _fieldLabel(
+    String label, {
+    bool required = false,
+    bool optional = false,
+  }) {
+    return Row(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: kText,
+          ),
+        ),
+        if (required)
+          const Text(
+            '  *',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 12,
+              color: Colors.red,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        if (optional)
+          const Text(
+            '  (optional)',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 11,
+              color: kMuted,
+            ),
+          ),
+      ],
+    );
+  }
+}

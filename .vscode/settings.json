@@ -1,0 +1,7 @@
+{
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.expand": false,
+  "explorer.fileNesting.patterns": {
+    "organizer_web_dashboard.dart": "web_shared.dart, dashboard_page.dart, events_page.dart, registrations_page.dart, announcements_page.dart, profile_page.dart"
+  }
+}

@@ -1,0 +1,2205 @@
+﻿import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/app_colors.dart';
+import '../../../core/services/supabase_service.dart';
+import 'web_shared.dart';
+
+// Event type definitions
+const _kTypes = [
+  ('Concert',  Icons.music_note_rounded,   Color(0xFF7C3AED)),
+  ('Sports',   Icons.sports_rounded,       Color(0xFF2563EB)),
+  ('Workshop', Icons.build_rounded,        Color(0xFFEA580C)),
+  ('Seminar',  Icons.school_rounded,       Color(0xFF0D9488)),
+  ('Other',    Icons.more_horiz_rounded,   Color(0xFF6B7280)),
+];
+
+class WebEventsPage extends StatefulWidget {
+  final String? orgId;
+  const WebEventsPage({super.key, this.orgId});
+
+  @override
+  State<WebEventsPage> createState() => _WebEventsPageState();
+}
+
+class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProviderStateMixin {
+  bool   _loading = true;
+  String _filter  = 'All';
+  final  _search  = TextEditingController();
+  List<Map<String, dynamic>> _events    = [];
+  List<Map<String, dynamic>> _displayed = [];
+
+  final _filters = ['All', 'Upcoming', 'Ongoing', 'Completed', 'Cancelled'];
+
+  String? _hoveredTab;   // tracks which filter chip the cursor is over
+
+  late final AnimationController _staggerCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _staggerCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+    _search.addListener(_applyFilter);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _staggerCtrl.dispose();
+    _search.dispose();
+    super.dispose();
+  }
+
+  Widget _stagger(Widget child, {required double start, required double end}) {
+    return AnimatedBuilder(
+      animation: _staggerCtrl,
+      builder: (_, c) {
+        final raw = ((_staggerCtrl.value - start) / (end - start)).clamp(0.0, 1.0);
+        final t  = Curves.easeOut.transform(raw);
+        final ts = Curves.easeOutCubic.transform(raw);
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(
+            offset: Offset(0, 18.0 * (1 - ts)),
+            child: c,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+
+  Future<void> _load() async {
+    if (widget.orgId == null) return;
+    setState(() => _loading = true);
+    try {
+      final rows = await SupabaseService.client
+          .from('events')
+          .select()
+          .eq('organizer_id', widget.orgId!)
+          .order('event_date', ascending: false);
+      if (!mounted) return;
+      _events = List<Map<String, dynamic>>.from(rows as List);
+      _applyFilter();
+      setState(() => _loading = false);
+      _staggerCtrl.forward(from: 0);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _loading = false);
+        _staggerCtrl.forward(from: 0);
+      }
+    }
+  }
+
+  void _applyFilter() {
+    final q = _search.text.toLowerCase();
+    setState(() {
+      _displayed = _events.where((e) {
+        final status = e['event_status'] as String? ?? '';
+        final title  = (e['title'] as String? ?? '').toLowerCase();
+        final loc    = (e['location'] as String? ?? '').toLowerCase();
+        final matchFilter = _filter == 'All' ||
+            status == _filter.toLowerCase();
+        final matchSearch = q.isEmpty ||
+            title.contains(q) || loc.contains(q);
+        return matchFilter && matchSearch;
+      }).toList();
+    });
+  }
+
+  Future<void> _openDialog({Map<String, dynamic>? existing}) async {
+    final isEdit = existing != null;
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _EventDialog(
+        orgId:    widget.orgId,
+        existing: existing,
+      ),
+    );
+    if (!mounted) return;
+    if (result == true) {
+      _load();
+      await WebAlert.success(
+        context: context,
+        title:   isEdit ? 'Event Updated!' : 'Event Created!',
+        message: isEdit
+          ? 'Your changes have been saved successfully.'
+          : 'Your new event is now live and ready for registrations.',
+      );
+    }
+  }
+
+  Future<void> _delete(Map<String, dynamic> e) async {
+    final id = e['event_id'] as String?;
+    if (id == null) return;
+    final ok = await WebAlert.confirm(
+      context:      context,
+      title:        'Delete Event?',
+      message:      'Are you sure you want to delete "${e['title'] ?? 'this event'}"? All registrations for this event will also be permanently removed. This cannot be undone.',
+      confirmLabel: 'Delete',
+    );
+    if (ok != true) return;
+    try {
+      // Snapshot registrations first so they can be restored (compensating
+      // rollback) if the event deletion fails after registrations are gone.
+      final regsRaw  = await SupabaseService.client
+          .from('registrations')
+          .select()
+          .eq('event_id', id);
+      final savedRegs = List<Map<String, dynamic>>.from(regsRaw as List);
+
+      await SupabaseService.client
+          .from('registrations')
+          .delete()
+          .eq('event_id', id);
+
+      try {
+        await SupabaseService.client
+            .from('events')
+            .delete()
+            .eq('event_id', id);
+      } catch (eventErr) {
+        // Event deletion failed â€” re-insert the registrations we just deleted
+        // to restore a consistent state.
+        if (savedRegs.isNotEmpty) {
+          await SupabaseService.client.from('registrations').insert(savedRegs);
+        }
+        rethrow;
+      }
+
+      _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            'Failed to delete event: ${e.toString().replaceAll('Exception:', '').trim()}',
+            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
+          ),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: kGold));
+    }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(kWebPad),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildPageHeader(),
+          const SizedBox(height: 20),
+          _stagger(_buildFilterBar(), start: 0.36, end: 0.66),
+          const SizedBox(height: 16),
+          WebCard(
+            padding: EdgeInsets.zero,
+            child: _displayed.isEmpty
+              ? _stagger(
+                  WebEmptyState(
+                    icon: Icons.event_busy_rounded,
+                    title: _filter == 'All' && _search.text.isEmpty
+                      ? 'No events created yet'
+                      : 'No events match your filter',
+                    subtitle: _filter == 'All' && _search.text.isEmpty
+                      ? 'Click "New Event" to create your first event.'
+                      : 'Try adjusting your search or filter.',
+                    action: WebBtn(
+                      label: 'New Event',
+                      icon: Icons.add_rounded,
+                      onTap: () => _openDialog(),
+                    ),
+                  ),
+                  start: 0.50, end: 0.85,
+                )
+              : _buildTable(),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPageHeader() {
+    final total     = _events.length;
+    final upcoming  = _events.where((e) => e['event_status'] == 'upcoming').length;
+    final ongoing   = _events.where((e) => e['event_status'] == 'ongoing').length;
+    final completed = _events.where((e) => e['event_status'] == 'completed').length;
+
+    final statCards = [
+      WebStatCard(label: 'Total Events', value: '$total',     icon: Icons.event_rounded,       color: kGold),
+      WebStatCard(label: 'Upcoming',     value: '$upcoming',  icon: Icons.schedule_rounded,     color: const Color(0xFF3B82F6)),
+      WebStatCard(label: 'Ongoing',      value: '$ongoing',   icon: Icons.play_circle_rounded,  color: const Color(0xFF16A34A)),
+      WebStatCard(label: 'Completed',    value: '$completed', icon: Icons.check_circle_rounded, color: const Color(0xFF6B7280)),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _stagger(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Text('Events',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: kText,
+                  height: 1.1,
+                )),
+              const Spacer(),
+              WebBtn(label: 'New Event', icon: Icons.add_rounded, onTap: () => _openDialog()),
+            ],
+          ),
+          start: 0.00, end: 0.35,
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: List.generate(statCards.length, (i) {
+            final s = 0.10 + i * 0.07;
+            return Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(left: i > 0 ? 12 : 0),
+                child: _stagger(statCards[i], start: s, end: (s + 0.35).clamp(0.0, 1.0)),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterBar() {
+    // Live counts per status â€” displayed as badges on each chip so the
+    // organizer sees event distribution at a glance without filtering.
+    final counts = <String, int>{
+      'All':       _events.length,
+      'Upcoming':  _events.where((e) => e['event_status'] == 'upcoming').length,
+      'Ongoing':   _events.where((e) => e['event_status'] == 'ongoing').length,
+      'Completed': _events.where((e) => e['event_status'] == 'completed').length,
+      'Cancelled': _events.where((e) => e['event_status'] == 'cancelled').length,
+    };
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: _filters.map((f) => Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _filterTab(f, counts[f] ?? 0),
+              )).toList(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        WebSearchField(
+          controller: _search,
+          hint: 'Search eventsâ€¦',
+          onChanged: (_) {},
+        ),
+      ],
+    );
+  }
+
+  Widget _filterTab(String f, int count) {
+    final selected = _filter == f;
+    final hovered  = _hoveredTab == f;
+    final accent   = f == 'All' ? kGold : webEventStatusColor(f.toLowerCase());
+
+    return MouseRegion(
+      cursor:  SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hoveredTab = f),
+      onExit:  (_) => setState(() => _hoveredTab = null),
+      child: GestureDetector(
+        onTap: () {
+          setState(() { _filter = f; _hoveredTab = null; });
+          _applyFilter();
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve:    Curves.easeOut,
+          padding:  const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: selected
+                ? accent.withValues(alpha: 0.08)
+                : hovered
+                    ? const Color(0xFFEEF2F7)
+                    : const Color(0xFFF8F9FC),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected
+                  ? accent.withValues(alpha: 0.35)
+                  : hovered
+                      ? const Color(0xFFD1D5DB)
+                      : kCardBorder,
+              width: selected ? 1.5 : 1.0,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Status dot â€” visible only when selected
+              if (selected) ...[
+                Container(
+                  width: 6, height: 6,
+                  decoration: BoxDecoration(
+                    color: accent, shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                f,
+                style: TextStyle(
+                  fontFamily:    'Poppins',
+                  fontSize:      12,
+                  fontWeight:    selected ? FontWeight.w700 : FontWeight.w500,
+                  color:         selected ? accent : kSubText,
+                  letterSpacing: selected ? 0.1 : 0,
+                ),
+              ),
+              const SizedBox(width: 7),
+              // Live count badge
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? accent.withValues(alpha: 0.15)
+                      : const Color(0xFFE5E7EB),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize:   10,
+                    fontWeight: FontWeight.w700,
+                    color:      selected ? accent : kMuted,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTable() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _stagger(
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8F9FC),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              border: Border(bottom: BorderSide(color: kCardBorder)),
+            ),
+            child: const Row(
+              children: [
+                Expanded(flex: 4, child: WebColHeader('EVENT')),
+                Expanded(flex: 2, child: WebColHeader('DATE')),
+                Expanded(flex: 2, child: WebColHeader('LOCATION')),
+                Expanded(flex: 2, child: WebColHeader('REGISTRATIONS')),
+                Expanded(flex: 2, child: WebColHeader('STATUS')),
+                SizedBox(width: 76, child: WebColHeader('ACTIONS')),
+              ],
+            ),
+          ),
+          start: 0.48, end: 0.68,
+        ),
+        ...(_displayed.asMap().entries.map((entry) {
+          final i      = entry.key;
+          final e      = entry.value;
+          final isLast = i == _displayed.length - 1;
+          final status = e['event_status'] as String?;
+          final sc     = webEventStatusColor(status);
+          final type   = e['event_type'] as String?;
+          final typeData = _kTypes.firstWhere(
+            (t) => t.$1 == type,
+            orElse: () => _kTypes.last,
+          );
+          final current = e['current_participants'] as int? ?? 0;
+          final max     = e['max_participants'] as int? ?? 0;
+          final isFull  = max > 0 && current >= max;
+          final s       = 0.55 + (i * 0.07).clamp(0.0, 0.27);
+
+          return _stagger(
+            _HoverRow(
+              isLast: isLast,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 4,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 50, height: 50,
+                          decoration: BoxDecoration(
+                            color: typeData.$3.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: typeData.$3.withValues(alpha: 0.18)),
+                          ),
+                          clipBehavior: Clip.hardEdge,
+                          child: e['event_image_url'] != null &&
+                              (e['event_image_url'] as String).isNotEmpty
+                            ? Image.network(
+                                e['event_image_url'] as String,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Icon(
+                                  typeData.$2, color: typeData.$3, size: 22,
+                                ),
+                              )
+                            : Icon(typeData.$2, color: typeData.$3, size: 22),
+                        ),
+                        const SizedBox(width: 13),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(e['title'] as String? ?? 'â€”',
+                                style: const TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: kText,
+                                ),
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                              const SizedBox(height: 3),
+                              Row(children: [
+                                Container(
+                                  width: 7, height: 7,
+                                  decoration: BoxDecoration(
+                                    color: typeData.$3,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
+                                Text(typeData.$1,
+                                  style: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 11,
+                                    color: typeData.$3,
+                                    fontWeight: FontWeight.w600,
+                                  )),
+                              ]),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.calendar_today_rounded, size: 12, color: kMuted),
+                        const SizedBox(width: 5),
+                        Flexible(
+                          child: Text(webFmtDate(e['event_date'] as String?),
+                            style: const TextStyle(
+                              fontFamily: 'Poppins', fontSize: 12.5, color: kText,
+                            )),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.location_on_rounded, size: 12, color: kMuted),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(e['location'] as String? ?? 'â€”',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins', fontSize: 12.5, color: kSubText,
+                            ),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(children: [
+                          Text('$current',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: isFull ? const Color(0xFFEF4444) : kText,
+                            )),
+                          Text(max > 0 ? ' / $max' : ' / âˆž',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              color: kMuted,
+                            )),
+                        ]),
+                        if (max > 0) ...[
+                          const SizedBox(height: 4),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: (current / max).clamp(0.0, 1.0),
+                              minHeight: 3,
+                              backgroundColor: kCardBorder,
+                              color: isFull
+                                ? const Color(0xFFEF4444)
+                                : const Color(0xFF3B82F6),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: WebStatusBadge(
+                      label: webEventStatusLabel(status),
+                      color: sc,
+                    ),
+                  ),
+                  SizedBox(
+                    width: 76,
+                    child: Row(
+                      children: [
+                        _IconBtn(
+                          icon: Icons.edit_rounded,
+                          color: const Color(0xFF3B82F6),
+                          tooltip: 'Edit',
+                          onTap: () => _openDialog(existing: e),
+                        ),
+                        const SizedBox(width: 6),
+                        _IconBtn(
+                          icon: Icons.delete_outline_rounded,
+                          color: const Color(0xFFEF4444),
+                          tooltip: 'Delete',
+                          onTap: () => _delete(e),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ),
+            start: s, end: (s + 0.20).clamp(0.0, 1.0),
+          );
+        })),
+      ],
+    );
+  }
+}
+
+// â”€â”€ Event create/edit dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _EventDialog extends StatefulWidget {
+  final String?                  orgId;
+  final Map<String, dynamic>?    existing;
+  const _EventDialog({this.orgId, this.existing});
+
+  @override
+  State<_EventDialog> createState() => _EventDialogState();
+}
+
+class _EventDialogState extends State<_EventDialog> {
+  final _titleCtrl    = TextEditingController();
+  final _descCtrl     = TextEditingController();
+  final _locationCtrl = TextEditingController();
+  final _capacityCtrl = TextEditingController();
+
+  String    _type         = 'Concert';
+  String    _status       = 'upcoming';
+  DateTime? _date;
+  TimeOfDay?_startTime;
+  TimeOfDay?_endTime;
+  bool      _showCalendar     = false;
+  bool      _showStartPicker  = false;
+  bool      _showEndPicker    = false;
+
+  String?    _existingBannerUrl;
+  Uint8List? _bannerBytes;
+  String?    _bannerName;
+  bool       _saving = false;
+  String?    _error;
+
+  bool get _isEdit => widget.existing != null;
+
+  // Tracks the 5 most important required fields so the progress bar animates
+  // as the organizer fills in the form.  Each field counts as 1/5 = 20%.
+  double get _formProgress {
+    int done = 0;
+    if (_titleCtrl.text.trim().isNotEmpty) done++;
+    if (_date != null)                     done++;
+    if (_startTime != null)                done++;
+    if (_endTime != null)                  done++;
+    if (_locationCtrl.text.trim().isNotEmpty) done++;
+    return done / 5;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Rebuild whenever the user edits a text field that feeds _formProgress.
+    _titleCtrl.addListener(() { if (mounted) setState(() {}); });
+    _locationCtrl.addListener(() { if (mounted) setState(() {}); });
+    final e = widget.existing;
+    if (e != null) {
+      _titleCtrl.text    = e['title'] as String? ?? '';
+      _descCtrl.text     = e['description'] as String? ?? '';
+      _locationCtrl.text = e['location'] as String? ?? '';
+      _capacityCtrl.text = (e['max_participants'] ?? '').toString();
+      _type              = e['event_type'] as String? ?? 'Concert';
+      _status            = e['event_status'] as String? ?? 'upcoming';
+      _existingBannerUrl = e['event_image_url'] as String?;
+      final dateStr      = e['event_date'] as String?;
+      if (dateStr != null) _date = DateTime.tryParse(dateStr);
+      final st = e['start_time'] as String?;
+      final et = e['end_time']   as String?;
+      if (st != null) {
+        final p = st.split(':');
+        _startTime = TimeOfDay(hour: int.parse(p[0]), minute: int.parse(p[1]));
+      }
+      if (et != null) {
+        final p = et.split(':');
+        _endTime = TimeOfDay(hour: int.parse(p[0]), minute: int.parse(p[1]));
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _descCtrl.dispose();
+    _locationCtrl.dispose();
+    _capacityCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickBanner() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    const maxBytes = 10 * 1024 * 1024; // 10 MB
+    if (file.size > maxBytes) {
+      setState(() => _error =
+          'Image must be 10 MB or smaller '
+          '(selected: ${(file.size / (1024 * 1024)).toStringAsFixed(1)} MB).');
+      return;
+    }
+    setState(() {
+      _bannerBytes = file.bytes;
+      _bannerName  = file.name;
+      _error       = null;
+    });
+  }
+
+
+
+  Future<void> _save() async {
+    if (_titleCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Event title is required.');
+      return;
+    }
+    if (_date == null) {
+      setState(() => _error = 'Please select an event date.');
+      return;
+    }
+    // Only validate "time in the past" when creating â€” editors must be able
+    // to update details of events that are already in progress or completed.
+    if (!_isEdit) {
+      final now = DateTime.now();
+      if (DateUtils.isSameDay(DateUtils.dateOnly(_date!), DateUtils.dateOnly(now))) {
+        final nowMin = now.hour * 60 + now.minute;
+        if (_startTime != null && _startTime!.hour * 60 + _startTime!.minute < nowMin) {
+          setState(() => _error = "Start time has already passed for today's event.");
+          return;
+        }
+        if (_endTime != null && _endTime!.hour * 60 + _endTime!.minute < nowMin) {
+          setState(() => _error = "End time has already passed for today's event.");
+          return;
+        }
+      }
+    }
+    if (_startTime != null && _endTime != null) {
+      final startMin = _startTime!.hour * 60 + _startTime!.minute;
+      final endMin   = _endTime!.hour   * 60 + _endTime!.minute;
+      if (endMin <= startMin) {
+        setState(() => _error = 'End time must be after start time.');
+        return;
+      }
+    }
+    if (widget.orgId == null) return;
+
+    setState(() { _saving = true; _error = null; });
+
+    try {
+      final client = SupabaseService.client;
+
+      // Upload banner if new bytes provided
+      String? imageUrl = _existingBannerUrl;
+      if (_bannerBytes != null) {
+        // Delete the old banner so orphaned files don't accumulate in storage.
+        if (_isEdit && _existingBannerUrl != null && _existingBannerUrl!.isNotEmpty) {
+          try {
+            final uri = Uri.tryParse(_existingBannerUrl!);
+            if (uri != null) {
+              final segments  = uri.pathSegments;
+              final bucketIdx = segments.indexOf('event-banners');
+              if (bucketIdx >= 0 && bucketIdx < segments.length - 1) {
+                final oldPath = segments.sublist(bucketIdx + 1).join('/');
+                await client.storage.from('event-banners').remove([oldPath]);
+              }
+            }
+          } catch (_) {
+            // Removal failure is non-fatal â€” the old file becomes orphaned
+            // but the save should still proceed.
+          }
+        }
+
+        final ext  = (_bannerName ?? 'banner.jpg').split('.').last;
+        final path = 'banner_${DateTime.now().millisecondsSinceEpoch}_${webUuid()}.$ext';
+        await client.storage.from('event-banners').uploadBinary(
+          path, _bannerBytes!,
+          fileOptions: FileOptions(contentType: 'image/$ext', upsert: false),
+        );
+        imageUrl = client.storage.from('event-banners').getPublicUrl(path);
+      }
+
+      final dateStr  = _date!.toIso8601String().split('T').first;
+      final startStr = _startTime != null
+        ? '${_startTime!.hour.toString().padLeft(2,'0')}:${_startTime!.minute.toString().padLeft(2,'0')}:00'
+        : null;
+      final endStr   = _endTime != null
+        ? '${_endTime!.hour.toString().padLeft(2,'0')}:${_endTime!.minute.toString().padLeft(2,'0')}:00'
+        : null;
+
+      final payload = {
+        'title':              _titleCtrl.text.trim(),
+        'description':        _descCtrl.text.trim(),
+        'location':           _locationCtrl.text.trim(),
+        'event_type':         _type,
+        'event_status':       _status,
+        'event_date':         dateStr,
+        'start_time':      ?startStr,
+        'end_time':        ?endStr,
+        'event_image_url': ?imageUrl,
+        'max_participants':
+            int.tryParse(_capacityCtrl.text.trim()) ?? 0,
+      };
+
+      if (_isEdit) {
+        await client.from('events')
+            .update(payload)
+            .eq('event_id', widget.existing!['event_id'] as String);
+      } else {
+        await client.from('events')
+            .insert({...payload, 'organizer_id': widget.orgId!});
+      }
+
+      if (mounted) { Navigator.of(context).pop(true); }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error  = e.toString().replaceAll('Exception:', '').trim();
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: Colors.white,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620, maxHeight: 760),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: kCardBorder)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: kGold.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.event_rounded, color: kGold, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_isEdit ? 'Edit Event' : 'Create New Event',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: kText,
+                            )),
+                          Text(_isEdit
+                            ? 'Update event details below'
+                            : 'Fill in the details for your new event',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins', fontSize: 11, color: kSubText,
+                            )),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded, color: kMuted),
+                    ),
+                  ]),
+                  const SizedBox(height: 14),
+                  // â”€â”€ Form completion progress bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Form completion',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 11,
+                          color: kMuted,
+                        ),
+                      ),
+                      TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0, end: _formProgress),
+                        duration: const Duration(milliseconds: 400),
+                        curve: Curves.easeOut,
+                        builder: (_, value, _) => Text(
+                          '${(value * 100).toInt()}%',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: value == 1.0
+                                ? const Color(0xFF16A34A)
+                                : kGold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: _formProgress),
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeOut,
+                      builder: (_, value, _) => LinearProgressIndicator(
+                        value: value,
+                        minHeight: 5,
+                        backgroundColor: Colors.grey.shade200,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          value == 1.0
+                              ? const Color(0xFF16A34A)
+                              : kGold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Form
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // â”€â”€ Event Details â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    _DialogSection(
+                      icon: Icons.event_note_rounded,
+                      iconBg: kGoldLight,
+                      iconColor: kGold,
+                      title: 'Event Details',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Event Title  *'),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: _titleCtrl,
+                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: kText),
+                            decoration: webInputDeco('e.g. Annual Science Fair'),
+                          ),
+                          const SizedBox(height: 14),
+                          _label('Description'),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: _descCtrl,
+                            maxLines: 3,
+                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
+                            decoration: webInputDeco('Tell students what this event is aboutâ€¦'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // â”€â”€ Schedule â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    _DialogSection(
+                      icon: Icons.schedule_rounded,
+                      iconBg: const Color(0x1A2563EB),
+                      iconColor: const Color(0xFF2563EB),
+                      title: 'Schedule',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildDateTrigger(),
+                          _buildInlineCalendar(),
+                          const SizedBox(height: 12),
+                          Row(children: [
+                            Expanded(child: _buildTimeCard(
+                              label: 'Start Time', isRequired: true,
+                              time: _startTime,
+                              accentColor: const Color(0xFF16A34A),
+                              icon: Icons.play_circle_outline_rounded,
+                              isActive: _showStartPicker,
+                              onTap: () => setState(() {
+                                _showStartPicker = !_showStartPicker;
+                                _showEndPicker   = false;
+                              }),
+                            )),
+                            const SizedBox(width: 10),
+                            Expanded(child: _buildTimeCard(
+                              label: 'End Time', isRequired: true,
+                              time: _endTime,
+                              accentColor: const Color(0xFFEF4444),
+                              icon: Icons.stop_circle_outlined,
+                              isActive: _showEndPicker,
+                              onTap: () => setState(() {
+                                _showEndPicker   = !_showEndPicker;
+                                _showStartPicker = false;
+                              }),
+                            )),
+                          ]),
+                          _buildInlineTimePicker(),
+                          Builder(builder: (ctx) {
+                            if (_startTime == null || _endTime == null) return const SizedBox.shrink();
+                            final diff = (_endTime!.hour * 60 + _endTime!.minute) -
+                                         (_startTime!.hour * 60 + _startTime!.minute);
+                            final bad = diff <= 0;
+                            final h = diff ~/ 60; final m = diff % 60;
+                            final lbl = h > 0 ? (m > 0 ? '${h}h ${m}m' : '${h}h') : '${m}m';
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                                decoration: BoxDecoration(
+                                  color: bad ? const Color(0xFFFFF7ED) : const Color(0xFFF0FDF4),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: bad ? const Color(0xFFFBBF24) : const Color(0xFF86EFAC)),
+                                ),
+                                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                  Icon(bad ? Icons.warning_amber_rounded : Icons.timer_outlined,
+                                    size: 13, color: bad ? const Color(0xFFF59E0B) : const Color(0xFF16A34A)),
+                                  const SizedBox(width: 6),
+                                  Text(bad ? 'End time must be after start time' : 'Duration: $lbl',
+                                    style: TextStyle(
+                                      fontFamily: 'Poppins', fontSize: 10.5, fontWeight: FontWeight.w600,
+                                      color: bad ? const Color(0xFFF59E0B) : const Color(0xFF16A34A),
+                                    )),
+                                ]),
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // â”€â”€ Location & Capacity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    _DialogSection(
+                      icon: Icons.place_rounded,
+                      iconBg: const Color(0x1A16A34A),
+                      iconColor: const Color(0xFF16A34A),
+                      title: 'Location & Capacity',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Location  *'),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: _locationCtrl,
+                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
+                            decoration: webInputDeco('Venue or room name', icon: Icons.location_on_rounded),
+                          ),
+                          const SizedBox(height: 14),
+                          _label('Max Capacity'),
+                          const SizedBox(height: 6),
+                          Row(children: [
+                            _dialogStepBtn(Icons.remove_rounded, () {
+                              final v = (int.tryParse(_capacityCtrl.text) ?? 0) - 10;
+                              setState(() => _capacityCtrl.text = v <= 0 ? '' : '$v');
+                            }),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: _capacityCtrl,
+                                keyboardType: TextInputType.number,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700, color: kText),
+                                decoration: InputDecoration(
+                                  hintText: 'â€”',
+                                  hintStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 16, color: kMuted),
+                                  filled: true, fillColor: const Color(0xFFF8F9FC),
+                                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: const BorderSide(color: kCardBorder)),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: const BorderSide(color: kCardBorder)),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    borderSide: const BorderSide(color: kGold, width: 2)),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _dialogStepBtn(Icons.add_rounded, () {
+                              final v = (int.tryParse(_capacityCtrl.text) ?? 0) + 10;
+                              setState(() => _capacityCtrl.text = '$v');
+                            }),
+                          ]),
+                          const SizedBox(height: 5),
+                          const Text('Leave blank for unlimited participants',
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: kMuted)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // â”€â”€ Event Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    _DialogSection(
+                      icon: Icons.tune_rounded,
+                      iconBg: const Color(0x1A7C3AED),
+                      iconColor: const Color(0xFF7C3AED),
+                      title: 'Event Settings',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Event Type'),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: List.generate(_kTypes.length, (i) {
+                              final tp  = _kTypes[i];
+                              final sel = _type == tp.$1;
+                              return MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => setState(() => _type = tp.$1),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 180),
+                                    width: 74, height: 76,
+                                    decoration: BoxDecoration(
+                                      color: sel ? kGold : const Color(0xFFF8F9FC),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(color: sel ? kGold : kCardBorder, width: 1.5),
+                                      boxShadow: sel ? [BoxShadow(
+                                        color: kGold.withValues(alpha: 0.28),
+                                        blurRadius: 8, offset: const Offset(0, 3),
+                                      )] : null,
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(tp.$2, size: 22, color: sel ? Colors.white : tp.$3),
+                                        const SizedBox(height: 5),
+                                        Text(tp.$1,
+                                          style: TextStyle(
+                                            fontFamily: 'Poppins', fontSize: 9.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: sel ? Colors.white : kText,
+                                          )),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // â”€â”€ Banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    _DialogSection(
+                      icon: Icons.image_rounded,
+                      iconBg: const Color(0x1A7C3AED),
+                      iconColor: const Color(0xFF7C3AED),
+                      title: 'Event Banner',
+                      child: _buildBannerPicker(),
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 12),
+                      _ErrorBar(message: _error!),
+                    ],
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
+            ),
+            // Footer buttons
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 14, 24, 20),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: kCardBorder)),
+              ),
+              child: Row(children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: kCardBorder),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: const Text('Cancel',
+                      style: TextStyle(
+                        fontFamily: 'Poppins', color: kSubText, fontWeight: FontWeight.w600,
+                      )),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _saving ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kGold,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: _saving
+                      ? const SizedBox(
+                          width: 18, height: 18,
+                          child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2,
+                          ))
+                      : Text(_isEdit ? 'Save Changes' : 'Create Event',
+                          style: const TextStyle(
+                            fontFamily: 'Poppins', fontWeight: FontWeight.w700,
+                          )),
+                  ),
+                ),
+              ]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBannerPicker() {
+    final hasBanner = _bannerBytes != null ||
+        (_existingBannerUrl != null && _existingBannerUrl!.isNotEmpty);
+
+    return GestureDetector(
+      onTap: _pickBanner,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          height: 120,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: hasBanner ? kGold.withValues(alpha: 0.50) : kCardBorder,
+              style: hasBanner ? BorderStyle.solid : BorderStyle.solid,
+            ),
+            color: hasBanner
+              ? kGold.withValues(alpha: 0.04)
+              : const Color(0xFFF8F9FC),
+          ),
+          child: hasBanner
+            ? Stack(fit: StackFit.expand, children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(11),
+                  child: _bannerBytes != null
+                    ? Image.memory(_bannerBytes!, fit: BoxFit.cover)
+                    : Image.network(
+                        _existingBannerUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      ),
+                ),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(11),
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.edit_rounded, color: Colors.white, size: 22),
+                          SizedBox(height: 6),
+                          Text('Click to replace',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            )),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ])
+            : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.add_photo_alternate_rounded,
+                  size: 28, color: kGold.withValues(alpha: 0.60)),
+                const SizedBox(height: 8),
+                const Text('Click to upload banner',
+                  style: TextStyle(
+                    fontFamily: 'Poppins', fontSize: 13, color: kSubText,
+                  )),
+                const SizedBox(height: 2),
+                const Text('PNG, JPG up to 10 MB',
+                  style: TextStyle(
+                    fontFamily: 'Poppins', fontSize: 11, color: kMuted,
+                  )),
+              ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _label(String text) => Text(text,
+    style: const TextStyle(
+      fontFamily: 'Poppins',
+      fontSize: 12.5,
+      fontWeight: FontWeight.w700,
+      color: kText,
+    ));
+
+  Widget _buildTimeCard({
+    required String    label,
+    required bool      isRequired,
+    required TimeOfDay? time,
+    required Color     accentColor,
+    required IconData  icon,
+    required VoidCallback onTap,
+    bool isActive = false,
+  }) {
+    final filled = time != null;
+    String fmt12(TimeOfDay t) {
+      final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+      return '$h:${t.minute.toString().padLeft(2, '0')}';
+    }
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          decoration: BoxDecoration(
+            color: filled || isActive ? accentColor.withValues(alpha: 0.04) : const Color(0xFFF8F9FC),
+            borderRadius: BorderRadius.only(
+              topLeft:     const Radius.circular(12),
+              topRight:    const Radius.circular(12),
+              bottomLeft:  Radius.circular(isActive ? 0 : 12),
+              bottomRight: Radius.circular(isActive ? 0 : 12),
+            ),
+            border: Border.all(
+              color: isActive
+                ? accentColor.withValues(alpha: 0.50)
+                : filled
+                ? accentColor.withValues(alpha: 0.35)
+                : kCardBorder,
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Icon(icon, size: 11, color: filled ? accentColor : kMuted),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(label,
+                    style: TextStyle(
+                      fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w600,
+                      color: filled ? accentColor : kMuted,
+                    )),
+                ),
+                if (isRequired && !filled)
+                  const Text('*', style: TextStyle(
+                    fontFamily: 'Poppins', fontSize: 10,
+                    color: Color(0xFFEF4444), fontWeight: FontWeight.w700)),
+              ]),
+              const SizedBox(height: 8),
+              if (filled) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(fmt12(time),
+                      style: TextStyle(
+                        fontFamily: 'Poppins', fontSize: 24, fontWeight: FontWeight.w800,
+                        color: accentColor, height: 1.0,
+                      )),
+                    const SizedBox(width: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: accentColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(time.hour >= 12 ? 'PM' : 'AM',
+                          style: TextStyle(
+                            fontFamily: 'Poppins', fontSize: 8,
+                            fontWeight: FontWeight.w800, color: accentColor,
+                          )),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text('Tap to edit',
+                  style: TextStyle(
+                    fontFamily: 'Poppins', fontSize: 9.5,
+                    color: accentColor.withValues(alpha: 0.6),
+                  )),
+              ] else ...[
+                Text('--:--',
+                  style: TextStyle(
+                    fontFamily: 'Poppins', fontSize: 24, fontWeight: FontWeight.w800,
+                    color: kCardBorder, height: 1.0,
+                  )),
+                const SizedBox(height: 2),
+                const Text('Tap to set',
+                  style: TextStyle(
+                    fontFamily: 'Poppins', fontSize: 9.5, color: kMuted,
+                  )),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _dialogStepBtn(IconData icon, VoidCallback onTap) => MouseRegion(
+    cursor: SystemMouseCursors.click,
+    child: GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 44, height: 46,
+        decoration: BoxDecoration(
+          color: kGoldLight,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: kGold.withValues(alpha: 0.30), width: 1.5),
+        ),
+        child: Icon(icon, color: kGold, size: 18),
+      ),
+    ),
+  );
+
+  void _toggleCalendar() => setState(() => _showCalendar = !_showCalendar);
+
+  String _weekdayAbbr(int w) {
+    const d = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
+    return d[(w - 1).clamp(0, 6)];
+  }
+
+  String _weekdayFull(int w) {
+    const d = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    return d[(w - 1).clamp(0, 6)];
+  }
+
+  Widget _buildDateTrigger() {
+    final filled = _date != null;
+    const accent = Color(0xFF2563EB);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: _toggleCalendar,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: filled ? accent.withValues(alpha: 0.04) : const Color(0xFFF8F9FC),
+            borderRadius: BorderRadius.only(
+              topLeft:     const Radius.circular(12),
+              topRight:    const Radius.circular(12),
+              bottomLeft:  Radius.circular(_showCalendar ? 0 : 12),
+              bottomRight: Radius.circular(_showCalendar ? 0 : 12),
+            ),
+            border: Border.all(
+              color: _showCalendar
+                  ? accent.withValues(alpha: 0.50)
+                  : filled
+                  ? accent.withValues(alpha: 0.30)
+                  : kCardBorder,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                  color: filled ? accent : const Color(0xFFEEEEEE),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: filled
+                  ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Text(_weekdayAbbr(_date!.weekday),
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 7,
+                          fontWeight: FontWeight.w700, color: Colors.white60, letterSpacing: 0.5)),
+                      Text('${_date!.day}',
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 20,
+                          fontWeight: FontWeight.w800, color: Colors.white, height: 1.1)),
+                    ])
+                  : const Icon(Icons.calendar_month_rounded, color: kMuted, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: filled
+                  ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(webFmtDate(_date!.toIso8601String()),
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 14,
+                          fontWeight: FontWeight.w700, color: kText)),
+                      const SizedBox(height: 2),
+                      Text(_weekdayFull(_date!.weekday),
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
+                    ])
+                  : const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Text('Event Date', style: TextStyle(fontFamily: 'Poppins',
+                          fontSize: 13, fontWeight: FontWeight.w600, color: kText)),
+                        Text(' *', style: TextStyle(fontFamily: 'Poppins',
+                          fontSize: 13, color: Color(0xFFEF4444), fontWeight: FontWeight.w700)),
+                      ]),
+                      SizedBox(height: 2),
+                      Text('Tap to open calendar',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
+                    ]),
+              ),
+              AnimatedRotation(
+                turns: _showCalendar ? 0.5 : 0.0,
+                duration: const Duration(milliseconds: 250),
+                child: Container(
+                  width: 26, height: 26,
+                  decoration: BoxDecoration(
+                    color: _showCalendar
+                      ? accent.withValues(alpha: 0.10)
+                      : const Color(0xFFF0F0F0),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Icon(Icons.keyboard_arrow_down_rounded, size: 16,
+                    color: _showCalendar ? accent : kMuted),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInlineTimePicker() {
+    final showStart = _showStartPicker;
+    final showEnd   = _showEndPicker;
+    if (!showStart && !showEnd) return const SizedBox.shrink();
+    final accentColor = showStart ? const Color(0xFF16A34A) : const Color(0xFFEF4444);
+    final label       = showStart ? 'Start Time' : 'End Time';
+    final initTime    = showStart ? _startTime   : _endTime;
+    final now         = DateTime.now();
+    final isToday     = _date != null &&
+        DateUtils.isSameDay(DateUtils.dateOnly(_date!), DateUtils.dateOnly(now));
+    final minTime     = isToday ? TimeOfDay(hour: now.hour, minute: now.minute) : null;
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.only(
+            bottomLeft:  Radius.circular(12),
+            bottomRight: Radius.circular(12),
+          ),
+          border: Border(
+            left:   BorderSide(color: accentColor.withValues(alpha: 0.50), width: 1.5),
+            right:  BorderSide(color: accentColor.withValues(alpha: 0.50), width: 1.5),
+            bottom: BorderSide(color: accentColor.withValues(alpha: 0.50), width: 1.5),
+          ),
+        ),
+        child: _WebTimePicker(
+          key: ValueKey(label),
+          initialTime: initTime,
+          accentColor: accentColor,
+          label: label,
+          minTime: minTime,
+          onTimeSet: (t) => setState(() {
+            if (showStart) { _startTime = t; _showStartPicker = false; }
+            else           { _endTime   = t; _showEndPicker   = false; }
+          }),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInlineCalendar() {
+    const accent = Color(0xFF2563EB);
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      child: _showCalendar
+        ? Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: const BorderRadius.only(
+                bottomLeft:  Radius.circular(12),
+                bottomRight: Radius.circular(12),
+              ),
+              border: Border(
+                left:   BorderSide(color: accent.withValues(alpha: 0.50), width: 1.5),
+                right:  BorderSide(color: accent.withValues(alpha: 0.50), width: 1.5),
+                bottom: BorderSide(color: accent.withValues(alpha: 0.50), width: 1.5),
+              ),
+            ),
+            child: _WebCalendar(
+              selectedDate:   _date,
+              firstDate:      DateUtils.dateOnly(DateTime.now()),
+              lastDate:       DateTime.now().add(const Duration(days: 365 * 2)),
+              accentColor:    accent,
+              onDateSelected: (date) => setState(() {
+                _date         = date;
+                _showCalendar = false;
+              }),
+            ),
+          )
+        : const SizedBox.shrink(),
+    );
+  }
+}
+
+// â”€â”€ Dialog section card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _DialogSection extends StatelessWidget {
+  final IconData icon;
+  final Color    iconBg;
+  final Color    iconColor;
+  final String   title;
+  final Widget   child;
+  const _DialogSection({
+    required this.icon,
+    required this.iconBg,
+    required this.iconColor,
+    required this.title,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: kCardBorder),
+      boxShadow: [
+        BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2)),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: Row(children: [
+            Container(
+              width: 30, height: 30,
+              decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(9)),
+              child: Icon(icon, color: iconColor, size: 15),
+            ),
+            const SizedBox(width: 10),
+            Text(title,
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: kText,
+              )),
+          ]),
+        ),
+        const SizedBox(height: 10),
+        Divider(height: 1, color: Colors.grey.shade100),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          child: child,
+        ),
+      ],
+    ),
+  );
+}
+
+// â”€â”€ Shared micro-widgets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _HoverRow extends StatefulWidget {
+  final Widget child;
+  final bool   isLast;
+  const _HoverRow({required this.child, required this.isLast});
+
+  @override
+  State<_HoverRow> createState() => _HoverRowState();
+}
+
+class _HoverRowState extends State<_HoverRow> {
+  bool _h = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    onEnter: (_) => setState(() => _h = true),
+    onExit:  (_) => setState(() => _h = false),
+    child: Container(
+      decoration: BoxDecoration(
+        color: _h ? const Color(0xFFF8FAFB) : Colors.white,
+        borderRadius: widget.isLast
+          ? const BorderRadius.vertical(bottom: Radius.circular(16))
+          : BorderRadius.zero,
+        border: widget.isLast
+          ? null
+          : const Border(bottom: BorderSide(color: kCardBorder)),
+      ),
+      child: widget.child,
+    ),
+  );
+}
+
+class _IconBtn extends StatefulWidget {
+  final IconData     icon;
+  final Color        color;
+  final String       tooltip;
+  final VoidCallback onTap;
+  const _IconBtn({required this.icon, required this.color, required this.tooltip, required this.onTap});
+
+  @override
+  State<_IconBtn> createState() => _IconBtnState();
+}
+
+class _IconBtnState extends State<_IconBtn> {
+  bool _h = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: SystemMouseCursors.click,
+    onEnter: (_) => setState(() => _h = true),
+    onExit:  (_) => setState(() => _h = false),
+    child: GestureDetector(
+      onTap: widget.onTap,
+      child: Tooltip(
+        message: widget.tooltip,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 130),
+          width: 32, height: 32,
+          decoration: BoxDecoration(
+            color: _h
+              ? widget.color.withValues(alpha: 0.12)
+              : widget.color.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(widget.icon, size: 16, color: widget.color),
+        ),
+      ),
+    ),
+  );
+}
+
+// â”€â”€ Inline calendar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _WebCalendar extends StatefulWidget {
+  final DateTime?              selectedDate;
+  final DateTime               firstDate;
+  final DateTime               lastDate;
+  final Color                  accentColor;
+  final ValueChanged<DateTime> onDateSelected;
+  const _WebCalendar({
+    required this.selectedDate,
+    required this.firstDate,
+    required this.lastDate,
+    required this.accentColor,
+    required this.onDateSelected,
+  });
+
+  @override
+  State<_WebCalendar> createState() => _WebCalendarState();
+}
+
+class _WebCalendarState extends State<_WebCalendar> {
+  late int _month;
+  late int _year;
+
+  static const _weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  static const _months   = [
+    'January','February','March','April','May','June',
+    'July','August','September','October','November','December',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    final base = widget.selectedDate ?? DateTime.now();
+    _month = base.month;
+    _year  = base.year;
+  }
+
+  void _prev() => setState(() { if (_month == 1) { _month = 12; _year--; } else { _month--; } });
+  void _next() => setState(() { if (_month == 12) { _month = 1; _year++; } else { _month++; } });
+
+  List<DateTime?> _cells() {
+    final first  = DateTime(_year, _month, 1);
+    final offset = first.weekday % 7;
+    final days   = DateUtils.getDaysInMonth(_year, _month);
+    final list   = <DateTime?>[];
+    for (var i = 0; i < offset; i++) { list.add(null); }
+    for (var d = 1; d <= days; d++)  { list.add(DateTime(_year, _month, d)); }
+    while (list.length % 7 != 0)     { list.add(null); }
+    return list;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final today  = DateUtils.dateOnly(DateTime.now());
+    final cells  = _cells();
+    final accent = widget.accentColor;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 16),
+      child: Column(
+        children: [
+          // Month navigation
+          Row(children: [
+            _CalBtn(icon: Icons.chevron_left_rounded,  onTap: _prev, color: accent),
+            Expanded(
+              child: Text('${_months[_month - 1]} $_year',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5,
+                  fontWeight: FontWeight.w700, color: kText)),
+            ),
+            _CalBtn(icon: Icons.chevron_right_rounded, onTap: _next, color: accent),
+          ]),
+          const SizedBox(height: 12),
+          // Weekday header
+          Row(children: _weekdays.map((d) => Expanded(
+            child: Text(d,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, fontWeight: FontWeight.w700,
+                color: d == 'Su' || d == 'Sa' ? accent.withValues(alpha: 0.55) : kMuted)),
+          )).toList()),
+          const SizedBox(height: 6),
+          // Day grid
+          ...List.generate(cells.length ~/ 7, (week) => Padding(
+            padding: const EdgeInsets.only(bottom: 3),
+            child: Row(children: List.generate(7, (col) {
+              final date = cells[week * 7 + col];
+              if (date == null) return const Expanded(child: SizedBox(height: 38));
+              final isSel    = widget.selectedDate != null && DateUtils.isSameDay(date, widget.selectedDate);
+              final isToday  = DateUtils.isSameDay(date, today);
+              final isPast   = date.isBefore(widget.firstDate);
+              final isFuture = date.isAfter(widget.lastDate);
+              final disabled = isPast || isFuture;
+              return Expanded(
+                child: MouseRegion(
+                  cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: disabled ? null : () => widget.onDateSelected(date),
+                    child: Container(
+                      height: 38, alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color:  isSel ? accent : Colors.transparent,
+                        shape:  BoxShape.circle,
+                        border: isToday && !isSel ? Border.all(color: accent, width: 1.5) : null,
+                      ),
+                      child: Text('${date.day}',
+                        style: TextStyle(
+                          fontFamily: 'Poppins', fontSize: 12.5,
+                          fontWeight: isSel || isToday ? FontWeight.w700 : FontWeight.w500,
+                          color: isSel     ? Colors.white
+                              : disabled   ? const Color(0xFFE0E0E0)
+                              : isToday    ? accent
+                              : kText,
+                        )),
+                    ),
+                  ),
+                ),
+              );
+            })),
+          )),
+        ],
+      ),
+    );
+  }
+}
+
+class _CalBtn extends StatelessWidget {
+  final IconData     icon;
+  final VoidCallback onTap;
+  final Color        color;
+  const _CalBtn({required this.icon, required this.onTap, required this.color});
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: SystemMouseCursors.click,
+    child: GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 30, height: 30,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, size: 18, color: color),
+      ),
+    ),
+  );
+}
+
+// â”€â”€ Inline time picker (drum-style, matches mobile) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _WebTimePicker extends StatefulWidget {
+  final TimeOfDay?              initialTime;
+  final Color                   accentColor;
+  final String                  label;
+  final ValueChanged<TimeOfDay> onTimeSet;
+  final TimeOfDay?              minTime;
+  const _WebTimePicker({
+    super.key,
+    required this.initialTime,
+    required this.accentColor,
+    required this.label,
+    required this.onTimeSet,
+    this.minTime,
+  });
+
+  @override
+  State<_WebTimePicker> createState() => _WebTimePickerState();
+}
+
+class _WebTimePickerState extends State<_WebTimePicker> {
+  late FixedExtentScrollController _hourCtrl;
+  late FixedExtentScrollController _minCtrl;
+  late bool _isAm;
+  bool _pastError = false;
+
+  static const _itemH = 46.0;
+
+  @override
+  void initState() {
+    super.initState();
+    final t = widget.initialTime ?? TimeOfDay.now();
+    _isAm     = t.hour < 12;
+    final h   = t.hour % 12 == 0 ? 12 : t.hour % 12;
+    _hourCtrl = FixedExtentScrollController(initialItem: 600 + (h - 1));
+    _minCtrl  = FixedExtentScrollController(initialItem: 600 + t.minute);
+  }
+
+  @override
+  void dispose() {
+    _hourCtrl.dispose();
+    _minCtrl.dispose();
+    super.dispose();
+  }
+
+  TimeOfDay _result() {
+    final h12 = (_hourCtrl.selectedItem % 12) + 1;
+    final min  = _minCtrl.selectedItem % 60;
+    final h24  = _isAm ? (h12 == 12 ? 0 : h12) : (h12 == 12 ? 12 : h12 + 12);
+    return TimeOfDay(hour: h24, minute: min);
+  }
+
+  String _fmtMinTime(TimeOfDay t) {
+    final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+    final m = t.minute.toString().padLeft(2, '0');
+    final p = t.hour >= 12 ? 'PM' : 'AM';
+    return '$h:$m $p';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = widget.accentColor;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header
+          Row(children: [
+            Container(
+              width: 30, height: 30,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.access_time_rounded, color: accent, size: 15),
+            ),
+            const SizedBox(width: 10),
+            Text(widget.label,
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                fontWeight: FontWeight.w700, color: accent)),
+            const Spacer(),
+            Text(
+              widget.minTime != null
+                  ? 'Today â€” from ${_fmtMinTime(widget.minTime!)} onwards'
+                  : 'Scroll to select',
+              style: const TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: kMuted),
+            ),
+          ]),
+          const SizedBox(height: 10),
+          Divider(height: 1, color: Colors.grey.shade100),
+          const SizedBox(height: 10),
+          // Drums row
+          SizedBox(
+            height: _itemH * 3,
+            child: Row(
+              children: [
+                // Hour drum
+                Expanded(child: _drum(
+                  ctrl: _hourCtrl, count: 12,
+                  label: (i) => '${i + 1}'.padLeft(2, '0'),
+                  accent: accent,
+                )),
+                // Colon separator
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Container(width: 5, height: 5,
+                      decoration: BoxDecoration(color: accent, shape: BoxShape.circle)),
+                    const SizedBox(height: 8),
+                    Container(width: 5, height: 5,
+                      decoration: BoxDecoration(color: accent, shape: BoxShape.circle)),
+                  ]),
+                ),
+                // Minute drum
+                Expanded(child: _drum(
+                  ctrl: _minCtrl, count: 60,
+                  label: (i) => '$i'.padLeft(2, '0'),
+                  accent: accent,
+                )),
+                const SizedBox(width: 12),
+                // AM / PM
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: ['AM', 'PM'].map((p) {
+                    final sel = (p == 'AM') == _isAm;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          onTap: () => setState(() { _isAm = p == 'AM'; _pastError = false; }),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            width: 52, height: _itemH,
+                            decoration: BoxDecoration(
+                              color: sel ? accent : const Color(0xFFF8F9FC),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: sel ? accent : kCardBorder, width: 1.5),
+                            ),
+                            child: Center(child: Text(p,
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: sel ? Colors.white : kSubText))),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Past-time error
+          if (_pastError)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.schedule_rounded, color: Colors.red.shade700, size: 14),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'This time has already passed. Please pick a later time.',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                            fontWeight: FontWeight.w500, color: Colors.red.shade700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          // Set button
+          SizedBox(
+            width: double.infinity, height: 42,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                final res = _result();
+                if (widget.minTime != null) {
+                  final selMin = res.hour * 60 + res.minute;
+                  final minMin = widget.minTime!.hour * 60 + widget.minTime!.minute;
+                  if (selMin < minMin) { setState(() => _pastError = true); return; }
+                }
+                widget.onTimeSet(res);
+              },
+              icon: const Icon(Icons.check_rounded, size: 16),
+              label: Text('Set ${widget.label}',
+                style: const TextStyle(
+                  fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: accent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _drum({
+    required FixedExtentScrollController ctrl,
+    required int count,
+    required String Function(int) label,
+    required Color accent,
+  }) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(
+          height: _itemH,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: accent.withValues(alpha: 0.22)),
+          ),
+        ),
+        ListWheelScrollView.useDelegate(
+          controller: ctrl,
+          itemExtent: _itemH,
+          diameterRatio: 1.8,
+          perspective: 0.003,
+          physics: const FixedExtentScrollPhysics(),
+          onSelectedItemChanged: (_) => setState(() => _pastError = false),
+          childDelegate: ListWheelChildBuilderDelegate(
+            childCount: count * 1000,
+            builder: (_, i) {
+              final idx   = i % count;
+              final isSel = ctrl.hasClients && ctrl.selectedItem % count == idx;
+              return Center(child: Text(label(idx),
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize:   isSel ? 28 : 18,
+                  fontWeight: isSel ? FontWeight.w800 : FontWeight.w400,
+                  color:      isSel ? accent : Colors.grey.shade400,
+                )));
+            },
+          ),
+        ),
+        Positioned(top: 0, left: 0, right: 0,
+          child: IgnorePointer(child: Container(
+            height: _itemH * 1.2,
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+            )),
+          ))),
+        Positioned(bottom: 0, left: 0, right: 0,
+          child: IgnorePointer(child: Container(
+            height: _itemH * 1.2,
+            decoration: BoxDecoration(gradient: LinearGradient(
+              begin: Alignment.bottomCenter, end: Alignment.topCenter,
+              colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+            )),
+          ))),
+      ],
+    );
+  }
+}
+
+class _ErrorBar extends StatelessWidget {
+  final String message;
+  const _ErrorBar({required this.message});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFEF2F2),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: const Color(0xFFFCA5A5)),
+    ),
+    child: Row(children: [
+      const Icon(Icons.error_outline_rounded, size: 16, color: Color(0xFFEF4444)),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(message,
+          style: const TextStyle(
+            fontFamily: 'Poppins', fontSize: 12, color: Color(0xFFB91C1C), height: 1.4,
+          )),
+      ),
+    ]),
+  );
+}
