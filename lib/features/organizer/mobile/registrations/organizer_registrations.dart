@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/services/registration_service.dart';
 import '../../../../shared/widgets/app_loader.dart';
@@ -6,7 +6,7 @@ import '../../../../shared/widgets/app_alert.dart';
 import '../../../../core/app_colors.dart';
 
 
-// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 String _statusLabel(String s) {
   const map = {
@@ -51,7 +51,7 @@ String _fmtDate(String iso) {
   }
 }
 
-// â”€â”€ Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Screen ────────────────────────────────────────────────────────────────────
 
 class RegistrationsScreen extends StatefulWidget {
   final bool showAsEmbedded;
@@ -70,7 +70,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   RealtimeChannel? _channel;
   final Map<String, String> _selfieUrls = {};
 
-  // Organizer identity â€” resolved once and reused for scoped queries.
+  // Organizer identity — resolved once and reused for scoped queries.
   String?     _organizerId;
   final Set<String> _orgEventIds = {};
 
@@ -89,7 +89,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     super.dispose();
   }
 
-  // â”€â”€ Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Data ──────────────────────────────────────────────────────────────────
 
   Future<void> _load() async {
     setState(() => _loading = true);
@@ -151,7 +151,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
         if (!mounted) return;
 
         // If we've already loaded our event set, reject records from other
-        // organizers. During initial load _orgEventIds may be empty â€” in that
+        // organizers. During initial load _orgEventIds may be empty — in that
         // brief window we accept all events (the UI is still loading anyway).
         if (_orgEventIds.isNotEmpty) {
           final evId = record['event_id'] as String?;
@@ -211,7 +211,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     if (idx < 0) return;
     final oldStatus = _all[idx]['status'] as String? ?? '';
 
-    // Optimistic update â€” reflect the change immediately.
+    // Optimistic update — reflect the change immediately.
     setState(() {
       _all[idx] = {..._all[idx], 'status': newStatus};
       _applyFilter();
@@ -274,7 +274,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     }
   }
 
-  // â”€â”€ Counts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Counts ────────────────────────────────────────────────────────────────
 
   int get _total          => _all.length;
   int get _pendingCount   => _all
@@ -285,9 +285,9 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   int get _checkedInCount =>
       _all.where((r) => r['status'] == 'checked_in').length;
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
   // BUILD
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -343,7 +343,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // â”€â”€ Loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Loading ───────────────────────────────────────────────────────────────
 
   Widget _buildLoadingState() {
     return SingleChildScrollView(
@@ -356,7 +356,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // â”€â”€ Top bar (non-embedded) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Top bar (non-embedded) ────────────────────────────────────────────────
 
   Widget _buildTopBar() {
     return Padding(
@@ -414,7 +414,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // â”€â”€ Page header (embedded) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Page header (embedded) ────────────────────────────────────────────────
 
   Widget _buildPageHeader() {
     return Padding(
@@ -500,7 +500,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                           ),
                           const TextSpan(text: ' checked in'),
                           TextSpan(
-                            text: '  Â·  $_total',
+                            text: '  ·  $_total',
                             style: const TextStyle(
                               fontWeight: FontWeight.w600,
                               color: kText,
@@ -542,7 +542,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // â”€â”€ Summary strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Summary strip ─────────────────────────────────────────────────────────
 
   Widget _buildSummaryStrip() {
     final tiles = [
@@ -618,9 +618,9 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // â”€â”€ Scan QR CTA card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Scan QR CTA card ──────────────────────────────────────────────────────
 
-  // â”€â”€ Filter pills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Filter pills ──────────────────────────────────────────────────────────
 
   Widget _buildFilterRow() {
     const filters = [
@@ -690,7 +690,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // â”€â”€ Search bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Search bar ────────────────────────────────────────────────────────────
 
   Widget _buildSearchBar() {
     return Padding(
@@ -716,7 +716,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
           style: const TextStyle(
               fontFamily: 'Poppins', fontSize: 14, color: kText),
           decoration: InputDecoration(
-            hintText: 'Search by name, school ID, or eventâ€¦',
+            hintText: 'Search by name, school ID, or event…',
             hintStyle: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 13,
@@ -758,7 +758,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // â”€â”€ Result count â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Result count ──────────────────────────────────────────────────────────
 
   Widget _buildResultCount() {
     return Padding(
@@ -775,15 +775,15 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
   // Registration card
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildRegistrationCard(Map<String, dynamic> r) {
     final id          = r['id']                as String;
-    final name        = r['student_name']      as String? ?? 'â€”';
-    final sid         = r['student_school_id'] as String? ?? 'â€”';
-    final event       = r['event_title']       as String? ?? 'â€”';
+    final name        = r['student_name']      as String? ?? '—';
+    final sid         = r['student_school_id'] as String? ?? '—';
+    final event       = r['event_title']       as String? ?? '—';
     final date        = r['registered_at']     as String? ?? '';
     final status      = r['status']            as String? ?? 'pending';
     final statusColor = _statusColor(status);
@@ -976,7 +976,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                             ),
                             SizedBox(width: 7),
                             Text(
-                              'Waiting for student selfieâ€¦',
+                              'Waiting for student selfie…',
                               style: TextStyle(
                                 fontFamily: 'Poppins',
                                 fontSize: 11,
@@ -1067,7 +1067,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // â”€â”€ Selfie preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Selfie preview ────────────────────────────────────────────────────────
 
   Widget _buildSelfiePreview(String regId, String? path) {
     final url = _selfieUrls[regId];
@@ -1137,7 +1137,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
         ),
       );
 
-  // â”€â”€ Primary action buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Primary action buttons ────────────────────────────────────────────────
 
   Widget _buildPrimaryAction(
       Map<String, dynamic> r, String id, String name, String status) {
@@ -1232,7 +1232,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // â”€â”€ Empty state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Empty state ───────────────────────────────────────────────────────────
 
   Widget _buildEmptyState() {
     final isFiltered = _filter != 'All' || _search.text.isNotEmpty;
@@ -1316,7 +1316,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // â”€â”€ Details sheet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Details sheet ─────────────────────────────────────────────────────────
 
   void _showDetails(Map<String, dynamic> r) {
     showModalBottomSheet(
@@ -1331,9 +1331,9 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // Registration details bottom sheet
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
 class _RegistrationDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> r;
@@ -1342,9 +1342,9 @@ class _RegistrationDetailsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name        = r['student_name']      as String? ?? 'â€”';
-    final sid         = r['student_school_id'] as String? ?? 'â€”';
-    final event       = r['event_title']       as String? ?? 'â€”';
+    final name        = r['student_name']      as String? ?? '—';
+    final sid         = r['student_school_id'] as String? ?? '—';
+    final event       = r['event_title']       as String? ?? '—';
     final status      = r['status']            as String? ?? 'pending';
     final regDate     = r['registered_at']     as String? ?? '';
     final checkedInAt = r['checked_in_at']     as String?;

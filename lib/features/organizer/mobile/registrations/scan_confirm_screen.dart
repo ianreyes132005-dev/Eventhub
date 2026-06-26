@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../../core/services/registration_service.dart';
 import '../../../../core/app_colors.dart';
@@ -44,7 +44,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     }
   }
 
-  // â”€â”€ Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Actions ───────────────────────────────────────────────────────────────
 
   /// First-time confirm: sets status â†’ photo_required, opening student camera.
   Future<void> _confirm() async {
@@ -54,7 +54,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     try {
       await RegistrationService.updateStatus(_reg!['id'] as String, 'photo_required');
       if (mounted) {
-        _showSnack("Student's camera has been opened â€” waiting for selfie.", Colors.green);
+        _showSnack("Student's camera has been opened — waiting for selfie.", Colors.green);
         Navigator.of(context).pop(true);
       }
     } catch (e) {
@@ -96,7 +96,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     );
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +120,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     );
   }
 
-  // â”€â”€ Error state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Error state ───────────────────────────────────────────────────────────
 
   Widget _buildError() {
     return Center(
@@ -157,7 +157,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     );
   }
 
-  // â”€â”€ Main content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Main content ──────────────────────────────────────────────────────────
 
   Widget _buildContent() {
     final reg    = _reg!;
@@ -174,7 +174,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // â”€â”€ Student card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Student card ────────────────────────────────────────────────
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -201,12 +201,12 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            reg['student_name'] as String? ?? 'â€”',
+                            reg['student_name'] as String? ?? '—',
                             style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 17, color: kText),
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            reg['student_school_id'] as String? ?? 'â€”',
+                            reg['student_school_id'] as String? ?? '—',
                             style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kSubText),
                           ),
                         ],
@@ -232,9 +232,9 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                 const SizedBox(height: 18),
                 Divider(height: 1, color: Colors.grey.shade100),
                 const SizedBox(height: 14),
-                _row(Icons.event_rounded,     'Event',    reg['event_title'] as String? ?? 'â€”'),
+                _row(Icons.event_rounded,     'Event',    reg['event_title'] as String? ?? '—'),
                 const SizedBox(height: 10),
-                _row(Icons.badge_rounded,     'Reg ID',   _short(reg['id'] as String? ?? 'â€”')),
+                _row(Icons.badge_rounded,     'Reg ID',   _short(reg['id'] as String? ?? '—')),
                 const SizedBox(height: 10),
                 _row(Icons.circle_outlined,   'Status',   _statusLabel(status)),
               ],
@@ -243,7 +243,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
 
           const SizedBox(height: 20),
 
-          // â”€â”€ Action area â€” depends on current status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Action area — depends on current status ─────────────────────
           if (isFinal)
             _buildFinalBanner(status)
 
@@ -265,7 +265,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : const Icon(Icons.camera_alt_rounded, size: 20),
               label: Text(
-                _confirming ? 'Opening cameraâ€¦' : 'Confirm â€” Open Student Camera',
+                _confirming ? 'Opening camera…' : 'Confirm — Open Student Camera',
                 style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 15),
               ),
               style: ElevatedButton.styleFrom(
@@ -296,7 +296,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     );
   }
 
-  // â”€â”€ Re-trigger section (photo_required â€” student dismissed camera) â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Re-trigger section (photo_required — student dismissed camera) ────────
 
   Widget _buildRetriggerSection() {
     return Column(
@@ -351,7 +351,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                   child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
               : const Icon(Icons.refresh_rounded, size: 20),
           label: Text(
-            _confirming ? 'Re-opening cameraâ€¦' : 'Re-open Student Camera',
+            _confirming ? 'Re-opening camera…' : 'Re-open Student Camera',
             style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 15),
           ),
           style: ElevatedButton.styleFrom(
@@ -373,7 +373,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     );
   }
 
-  // â”€â”€ Final state banner (photo_submitted / checked_in / rejected) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Final state banner (photo_submitted / checked_in / rejected) ──────────
 
   Widget _buildFinalBanner(String status) {
     final Color color;
@@ -427,7 +427,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     );
   }
 
-  // â”€â”€ Info banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Info banner ───────────────────────────────────────────────────────────
 
   Widget _buildInfoBanner({
     required IconData icon,
@@ -454,7 +454,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     );
   }
 
-  // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   Widget _row(IconData icon, String label, String value) {
     return Row(
@@ -477,7 +477,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     return parts.isNotEmpty && parts[0].isNotEmpty ? parts[0][0].toUpperCase() : '?';
   }
 
-  String _short(String id) => id.length > 12 ? 'â€¦${id.substring(id.length - 8)}' : id;
+  String _short(String id) => id.length > 12 ? '…${id.substring(id.length - 8)}' : id;
 
   String _statusLabel(String s) {
     const labels = {

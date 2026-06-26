@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../../../core/services/supabase_service.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
@@ -48,7 +48,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     super.dispose();
   }
 
-  // â”€â”€ Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Data ──────────────────────────────────────────────────────────────────
 
   Future<void> _load() async {
     if (mounted) setState(() => _loading = true);
@@ -121,7 +121,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     );
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -163,7 +163,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     );
   }
 
-  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Header ────────────────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     return Padding(
@@ -194,7 +194,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                 const SizedBox(height: 2),
                 Text(
                   _loading
-                      ? 'Loadingâ€¦'
+                      ? 'Loading…'
                       : '${_all.length} announcement${_all.length == 1 ? '' : 's'}',
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText),
                 ),
@@ -206,7 +206,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     );
   }
 
-  // â”€â”€ Stats strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Stats strip ───────────────────────────────────────────────────────────
 
   Widget _buildStatsStrip() {
     if (_all.isEmpty && !_loading) return const SizedBox.shrink();
@@ -263,7 +263,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     );
   }
 
-  // â”€â”€ Search bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Search bar ────────────────────────────────────────────────────────────
 
   Widget _buildSearchBar() {
     return Padding(
@@ -279,7 +279,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
           onChanged: (v) => setState(() { _search = v; _applyFilter(); }),
           style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: kText),
           decoration: InputDecoration(
-            hintText: 'Search announcementsâ€¦',
+            hintText: 'Search announcements…',
             hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kSubText.withValues(alpha: 0.55)),
             prefixIcon: const Icon(Icons.search_rounded, color: kGold, size: 22),
             suffixIcon: _search.isNotEmpty
@@ -302,7 +302,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     );
   }
 
-  // â”€â”€ List â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── List ──────────────────────────────────────────────────────────────────
 
   Widget _buildList() {
     return ListView.builder(
@@ -344,13 +344,13 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     );
   }
 
-  // â”€â”€ Announcement card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Announcement card ─────────────────────────────────────────────────────
 
   Widget _buildCard(Map<String, dynamic> ann) {
-    final title     = ann['title']      as String? ?? 'â€”';
+    final title     = ann['title']      as String? ?? '—';
     final message   = ann['message']    as String? ?? '';
     final createdAt = ann['created_at'] as String?;
-    final preview   = message.length > 90 ? '${message.substring(0, 90)}â€¦' : message;
+    final preview   = message.length > 90 ? '${message.substring(0, 90)}…' : message;
 
     return GestureDetector(
       onTap: () => Navigator.push(
@@ -504,7 +504,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     );
   }
 
-  // â”€â”€ Empty state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Empty state ───────────────────────────────────────────────────────────
 
   Widget _buildEmptyState() {
     final isSearch = _search.isNotEmpty;

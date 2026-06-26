@@ -1,19 +1,20 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' show pi;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/services/audit_service.dart';
 import '../../core/app_colors.dart';
 import '../organizer/web/web_shell.dart';
 import '../admin/admin_web_dashboard.dart';
 
-// â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Constants ──────────────────────────────────────────────────────────────────
 
 const _kPanelDark = Color(0xFF1A1612);
 const _kFormBg    = Color(0xFFF0F3F7);
 
-// â”€â”€ Shared field decoration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shared field decoration ────────────────────────────────────────────────────
 
 InputDecoration _webFieldDeco({
   required String hint,
@@ -56,9 +57,9 @@ InputDecoration _webFieldDeco({
   );
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // Entry widget
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
 class WebAuthScreen extends StatefulWidget {
   const WebAuthScreen({super.key});
@@ -140,7 +141,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
       return;
     }
     try {
-      // Admin takes priority â€” check before organizer
+      // Admin takes priority — check before organizer
       final adminRow = await SupabaseService.client
           .from('admins')
           .select('admin_id')
@@ -246,7 +247,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
     });
   }
 
-  // Used by _checkSession (auto-login on reload) â€” no branded splash needed.
+  // Used by _checkSession (auto-login on reload) — no branded splash needed.
   Route<void> _dashRoute() => PageRouteBuilder<void>(
     transitionDuration:        const Duration(milliseconds: 500),
     reverseTransitionDuration: const Duration(milliseconds: 350),
@@ -281,7 +282,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
     },
   );
 
-  // Used by explicit sign-in â€” plays branded splash before dashboard.
+  // Used by explicit sign-in — plays branded splash before dashboard.
   Route<void> _transitionRoute() => PageRouteBuilder<void>(
     transitionDuration: const Duration(milliseconds: 320),
     pageBuilder: (ctx, a, b) => const _TransitionScreen(),
@@ -310,14 +311,19 @@ class _WebAuthScreenState extends State<WebAuthScreen>
       final user = SupabaseService.currentUser;
       if (user == null) throw Exception('Sign in failed');
 
-      // Admin check â€” highest priority
+      // Admin check — highest priority
       final adminRow = await SupabaseService.client
           .from('admins')
-          .select('admin_id')
+          .select('admin_id, full_name')
           .eq('user_id', user.id)
           .maybeSingle();
 
       if (adminRow != null) {
+        AuditService.logLogin(
+          userId: user.id, role: 'admin',
+          fullName:   adminRow['full_name'] as String?,
+          identifier: _emailCtrl.text.trim().toLowerCase(),
+        );
         await _clearRateLimit();
         if (mounted) Navigator.of(context).pushReplacement(_adminRoute());
         return;
@@ -325,7 +331,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
 
       final row = await SupabaseService.client
           .from('organizers')
-          .select('organizer_id')
+          .select('organizer_id, full_name')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -341,6 +347,11 @@ class _WebAuthScreenState extends State<WebAuthScreen>
         return;
       }
 
+      AuditService.logLogin(
+        userId: user.id, role: 'organizer',
+        fullName:   row['full_name'] as String?,
+        identifier: (row['organizer_id'] as String? ?? '').toLowerCase(),
+      );
       await _clearRateLimit();
       if (mounted) Navigator.of(context).pushReplacement(_transitionRoute());
     } on AuthException catch (e) {
@@ -363,7 +374,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
     }
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -382,7 +393,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
     );
   }
 
-  // â”€â”€ Wide: dark left panel + grey right with floating white card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Wide: dark left panel + grey right with floating white card ────────────
 
   Widget _buildWide() {
     return Row(
@@ -440,7 +451,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
     );
   }
 
-  // â”€â”€ Narrow: dark hero top + white rounded card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Narrow: dark hero top + white rounded card ────────────────────────────
 
   Widget _buildNarrow() {
     return FadeTransition(
@@ -572,7 +583,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
     );
   }
 
-  // â”€â”€ Form â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Form ──────────────────────────────────────────────────────────────────
 
   Widget _buildForm() {
     return Form(
@@ -670,7 +681,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
             style: const TextStyle(
                 fontFamily: 'Poppins', fontSize: 14, color: kText),
             decoration: _webFieldDeco(
-              hint: 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢',
+              hint: '••••••••',
               icon: Icons.lock_outline_rounded,
               suffix: IconButton(
                 icon: Icon(
@@ -812,7 +823,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
           ],
           const SizedBox(height: 24),
 
-          // Students note â€” icon card
+          // Students note — icon card
           Container(
             padding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -867,7 +878,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
           ),
           const SizedBox(height: 22),
 
-          // Footer â€” Terms and Privacy are gold + underlined clickable links
+          // Footer — Terms and Privacy are gold + underlined clickable links
           Text.rich(
             TextSpan(
               style: const TextStyle(
@@ -928,7 +939,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
           ),
           const SizedBox(height: 6),
           Text(
-            'Â© ${DateTime.now().year} J-Jireh EventHub Â· All rights reserved',
+            'Â© ${DateTime.now().year} J-Jireh EventHub · All rights reserved',
             style: const TextStyle(
               fontFamily: 'Poppins',
               fontSize: 10.5,
@@ -942,9 +953,9 @@ class _WebAuthScreenState extends State<WebAuthScreen>
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // Left branding panel
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
 class _LeftPanel extends StatelessWidget {
   const _LeftPanel();
@@ -1101,7 +1112,7 @@ class _LeftPanel extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         Text(
-          'Streamline every step â€” from creation to check-in.',
+          'Streamline every step — from creation to check-in.',
           style: TextStyle(
             fontFamily: 'Poppins',
             fontSize: 13,
@@ -1190,14 +1201,14 @@ class _LeftPanel extends StatelessWidget {
   }
 }
 
-// â”€â”€ Background geometric painter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Background geometric painter ──────────────────────────────────────────────
 
 class _BgPainter extends CustomPainter {
   const _BgPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Subtle dot grid â€” base texture
+    // Subtle dot grid — base texture
     final gridDot = Paint()
       ..style = PaintingStyle.fill
       ..color = kGold.withValues(alpha: 0.030);
@@ -1287,9 +1298,9 @@ class _BgPainter extends CustomPainter {
   bool shouldRepaint(_) => false;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // Reusable form widgets
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
 class _FieldLabel extends StatelessWidget {
   final String text;
@@ -1460,21 +1471,21 @@ class _SignInButtonState extends State<_SignInButton> {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // Branded login â†’ dashboard transition screen
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 //
 // Timeline (2 000 ms controller):
-//   0 %â€“30 %   Logo scales in with elasticOut bounce
-//   0 %â€“18 %   Logo fades in
-//   6 %â€“44 %   Inner ripple ring expands and fades
-//  12 %â€“55 %   Outer ripple ring expands and fades
-//  22 %â€“46 %   "J-Jireh" fades in
-//  22 %â€“50 %   "J-Jireh" slides up from slight offset
-//  34 %â€“54 %   "EVENTHUB" fades in
-//  46 %â€“68 %   Gold divider line draws from centre outward
-//  55 %â€“87 %   Gold progress bar fills left â†’ right
-//  70 %â€“88 %   "Preparing your dashboardâ€¦" fades in
+//   0 %—30 %   Logo scales in with elasticOut bounce
+//   0 %—18 %   Logo fades in
+//   6 %—44 %   Inner ripple ring expands and fades
+//  12 %—55 %   Outer ripple ring expands and fades
+//  22 %—46 %   “J-Jireh” fades in
+//  22 %—50 %   “J-Jireh” slides up from slight offset
+//  34 %—54 %   “EVENTHUB” fades in
+//  46 %—68 %   Gold divider line draws from centre outward
+//  55 %—87 %   Gold progress bar fills left → right
+//  70 %—88 %   “Preparing your dashboard…” fades in
 //
 // After the animation completes + 300 ms hold the dashboard fades in (650 ms).
 
@@ -1489,26 +1500,26 @@ class _TransitionScreenState extends State<_TransitionScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
 
-  // â”€â”€ Logo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Logo ─────────────────────────────────────────────────────────────────
   late final Animation<double> _logoScale;
   late final Animation<double> _logoOpacity;
 
-  // â”€â”€ Ripple rings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Ripple rings ─────────────────────────────────────────────────────────
   late final Animation<double> _ring1Scale;
   late final Animation<double> _ring1Opacity;
   late final Animation<double> _ring2Scale;
   late final Animation<double> _ring2Opacity;
 
-  // â”€â”€ Text â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Text ─────────────────────────────────────────────────────────────────
   late final Animation<double> _titleOpacity;
   late final Animation<Offset> _titleSlide;
   late final Animation<double> _subtitleOpacity;
 
-  // â”€â”€ Decorative bar + progress â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Decorative bar + progress ─────────────────────────────────────────────
   late final Animation<double> _lineWidth;
   late final Animation<double> _progress;
 
-  // â”€â”€ Final label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Final label ──────────────────────────────────────────────────────────
   late final Animation<double> _hintOpacity;
 
   @override
@@ -1534,7 +1545,7 @@ class _TransitionScreenState extends State<_TransitionScreen>
       ),
     );
 
-    // Inner ring â€” fades in then out as it expands
+    // Inner ring — fades in then out as it expands
     _ring1Scale = Tween<double>(begin: 1.0, end: 2.6).animate(
       CurvedAnimation(
         parent: _ctrl,
@@ -1548,7 +1559,7 @@ class _TransitionScreenState extends State<_TransitionScreen>
       CurvedAnimation(parent: _ctrl, curve: const Interval(0.06, 0.44)),
     );
 
-    // Outer ring â€” larger, slightly slower
+    // Outer ring — larger, slightly slower
     _ring2Scale = Tween<double>(begin: 1.0, end: 3.8).animate(
       CurvedAnimation(
         parent: _ctrl,
@@ -1603,7 +1614,7 @@ class _TransitionScreenState extends State<_TransitionScreen>
       ),
     );
 
-    // "Preparing your dashboardâ€¦"
+    // "Preparing your dashboard…"
     _hintOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _ctrl,
@@ -1640,7 +1651,7 @@ class _TransitionScreenState extends State<_TransitionScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Same background painter as the login left panel â€” visual continuity
+          // Same background painter as the login left panel — visual continuity
           const CustomPaint(painter: _BgPainter()),
 
           // Subtle radial gold glow emanating from centre
@@ -1669,12 +1680,12 @@ class _TransitionScreenState extends State<_TransitionScreen>
             ),
           ),
 
-          // â”€â”€ Centred content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Centred content ──────────────────────────────────────────────
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // â”€â”€ Logo + ripple rings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                // ── Logo + ripple rings ─────────────────────────────────
                 // SizedBox gives the Stack a finite size; rings overflow
                 // via clipBehavior: Clip.none so they expand freely.
                 SizedBox(
@@ -1774,7 +1785,7 @@ class _TransitionScreenState extends State<_TransitionScreen>
                   ),
                 ),
 
-                // â”€â”€ Brand text â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                // ── Brand text ────────────────────────────────────────────
                 const SizedBox(height: 2),
 
                 SlideTransition(
@@ -1813,7 +1824,7 @@ class _TransitionScreenState extends State<_TransitionScreen>
 
                 const SizedBox(height: 38),
 
-                // â”€â”€ Gold gradient divider â€” draws from centre outward â”€â”€â”€â”€â”€
+                // ── Gold gradient divider — draws from centre outward ─────
                 SizedBox(
                   width: 220,
                   child: AnimatedBuilder(
@@ -1840,7 +1851,7 @@ class _TransitionScreenState extends State<_TransitionScreen>
 
                 const SizedBox(height: 22),
 
-                // â”€â”€ Progress bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                // ── Progress bar ─────────────────────────────────────────
                 SizedBox(
                   width: 160,
                   child: AnimatedBuilder(
@@ -1863,7 +1874,7 @@ class _TransitionScreenState extends State<_TransitionScreen>
 
                 const SizedBox(height: 18),
 
-                // â”€â”€ Hint label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                // ── Hint label ────────────────────────────────────────────
                 FadeTransition(
                   opacity: _hintOpacity,
                   child: Text(
@@ -1885,9 +1896,9 @@ class _TransitionScreenState extends State<_TransitionScreen>
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // Legal dialog (Terms and Conditions / Privacy Policy)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
 class _WebLegalDialog extends StatelessWidget {
   final bool isTerms;
@@ -2024,24 +2035,24 @@ class _WebLegalDialog extends StatelessWidget {
   List<Widget> _privacyContent() => [
     _section(Icons.info_outline_rounded, 'Information We Collect',
         'We collect the following personal data to operate EventHub:\n\n'
-        'â€¢ Identity: full name, email address\n'
-        'â€¢ Academic: year level, LRN / student ID\n'
-        'â€¢ Usage: event registrations, check-in selfies, timestamps'),
+        '• Identity: full name, email address\n'
+        '• Academic: year level, LRN / student ID\n'
+        '• Usage: event registrations, check-in selfies, timestamps'),
     _section(Icons.storage_outlined, 'How We Use Your Data',
         'Your data is used solely to:\n\n'
-        'â€¢ Verify your identity for event check-in\n'
-        'â€¢ Generate your QR code ticket\n'
-        'â€¢ Track registration and attendance records\n'
-        'â€¢ Send relevant event announcements'),
+        '• Verify your identity for event check-in\n'
+        '• Generate your QR code ticket\n'
+        '• Track registration and attendance records\n'
+        '• Send relevant event announcements'),
     _section(Icons.lock_outline_rounded, 'Data Security',
         'All data is stored securely on Supabase-hosted infrastructure. Selfie images are stored in a private bucket accessible only by authorized organizers. We do not sell or share your data with third parties.'),
     _section(Icons.av_timer_rounded, 'Data Retention',
         'Your data is retained for the duration of your enrollment. Upon request, the school administrator can arrange for deletion of your personal data.'),
     _section(Icons.verified_user_outlined, 'Your Rights',
         'You have the right to:\n\n'
-        'â€¢ Access the personal data we hold about you\n'
-        'â€¢ Request correction of inaccurate data\n'
-        'â€¢ Withdraw consent for data processing where applicable\n\n'
+        '• Access the personal data we hold about you\n'
+        '• Request correction of inaccurate data\n'
+        '• Withdraw consent for data processing where applicable\n\n'
         'Contact your school administrator to exercise these rights.'),
     _section(Icons.mail_outline_rounded, 'Contact Us',
         'For questions or concerns about this Privacy Policy, please contact your school administrator or reach out to the EventHub support team.',

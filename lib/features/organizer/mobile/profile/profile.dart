@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,9 +8,9 @@ import 'edit_organizer_profile_screen.dart';
 import '../../../../core/app_colors.dart';
 
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // OrganizerProfileScreen
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
 class OrganizerProfileScreen extends StatefulWidget {
   final bool showAsEmbedded;
@@ -25,13 +25,13 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
   bool _uploadingPhoto = false;
 
   Map<String, dynamic> _organizer = {
-    'id': 'â€”',
+    'id': '—',
     'fullName': '',
     'email': '',
     'username': '',
     'role': 'Event Organizer',
     'organization': 'J-Jireh',
-    'memberSince': 'â€”',
+    'memberSince': '—',
     'profileImage': null,
     'managedEvents': 0,
     'activeEvents': 0,
@@ -101,13 +101,13 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
         _organizer = {
           'id': orgId,
           'fullName': fn.isNotEmpty ? fn : 'Organizer',
-          'email': user.email ?? 'â€”',
+          'email': user.email ?? '—',
           'username': fn.toLowerCase().replaceAll(' ', '_'),
           'role': 'Event Organizer',
           'organization': orgRow['organization'] as String? ?? 'J-Jireh',
           'memberSince': created != null
-              ? (DateTime.tryParse(created)?.year.toString() ?? 'â€”')
-              : 'â€”',
+              ? (DateTime.tryParse(created)?.year.toString() ?? '—')
+              : '—',
           'profileImage': orgRow['profile_image_url'],
           'managedEvents': eventList.length,
           'activeEvents': activeCount,
@@ -123,7 +123,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     }
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -131,7 +131,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     if (_loading) {
       return Scaffold(
         backgroundColor: t.bg,
-        body: const AppFullScreenLoader(message: 'Loading your profileâ€¦'),
+        body: const AppFullScreenLoader(message: 'Loading your profile…'),
       );
     }
     return Scaffold(
@@ -168,7 +168,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     );
   }
 
-  // â”€â”€ Photo upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Photo upload ──────────────────────────────────────────────────────────
 
   Future<void> _pickAndUploadPhoto() async {
     final result = await FilePicker.platform.pickFiles(
@@ -187,7 +187,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
       final ext  = (file.extension ?? 'jpg').toLowerCase();
       final path = '${user.id}/profile.$ext';
 
-      // Delete old file if the extension changed â€” upsert only matches the same path
+      // Delete old file if the extension changed — upsert only matches the same path
       final oldUrl = _organizer['profileImage'] as String?;
       if (oldUrl != null && oldUrl.isNotEmpty) {
         const marker = '/profile-photos/';
@@ -235,7 +235,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     }
   }
 
-  // â”€â”€ Banner + Avatar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Banner + Avatar ────────────────────────────────────────────────────────
 
   Widget _buildBanner(AppTk t) {
     final photoUrl = _organizer['profileImage'] as String?;
@@ -314,7 +314,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     decoration: BoxDecoration(shape: BoxShape.circle, color: color),
   );
 
-  // â”€â”€ Name + badges â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Name + badges ──────────────────────────────────────────────────────────
 
   Widget _buildNameSection(AppTk t) {
     final isActive = _organizer['status'] == 'Active';
@@ -371,7 +371,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     ),
   );
 
-  // â”€â”€ Edit button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Edit button ────────────────────────────────────────────────────────────
 
   Widget _buildEditButton(AppTk t) {
     return Padding(
@@ -412,7 +412,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     );
   }
 
-  // â”€â”€ Account card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Account card ───────────────────────────────────────────────────────────
 
   Widget _buildAccountCard(AppTk t) {
     return _card(
@@ -422,15 +422,15 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _sectionLabel('Account Information', t),
-          _infoTile(Icons.person_rounded,          'Full Name',     _organizer['fullName'] as String? ?? 'â€”',       t: t),
+          _infoTile(Icons.person_rounded,          'Full Name',     _organizer['fullName'] as String? ?? '—',       t: t),
           _divider(t),
-          _infoTile(Icons.email_outlined,          'Email Address', _organizer['email'] as String? ?? 'â€”',          t: t),
+          _infoTile(Icons.email_outlined,          'Email Address', _organizer['email'] as String? ?? '—',          t: t),
           _divider(t),
-          _infoTile(Icons.alternate_email_rounded, 'Username',      '@${_organizer['username'] as String? ?? 'â€”'}', t: t),
+          _infoTile(Icons.alternate_email_rounded, 'Username',      '@${_organizer['username'] as String? ?? '—'}', t: t),
           _divider(t),
-          _infoTile(Icons.business_rounded,        'Organization',  _organizer['organization'] as String? ?? 'â€”',   t: t),
+          _infoTile(Icons.business_rounded,        'Organization',  _organizer['organization'] as String? ?? '—',   t: t),
           _divider(t),
-          _infoTile(Icons.badge_rounded,           'Organizer ID',  _organizer['id'] as String? ?? 'â€”',             t: t, isId: true),
+          _infoTile(Icons.badge_rounded,           'Organizer ID',  _organizer['id'] as String? ?? '—',             t: t, isId: true),
           const SizedBox(height: 4),
         ],
       ),
@@ -481,7 +481,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     );
   }
 
-  // â”€â”€ Security card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Security card ──────────────────────────────────────────────────────────
 
   Widget _buildSecurityCard(AppTk t) {
     return _card(
@@ -548,7 +548,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     );
   }
 
-  // â”€â”€ Logout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Logout ─────────────────────────────────────────────────────────────────
 
   Widget _buildLogoutTile() {
     return Padding(
@@ -584,7 +584,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     );
   }
 
-  // â”€â”€ Shared card helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Shared card helpers ────────────────────────────────────────────────────
 
   Widget _card({required Widget child, required AppTk t, EdgeInsets? margin}) {
     return Container(
@@ -620,7 +620,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     height: 1, thickness: 0.8, indent: 66, endIndent: 16, color: t.divider,
   );
 
-  // â”€â”€ Dialogs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Dialogs ────────────────────────────────────────────────────────────────
 
   void _confirmLogout() {
     showDialog(

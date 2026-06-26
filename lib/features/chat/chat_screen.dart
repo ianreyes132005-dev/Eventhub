@@ -1,8 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../core/services/chat_service.dart';
 import '../../core/app_colors.dart';
 
-// â”€â”€ Palette â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Palette ────────────────────────────────────────────────────────────────────
 const Color _kBg      = Color(0xFFF7F3EC);
 const Color _kText    = Color(0xFF1A1A1A);
 const Color _kSub     = Color(0xFF6B7280);
@@ -10,7 +10,7 @@ const Color _kMuted   = Color(0xFFB0B7C3);
 const Color _kCard    = Color(0xFFFFFFFF);
 const Color _kSurface = Color(0xFFF1EDE6);
 
-// â”€â”€ Time helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Time helpers ───────────────────────────────────────────────────────────────
 String _msgTime(DateTime t) {
   final h  = t.hour % 12 == 0 ? 12 : t.hour % 12;
   final m  = t.minute.toString().padLeft(2, '0');
@@ -32,14 +32,14 @@ String _dayLabel(DateTime t) {
 bool _sameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
 
-// â”€â”€ Suggestion item model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Suggestion item model ──────────────────────────────────────────────────────
 class _SuggestionItem {
   const _SuggestionItem(this.icon, this.text);
   final IconData icon;
   final String   text;
 }
 
-// â”€â”€ Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Screen ─────────────────────────────────────────────────────────────────────
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.userRole});
 
@@ -254,7 +254,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     });
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -288,7 +288,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Header ─────────────────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     return Container(
@@ -364,7 +364,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                             _MiniDots(),
                             SizedBox(width: 6),
                             Text(
-                              'Typingâ€¦',
+                              'Typing…',
                               style: TextStyle(
                                 fontFamily: 'Poppins',
                                 fontSize: 11,
@@ -417,7 +417,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  // â”€â”€ Loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Loading ────────────────────────────────────────────────────────────────
 
   Widget _buildLoadingState() {
     return Center(
@@ -446,7 +446,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           ),
           const SizedBox(height: 14),
           const Text(
-            'Starting chatâ€¦',
+            'Starting chat…',
             style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: _kMuted),
           ),
         ],
@@ -454,7 +454,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  // â”€â”€ Welcome / empty state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Welcome / empty state ──────────────────────────────────────────────────
 
   Widget _buildWelcome() {
     final isOrg = widget.userRole == 'organizer';
@@ -607,7 +607,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  // â”€â”€ Message list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Message list ───────────────────────────────────────────────────────────
 
   Widget _buildMessageList() {
     return ListView.builder(
@@ -837,7 +837,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  // â”€â”€ Input bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Input bar ──────────────────────────────────────────────────────────────
 
   Widget _buildInputBar() {
     final canSend = !_inputEmpty && !_sending && _sessionId != null;
@@ -876,7 +876,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   fontFamily: 'Poppins', fontSize: 14, color: _kText,
                 ),
                 decoration: InputDecoration(
-                  hintText: _sending ? 'Please waitâ€¦' : 'Ask EventHub AIâ€¦',
+                  hintText: _sending ? 'Please wait…' : 'Ask EventHub AI…',
                   hintStyle: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 14,
@@ -922,7 +922,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  // â”€â”€ Error state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Error state ────────────────────────────────────────────────────────────
 
   Widget _buildErrorState() {
     return Center(
@@ -981,7 +981,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }
 }
 
-// â”€â”€ Mini dots â€” header typing indicator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Mini dots — header typing indicator ───────────────────────────────────────
 
 class _MiniDots extends StatefulWidget {
   const _MiniDots();
@@ -1047,7 +1047,7 @@ class _MiniDotsState extends State<_MiniDots> with TickerProviderStateMixin {
   }
 }
 
-// â”€â”€ Animated typing dots â€” chat bubble â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Animated typing dots — chat bubble ────────────────────────────────────────
 
 class _TypingDots extends StatefulWidget {
   const _TypingDots();

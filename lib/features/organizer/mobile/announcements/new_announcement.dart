@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../../../core/services/supabase_service.dart';
 import '../../../../core/app_colors.dart';
 
@@ -32,7 +32,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
       _titleCtrl.text.trim().isNotEmpty &&
       _messageCtrl.text.trim().isNotEmpty;
 
-  // â”€â”€ Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Actions ───────────────────────────────────────────────────────────────
 
   Future<void> _publish() async {
     if (!_canPublish) { _snack('Title and message are required.', Colors.red); return; }
@@ -67,7 +67,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
     );
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -90,7 +90,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
     );
   }
 
-  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Header ────────────────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     return Padding(
@@ -128,7 +128,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
     );
   }
 
-  // â”€â”€ Compose surface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Compose surface ───────────────────────────────────────────────────────
 
   Widget _buildComposeSurface() {
     return Container(
@@ -141,7 +141,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // â”€â”€ Title field â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Title field ────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
             child: Column(
@@ -172,7 +172,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
             child: Divider(height: 24, color: Colors.grey.shade100),
           ),
 
-          // â”€â”€ Message field â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Message field ──────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: Column(
@@ -190,7 +190,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
                     color: kText, height: 1.65,
                   ),
                   decoration: _fieldDecor(
-                    hint: 'Write what students need to knowâ€¦',
+                    hint: 'Write what students need to know…',
                     counterText: '${_messageCtrl.text.length}/1000',
                   ),
                 ),
@@ -198,7 +198,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
             ),
           ),
 
-          // â”€â”€ Audience chip (read-only info) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Audience chip (read-only info) ─────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: Container(
@@ -249,7 +249,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
     );
   }
 
-  // â”€â”€ Bottom action bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Bottom action bar ─────────────────────────────────────────────────────
 
   Widget _buildBottomBar(BuildContext context) {
     return Container(
@@ -270,7 +270,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
                 )
               : const Icon(Icons.send_rounded, size: 20),
           label: Text(
-            _publishing ? 'Publishingâ€¦' : 'Publish Announcement',
+            _publishing ? 'Publishing…' : 'Publish Announcement',
             style: const TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700),
           ),
           style: ElevatedButton.styleFrom(
@@ -285,7 +285,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
     );
   }
 
-  // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   Widget _fieldLabel(String text) => Text(
     text,

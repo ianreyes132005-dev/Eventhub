@@ -22,29 +22,53 @@ This check runs in four places: mobile `_handleLogin()`, mobile `setupAuthStateL
 
 > **All accounts are created exclusively by the administrator. There is no self-registration flow.**
 
-### Students & Organizers
+### Students
 
-The admin provisions these through the **Admin Web Dashboard** (Students / Organizers pages) or directly via Supabase SQL. The dashboard creates the profile record in `public.students` or `public.organizers`. Login credentials (the Supabase Auth account) are created separately:
+The admin provisions students through Admin Web Dashboard → Students → **Add Student**.
 
-- Go to Supabase Dashboard → **Authentication → Users → Add user → Create new user**
-- Enter the student/organizer email and a temporary password
-- Copy the UUID and link it to the profile row via `UPDATE students SET user_id = '<uuid>' WHERE lrn = '...'`
+This calls the `create-student` Supabase Edge Function which atomically:
+1. Creates the Supabase Auth user with email `{lrn}@gmail.com` (e.g. `123456261234@gmail.com`)
+2. Inserts the row into `public.students`
+3. Rolls back the auth user if the DB insert fails
+
+The new student appears in the list immediately after the dialog closes. On the mobile app, the student logs in with the **last 4 digits of their LRN** + their password.
+
+### Organizers
+
+The admin provisions organizers through Admin Web Dashboard → Organizers → **Add Organizer**.
+
+This calls the `create-organizer` Supabase Edge Function which atomically:
+1. Creates the Supabase Auth user with email `{organizer_id.toLowerCase()}@gmail.com` (e.g. `org0001@gmail.com`)
+2. Inserts the row into `public.organizers`
+3. Rolls back the auth user if the DB insert fails
+
+**Organizer ID format:** `Org0001` — `Org` prefix followed by 4 digits. The dashboard auto-generates the next available ID. The organizer logs in using their ID in lowercase as the username (e.g. `org0001`) + the password set by the admin.
 
 ### Admin
 
 > **Always create admin accounts via the Supabase Dashboard — never via manual SQL INSERT into `auth.users`.**
-> Manual inserts often miss required GoTrue columns (`is_anonymous`, `is_sso_user`, token fields) and cause a "Database error querying schema" on login.
+> Manual inserts often miss required GoTrue columns and cause a "Database error querying schema" on login.
+
+The web login accepts a **username only** (no `@email`). The app appends `@gmail.com` internally before calling Supabase Auth, so the auth user's email must follow the format `{username}@gmail.com`.
 
 1. Go to Supabase Dashboard → **Authentication → Users → Add user → Create new user**
-2. Enter the admin email and password
-3. Copy the new user's UUID
-4. Run in SQL Editor:
+2. **Email:** `yourusername@gmail.com` — e.g. `jjadmin@gmail.com`
+3. **Password:** set a strong password
+4. Enable **Auto Confirm User**, then click **Create User**
+5. Copy the new user's UUID
+6. Run in SQL Editor:
 
 ```sql
-INSERT INTO public.admins (user_id, full_name, email, is_active)
-VALUES ('<paste-uuid-here>', 'System Administrator', 'admin@example.com', true)
-ON CONFLICT (user_id) DO NOTHING;
+INSERT INTO public.admins (admin_id, user_id, username, full_name)
+VALUES (
+  'ADMIN001',               -- any unique ID you choose
+  '<paste-uuid-here>',
+  'jjadmin',                -- what you type at the login screen (no @gmail.com)
+  'J-Jireh Admin'
+);
 ```
+
+**To log in:** open the web portal, type `jjadmin` as the username and the password you set. The app constructs `jjadmin@gmail.com` automatically.
 
 ---
 
@@ -54,6 +78,7 @@ ON CONFLICT (user_id) DO NOTHING;
 |---|---|
 | Frontend | Flutter (Dart) — Material 3 |
 | Backend | Supabase (PostgreSQL + Auth + Storage + Realtime) |
+| Edge Functions | Supabase Edge Functions (Deno / TypeScript) |
 | AI Chatbot | Groq API (LLaMA 3) — organizer web dashboard |
 | QR Codes | `qr_flutter` (generate) · `mobile_scanner` (scan) |
 | Charts | `fl_chart` |
@@ -66,11 +91,11 @@ ON CONFLICT (user_id) DO NOTHING;
 ## Features
 
 ### Student (mobile)
-- Browse and filter upcoming / ongoing / past events
+- Browse and filter upcoming / ongoing / past events — **live via Supabase Realtime**
 - Register for events and receive a unique QR code
-- View registered events with ticket-style cards
+- View registered events with ticket-style cards — **live updates on status changes**
 - Check-in flow: QR scan → selfie capture (triggered by organizer)
-- Announcements feed
+- Announcements feed — **live via Supabase Realtime**
 - Profile management
 
 ### Organizer (mobile + web)
@@ -79,16 +104,17 @@ ON CONFLICT (user_id) DO NOTHING;
 - Scan student QR codes to initiate check-in
 - Selfie-based check-in confirmation
 - Send announcements to all students
-- Analytics dashboard (attendance rate, weekly registrations, per-event attendance)
+- Analytics dashboard (attendance rate, weekly registrations, per-event attendance) — **live via Supabase Realtime**
+- Events and announcements pages — **live via Supabase Realtime**
 - AI assistant chatbot (Groq / LLaMA 3.1) with organizer-specific quick questions
 - Customisable sidebar theme (primary colour + sidebar variant)
 - Web-only: collapsible sidebar (inset / floating / minimal variants)
 
 ### Admin (web dashboard only)
-- Full sidebar navigation: Overview · Students · Organizers · Events · Registrations
+- Full sidebar navigation: Overview · Students · Organizers · Events · Registrations — **all pages live via Supabase Realtime (600 ms debounce)**
 - **Overview** — 4 stat cards (total students / organizers / events / registrations), recent events list, quick-access shortcuts, system status panel, recent registrations
-- **Students** — search + Active/Inactive filter, data table with LRN / name / year / status / account-linked, row actions: Edit profile, Activate/Deactivate, Delete
-- **Organizers** — same as Students with Organizer ID / Organization columns, auto-generates next `JJ####` ID when adding
+- **Students** — search + Active/Inactive filter, data table with LRN / name / year / status / account-linked, row actions: Edit profile, Activate/Deactivate, Delete. **Add Student** creates auth account + DB row atomically via Edge Function
+- **Organizers** — same as Students with Organizer ID / Organization columns, auto-generates next `Org####` ID when adding. **Add Organizer** creates auth account + DB row atomically via Edge Function; organizer logs in with `{id.lowercase()}@gmail.com`
 - **Events** — system-wide read-only view with status filter chips and participant capacity progress bar
 - **Registrations** — system-wide read-only view with all status filters and checked-in timestamps
 - Animated sidebar with cascade stagger entrance, collapsible to icon-only mode
@@ -102,13 +128,12 @@ ON CONFLICT (user_id) DO NOTHING;
 |---|---|---|
 | Mobile | `JirehEventHubApp` | `lib/app.dart` |
 | Web | `JirehEventHubWebApp` | `lib/app.dart` |
-| Mobile auth | `AuthScreen` | `lib/auth/auth_screen.dart` |
-| Web auth | `WebAuthScreen` | `lib/auth/web_auth_screen.dart` |
-| Student dashboard | `StudentDashboard` | `lib/student/dashboard/` |
-| Organizer mobile | `OrganizerDashboardScreen` | `lib/organizer/dashboard/` |
-| Organizer web | `OrganizerWebDashboard` | `lib/organizer/web/` |
-| Admin mobile | `AdminDashboard` | `lib/admin/admin_dashboard.dart` |
-| Admin web | `AdminWebDashboard` | `lib/admin/admin_web_dashboard.dart` |
+| Mobile auth | `AuthScreen` | `lib/features/auth/auth_screen.dart` |
+| Web auth | `WebAuthScreen` | `lib/features/auth/web_auth_screen.dart` |
+| Student dashboard | `StudentDashboard` | `lib/features/student/dashboard/` |
+| Organizer mobile | `OrganizerDashboardScreen` | `lib/features/organizer/mobile/dashboard/` |
+| Organizer web | `WebShell` | `lib/features/organizer/web/` |
+| Admin web | `AdminWebDashboard` | `lib/features/admin/admin_web_dashboard.dart` |
 
 ---
 
@@ -116,43 +141,49 @@ ON CONFLICT (user_id) DO NOTHING;
 
 ```
 lib/
-├── auth/
-│   ├── auth_screen.dart          # Mobile login (student / organizer / admin)
-│   └── web_auth_screen.dart      # Web login (organizer / admin)
-├── student/
-│   ├── dashboard/
-│   ├── events/
-│   ├── profile/
-│   ├── notifications/
-│   └── check_in/
-├── organizer/
-│   ├── dashboard/
-│   ├── events/
-│   ├── registrations/
-│   ├── announcements/
-│   ├── analytics/
-│   ├── evaluations/
-│   ├── profile/
-│   └── web/
-│       ├── organizer_web_dashboard.dart  # Web shell + sidebar
-│       ├── web_shared.dart               # Shared constants, widgets, theme
-│       ├── dashboard_page.dart
-│       ├── events_page.dart
-│       ├── registrations_page.dart
-│       ├── announcements_page.dart
-│       ├── settings_page.dart
-│       └── ai_chatbot.dart               # Groq-powered AI assistant
-├── admin/
-│   ├── admin_dashboard.dart              # Mobile admin placeholder
-│   └── admin_web_dashboard.dart          # Full web admin dashboard (5 pages)
-├── services/
-│   ├── supabase_service.dart
-│   └── registration_service.dart
-├── widgets/                       # Shared widgets
-├── app_colors.dart                # kGold, kGoldGradient, kText, etc.
-├── app_theme.dart                 # Material 3 theme
-├── app.dart                       # Routes + auth state listener + app links
+├── features/
+│   ├── auth/
+│   │   ├── auth_screen.dart          # Mobile login (student / organizer / admin)
+│   │   └── web_auth_screen.dart      # Web login (organizer / admin)
+│   ├── student/
+│   │   ├── dashboard/
+│   │   ├── events/                   # All events + My registered events (realtime)
+│   │   ├── profile/
+│   │   └── notifications/
+│   ├── organizer/
+│   │   ├── mobile/
+│   │   │   ├── dashboard/
+│   │   │   ├── events/
+│   │   │   ├── registrations/
+│   │   │   ├── announcements/
+│   │   │   └── profile/
+│   │   └── web/
+│   │       ├── web_shell.dart              # Web shell + sidebar
+│   │       ├── web_shared.dart             # Shared constants, widgets, theme
+│   │       ├── dashboard_page.dart         # Realtime: events, registrations
+│   │       ├── events_page.dart            # Realtime: events, registrations
+│   │       ├── registrations_page.dart
+│   │       ├── announcements_page.dart     # Realtime: announcements
+│   │       ├── settings_page.dart
+│   │       └── ai_chatbot.dart             # Groq-powered AI assistant
+│   └── admin/
+│       └── admin_web_dashboard.dart        # Full web admin dashboard (5 pages, all realtime)
+├── core/
+│   ├── services/
+│   │   ├── supabase_service.dart
+│   │   └── registration_service.dart
+│   ├── app_colors.dart               # kGold, kGoldGradient, kText, etc.
+│   └── app_theme.dart                # Material 3 theme
+├── shared/
+│   └── widgets/                      # Shared widgets
+├── app.dart                          # Routes + auth state listener + app links
 └── main.dart
+
+supabase/
+└── functions/
+    ├── ai-chat/index.ts              # Groq / LLaMA 3.1 AI assistant
+    ├── create-student/index.ts       # Atomically creates auth user + students row
+    └── create-organizer/index.ts     # Atomically creates auth user + organizers row
 ```
 
 ---
@@ -169,7 +200,73 @@ flutter run
 flutter run -d chrome
 ```
 
-> Supabase credentials are in `lib/services/supabase_service.dart`.
+> Supabase credentials are in `lib/core/services/supabase_service.dart`.
+
+---
+
+## Edge Functions
+
+| Function | File | Purpose |
+|---|---|---|
+| `ai-chat` | `supabase/functions/ai-chat/index.ts` | Groq / LLaMA 3.1 AI assistant for the organizer web dashboard |
+| `create-student` | `supabase/functions/create-student/index.ts` | Admin-only: creates Supabase auth user + `students` row atomically |
+| `create-organizer` | `supabase/functions/create-organizer/index.ts` | Admin-only: creates Supabase auth user + `organizers` row atomically |
+
+### Deploying
+
+```bash
+# Must be run from the project root (c:\project\eventhub)
+supabase login
+supabase link --project-ref <your-project-ref>
+
+supabase functions deploy ai-chat
+supabase functions deploy create-student
+supabase functions deploy create-organizer
+```
+
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically by Supabase at runtime — do not set them manually.
+
+### Edge Function inputs
+
+**`create-student`**
+
+```json
+{ "lrn": "123456261234", "full_name": "Juan Dela Cruz", "year_level": 3, "password": "secret123" }
+```
+
+**`create-organizer`**
+
+```json
+{ "organizer_id": "Org0001", "full_name": "Maria Santos", "organization": "Science Club", "password": "secret123" }
+```
+
+Both require the caller's JWT to belong to a row in `public.admins`.
+
+---
+
+## Realtime
+
+Supabase Realtime (`supabase_realtime` publication) is enabled on these tables:
+
+| Table | Who subscribes |
+|---|---|
+| `events` | Admin dashboard, Organizer web (dashboard, events), Student (all events, my events) |
+| `registrations` | Admin dashboard, Organizer web (dashboard, events), Student (all events, my events) |
+| `announcements` | Admin dashboard, Organizer web (announcements), Student (dashboard, my events) |
+| `students` | Admin dashboard |
+| `organizers` | Admin dashboard |
+
+All realtime callbacks use a **600 ms debounce** (`Timer`) to coalesce rapid bulk changes into a single silent refresh. The `_load({bool silent = false})` pattern keeps the spinner hidden during background refreshes.
+
+Enable realtime on the tables in the Supabase Dashboard under **Database → Replication**, or run:
+
+```sql
+ALTER PUBLICATION supabase_realtime ADD TABLE public.events;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.registrations;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.announcements;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.students;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.organizers;
+```
 
 ---
 
@@ -182,21 +279,26 @@ All tables are created manually via the Supabase Dashboard or SQL Editor. `lib/s
 ### `admins`
 
 ```sql
+DROP TABLE IF EXISTS public.admins CASCADE;
+
 CREATE TABLE public.admins (
-  admin_id   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    UUID        NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
-  full_name  TEXT        NOT NULL,
-  email      TEXT        NOT NULL,
-  is_active  BOOLEAN     NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  admin_id    VARCHAR     PRIMARY KEY,
+  user_id     UUID        UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+  username    VARCHAR     NOT NULL UNIQUE,
+  full_name   VARCHAR     NOT NULL,
+  is_active   BOOLEAN     DEFAULT TRUE,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
 ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;
 
 -- Admin can read their own row
-CREATE POLICY "admin_select_own" ON public.admins
+CREATE POLICY "admins_read_own" ON public.admins
   FOR SELECT USING (auth.uid() = user_id);
 ```
+
+> **Note:** `username` is what the admin types at the web login screen. The auth email stored in Supabase is `{username}@gmail.com` — it is never shown in the UI.
 
 ---
 
@@ -239,7 +341,7 @@ CREATE POLICY "admin_students_all" ON public.students
 
 ```sql
 CREATE TABLE public.organizers (
-  organizer_id VARCHAR     PRIMARY KEY,   -- format: JJ0001
+  organizer_id VARCHAR     PRIMARY KEY,   -- format: Org0001
   user_id      UUID        UNIQUE REFERENCES auth.users(id),
   full_name    VARCHAR     NOT NULL,
   organization VARCHAR,
@@ -264,6 +366,8 @@ CREATE POLICY "admin_organizers_all" ON public.organizers
   USING (EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid()))
   WITH CHECK (EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid()));
 ```
+
+> **Organizer login:** email is `{organizer_id.toLowerCase()}@gmail.com` — e.g. `org0001@gmail.com`. The organizer types their ID in lowercase at the login screen; the app appends `@gmail.com` internally.
 
 ---
 
@@ -459,7 +563,7 @@ CREATE POLICY "organizer_delete_event_banner" ON storage.objects
   );
 ```
 
-> **Note:** Banner paths use a flat root-level filename (`banner_<ms>_<uuid>.ext`) — no subfolder — so the organizer policy works regardless of the organizer's custom ID format (`JJ0001`). Do **not** use the organizer's custom ID as a folder prefix; it is not the same as `auth.uid()` and will cause a 403.
+> **Note:** Banner paths use a flat root-level filename (`banner_<ms>_<uuid>.ext`) — no subfolder — so the organizer policy works regardless of the organizer's custom ID (`Org0001`). Do **not** use the organizer's custom ID as a folder prefix; it is not the same as `auth.uid()` and will cause a 403.
 
 See `lib/supabase_schema.sql` for `selfies` bucket policies.
 

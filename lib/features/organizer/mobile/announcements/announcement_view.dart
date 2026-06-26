@@ -1,9 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../../core/app_colors.dart';
 
 String _fullDate(String? iso) {
-  if (iso == null) return 'â€”';
+  if (iso == null) return '—';
   try {
     final d  = DateTime.parse(iso).toLocal();
     const mo = ['January','February','March','April','May','June',
@@ -11,7 +11,7 @@ String _fullDate(String? iso) {
     final h  = d.hour % 12 == 0 ? 12 : d.hour % 12;
     final m  = d.minute.toString().padLeft(2, '0');
     final ap = d.hour >= 12 ? 'PM' : 'AM';
-    return '${mo[d.month - 1]} ${d.day}, ${d.year}  Â·  $h:$m $ap';
+    return '${mo[d.month - 1]} ${d.day}, ${d.year}  ·  $h:$m $ap';
   } catch (_) { return iso; }
 }
 
@@ -57,7 +57,7 @@ class AnnouncementViewScreen extends StatelessWidget {
     );
   }
 
-  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Header ────────────────────────────────────────────────────────────────
 
   Widget _buildHeader(BuildContext context) {
     return Padding(
@@ -113,7 +113,7 @@ class AnnouncementViewScreen extends StatelessWidget {
     );
   }
 
-  // â”€â”€ Hero banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Hero banner ───────────────────────────────────────────────────────────
 
   Widget _buildHeroBanner() {
     return Padding(
@@ -191,7 +191,7 @@ class AnnouncementViewScreen extends StatelessWidget {
     );
   }
 
-  // â”€â”€ Message card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Message card ──────────────────────────────────────────────────────────
 
   Widget _buildMessageCard() {
     return Container(
@@ -228,7 +228,7 @@ class AnnouncementViewScreen extends StatelessWidget {
     );
   }
 
-  // â”€â”€ Meta card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Meta card ─────────────────────────────────────────────────────────────
 
   Widget _buildMetaCard() {
     return Container(

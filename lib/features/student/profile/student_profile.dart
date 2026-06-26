@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,9 +8,9 @@ import 'package:eventhub/shared/widgets/app_loader.dart';
 import '../../../core/app_colors.dart';
 
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// ProfileBody â€” embedded inside StudentDashboard's IndexedStack
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
+// ProfileBody — embedded inside StudentDashboard's IndexedStack
+// ══════════════════════════════════════════════════════════════════════════════
 
 class ProfileBody extends StatefulWidget {
   final bool showAsEmbedded;
@@ -65,12 +65,12 @@ class _ProfileBodyState extends State<ProfileBody> {
       setState(() {
         fullName         = fn.isNotEmpty ? fn : 'Student';
         username         = uname;
-        studentId        = studentRow?['lrn'] as String? ?? 'â€”';
-        gradeSection     = yr != null ? 'Year Level $yr' : 'â€”';
-        email            = user.email ?? 'â€”';
+        studentId        = studentRow?['lrn'] as String? ?? '—';
+        gradeSection     = yr != null ? 'Year Level $yr' : '—';
+        email            = user.email ?? '—';
         memberSince      = created != null
-            ? DateTime.tryParse(created)?.year.toString() ?? 'â€”'
-            : 'â€”';
+            ? DateTime.tryParse(created)?.year.toString() ?? '—'
+            : '—';
         profilePhotoUrl  = studentRow?['profile_image_url'] as String?;
         registeredEvents = regs.length;
         checkedIn        = (regs as List)
@@ -84,13 +84,13 @@ class _ProfileBodyState extends State<ProfileBody> {
     }
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     if (_loading) {
-      return const AppFullScreenLoader(message: 'Loading your profileâ€¦');
+      return const AppFullScreenLoader(message: 'Loading your profile…');
     }
     return SafeArea(
       child: RefreshIndicator(
@@ -123,7 +123,7 @@ class _ProfileBodyState extends State<ProfileBody> {
     );
   }
 
-  // â”€â”€ Photo upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Photo upload ──────────────────────────────────────────────────────────
 
   Future<void> _pickAndUploadPhoto() async {
     final result = await FilePicker.platform.pickFiles(
@@ -168,7 +168,7 @@ class _ProfileBodyState extends State<ProfileBody> {
     }
   }
 
-  // â”€â”€ Banner + Avatar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Banner + Avatar ───────────────────────────────────────────────────────
 
   Widget _buildBanner(AppTk t) {
     return SizedBox(
@@ -247,7 +247,7 @@ class _ProfileBodyState extends State<ProfileBody> {
     decoration: BoxDecoration(shape: BoxShape.circle, color: color),
   );
 
-  // â”€â”€ Name + badges â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Name + badges ─────────────────────────────────────────────────────────
 
   Widget _buildNameSection(AppTk t) {
     return Column(
@@ -283,7 +283,7 @@ class _ProfileBodyState extends State<ProfileBody> {
       style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
   );
 
-  // â”€â”€ Edit button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Edit button ───────────────────────────────────────────────────────────
 
   Widget _buildEditButton(AppTk t) {
     return Padding(
@@ -322,7 +322,7 @@ class _ProfileBodyState extends State<ProfileBody> {
     );
   }
 
-  // â”€â”€ Account card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Account card ──────────────────────────────────────────────────────────
 
   Widget _buildAccountCard(AppTk t) {
     return _card(
@@ -391,7 +391,7 @@ class _ProfileBodyState extends State<ProfileBody> {
     );
   }
 
-  // â”€â”€ Security card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Security card ─────────────────────────────────────────────────────────
 
   Widget _buildSecurityCard(AppTk t) {
     return _card(
@@ -458,7 +458,7 @@ class _ProfileBodyState extends State<ProfileBody> {
     );
   }
 
-  // â”€â”€ Logout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Logout ────────────────────────────────────────────────────────────────
 
   Widget _buildLogoutTile(AppTk t) {
     return Padding(
@@ -494,7 +494,7 @@ class _ProfileBodyState extends State<ProfileBody> {
     );
   }
 
-  // â”€â”€ Shared card helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Shared card helpers ───────────────────────────────────────────────────
 
   Widget _card({required Widget child, required AppTk t, EdgeInsets? margin}) {
     return Container(
@@ -534,7 +534,7 @@ class _ProfileBodyState extends State<ProfileBody> {
     color: t.divider,
   );
 
-  // â”€â”€ Dialogs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Dialogs ───────────────────────────────────────────────────────────────
 
   void _showLogoutDialog() {
     showDialog(
@@ -658,9 +658,9 @@ class _ProfileBodyState extends State<ProfileBody> {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// ProfileScreen â€” full-screen standalone wrapper (kept for compat)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
+// ProfileScreen — full-screen standalone wrapper (kept for compat)
+// ══════════════════════════════════════════════════════════════════════════════
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -675,9 +675,9 @@ class ProfileScreen extends StatelessWidget {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // EditProfileInfoScreen
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
 class EditProfileInfoScreen extends StatefulWidget {
   final String? fullName;
@@ -815,7 +815,7 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
     ));
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -931,11 +931,11 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
           ]),
         ),
         _formCard(t: t, children: [
-          _lockedField(label: 'Grade / Section', value: widget.gradeSection ?? 'â€”', icon: Icons.school_outlined, isFirst: true, t: t),
+          _lockedField(label: 'Grade / Section', value: widget.gradeSection ?? '—', icon: Icons.school_outlined, isFirst: true, t: t),
           _cardDivider(t),
-          _lockedField(label: 'Email Address',   value: widget.email ?? 'â€”',         icon: Icons.email_outlined, t: t),
+          _lockedField(label: 'Email Address',   value: widget.email ?? '—',         icon: Icons.email_outlined, t: t),
           _cardDivider(t),
-          _lockedField(label: 'Student ID (LRN)', value: widget.studentId ?? 'â€”',    icon: Icons.badge_outlined, isId: true, isLast: true, t: t),
+          _lockedField(label: 'Student ID (LRN)', value: widget.studentId ?? '—',    icon: Icons.badge_outlined, isId: true, isLast: true, t: t),
         ]),
         const SizedBox(height: 24),
       ]),
@@ -978,7 +978,7 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
         icon: _saving
             ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0))
             : const Icon(Icons.check_rounded, size: 20),
-        label: Text(_saving ? 'Savingâ€¦' : 'Save Changes',
+        label: Text(_saving ? 'Saving…' : 'Save Changes',
           style: const TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700)),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent, foregroundColor: Colors.white,
@@ -1004,7 +1004,7 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
     ),
   );
 
-  // â”€â”€ Field widgets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Field widgets ─────────────────────────────────────────────────────────
 
   Widget _editField({
     required TextEditingController ctrl,

@@ -1,8 +1,10 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../events/student_all_events.dart';
+import '../events/event_details_page.dart';
+import '../events/my_registered_events_page.dart';
 import '../profile/student_profile.dart' hide kSubText;
 import '../notifications/notifications_screen.dart';
 import '../check_in/selfie_screen.dart';
@@ -16,7 +18,7 @@ import 'package:eventhub/shared/widgets/qr_code_dialog.dart';
 import 'package:eventhub/models/event_registration.dart';
 import 'package:eventhub/core/app_colors.dart';
 
-// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 String _greeting() {
   final h = DateTime.now().hour;
@@ -47,7 +49,7 @@ String _fmtTime(String? ts) {
 }
 
 
-// â”€â”€ Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Screen ────────────────────────────────────────────────────────────────────
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -76,9 +78,11 @@ class _StudentDashboardState extends State<StudentDashboard>
   List<Map<String, dynamic>> _upcomingRegistrations  = [];
 
   RealtimeChannel? _regChannel;
+  RealtimeChannel? _annChannel;
+  Timer?           _annDebounce;
   final Set<String> _selfiePrompted = {};
 
-  // â”€â”€ Init / dispose â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Init / dispose ────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -90,6 +94,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     _loadHomeData();
     SupabaseService.announcementsVersion.addListener(_onAnnouncementUpdate);
     _subscribeToCheckInRequests();
+    _subscribeAnnouncements();
     NotifReadStore.unreadNotifier.addListener(_onNotifCountChanged);
   }
 
@@ -101,16 +106,31 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   @override
   void dispose() {
+    _annDebounce?.cancel();
     _staggerCtrl.dispose();
     SupabaseService.announcementsVersion.removeListener(_onAnnouncementUpdate);
     NotifReadStore.unreadNotifier.removeListener(_onNotifCountChanged);
-    if (_regChannel != null) {
-      Supabase.instance.client.removeChannel(_regChannel!);
-    }
+    if (_regChannel != null) Supabase.instance.client.removeChannel(_regChannel!);
+    if (_annChannel != null) Supabase.instance.client.removeChannel(_annChannel!);
     super.dispose();
   }
 
-  // â”€â”€ Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  void _subscribeAnnouncements() {
+    _annChannel = Supabase.instance.client.channel('student-announcements');
+    _annChannel!.on(
+      RealtimeListenTypes.postgresChanges,
+      ChannelFilter(event: '*', schema: 'public', table: 'announcements'),
+      (_, [a]) {
+        _annDebounce?.cancel();
+        _annDebounce = Timer(const Duration(milliseconds: 600), () {
+          if (mounted) _loadHomeData(silent: true);
+        });
+      },
+    );
+    _annChannel!.subscribe();
+  }
+
+  // ── Data ─────────────────────────────────────────────────────────────────
 
   Future<void> _loadHomeData({bool silent = false}) async {
     if (silent && _homeRefreshing) return;
@@ -141,7 +161,9 @@ class _StudentDashboardState extends State<StudentDashboard>
       // Registrations fetched separately (needs user.id, not parallelizable cleanly)
       final regRows = await client
           .from('registrations')
-          .select('*, events(event_date, start_time, end_time, location, event_image_url)')
+          .select('*, events(event_id, title, event_date, start_time, end_time, '
+                  'location, event_image_url, description, event_status, '
+                  'max_participants, event_type)')
           .eq('student_user_id', user.id)
           .order('registered_at', ascending: false);
       final regList = List<Map<String, dynamic>>.from(regRows as List);
@@ -225,7 +247,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     }
   }
 
-  // â”€â”€ Realtime â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Realtime ─────────────────────────────────────────────────────────────
 
   void _subscribeToCheckInRequests() {
     _regChannel = RegistrationService.subscribeToMyRegistrations((record) {
@@ -251,7 +273,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 
   void _showAnnouncementDetail(Map<String, dynamic> ann) {
-    final title     = ann['title']   as String? ?? 'â€”';
+    final title     = ann['title']   as String? ?? '—';
     final message   = ann['message'] as String? ?? '';
     final createdAt = ann['created_at'] as String?;
 
@@ -355,14 +377,62 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
+  void _navigateToEventDetail(Map<String, dynamic> reg) {
+    final raw = reg['events'];
+    if (raw == null) return;
+    final evMap = Map<String, dynamic>.from(raw as Map);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EventDetailsPage(event: evMap, registration: reg),
+      ),
+    ).then((_) { if (mounted) _loadHomeData(silent: true); });
+  }
+
+  // Returns true if any registration in [regs] has an event that is currently
+  // ongoing (started but not yet ended), so the LIVE chip is only shown when
+  // something is actually happening right now.
+  bool _isAnyEventLive(List<Map<String, dynamic>> regs) {
+    final now = DateTime.now();
+    for (final reg in regs) {
+      final evMap = reg['events'] as Map?;
+      final dStr  = evMap?['event_date'] as String?;
+      if (dStr == null) continue;
+      try {
+        final d = DateTime.parse(dStr);
+        final sTime = evMap?['start_time'] as String?;
+        DateTime startTime;
+        if (sTime != null) {
+          final p = sTime.split(':');
+          startTime = DateTime(d.year, d.month, d.day,
+              int.tryParse(p[0]) ?? 8,
+              p.length > 1 ? (int.tryParse(p[1]) ?? 0) : 0);
+        } else {
+          startTime = DateTime(d.year, d.month, d.day, 8);
+        }
+        final eTime = evMap?['end_time'] as String?;
+        DateTime? endTime;
+        if (eTime != null) {
+          final ep = eTime.split(':');
+          endTime = DateTime(d.year, d.month, d.day,
+              int.tryParse(ep[0]) ?? 23,
+              ep.length > 1 ? (int.tryParse(ep[1]) ?? 59) : 59);
+        }
+        final started = !now.isBefore(startTime);
+        final ended   = endTime != null && now.isAfter(endTime);
+        if (started && !ended) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
   void _onNavBarTapped(int index) {
     HapticFeedback.selectionClick();
     setState(() => _selectedIndex = index);
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
   // BUILD
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -401,13 +471,13 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  // â”€â”€ Home screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Home screen ───────────────────────────────────────────────────────────
 
   Widget _buildHomeScreen(AppTk t) {
     if (_homeLoading) {
       return Container(
         color: t.bg,
-        child: const AppFullScreenLoader(message: 'Loading your dashboardâ€¦'),
+        child: const AppFullScreenLoader(message: 'Loading your dashboard…'),
       );
     }
 
@@ -443,9 +513,9 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
   // HEADER
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildHeader(AppTk t) {
     final firstName = (_studentName ?? 'Student').split(' ').first;
@@ -577,47 +647,47 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // LIVE BANNER â€” registered upcoming events
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
+  // LIVE BANNER — registered upcoming events
+  // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildLiveBanner(AppTk t) {
     final regs = _upcomingRegistrations;
-    if (regs.isEmpty) return const SizedBox.shrink();
+    if (regs.isEmpty) return _buildExploreCard(t);
+
+    final hasLive = _isAnyEventLive(regs);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Section header
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
           child: Row(
             children: [
-              _SectionLabel(
-                label: 'MY UPCOMING EVENTS',
-                t: t,
-              ),
-              const SizedBox(width: 10),
-              const _LivePulseDot(),
-              const SizedBox(width: 5),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.25)),
-                ),
-                child: const Text(
-                  'LIVE',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.0,
-                    color: Color(0xFF10B981),
+              _SectionLabel(label: 'MY UPCOMING EVENTS', t: t),
+              if (hasLive) ...[
+                const SizedBox(width: 10),
+                const _LivePulseDot(),
+                const SizedBox(width: 5),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.25)),
+                  ),
+                  child: const Text(
+                    'LIVE',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.0,
+                      color: Color(0xFF10B981),
+                    ),
                   ),
                 ),
-              ),
+              ],
               if (regs.length > 1) ...[
                 const Spacer(),
                 Container(
@@ -641,20 +711,109 @@ class _StudentDashboardState extends State<StudentDashboard>
             ],
           ),
         ),
-        // Hero banner card
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: _buildMainEventBannerCard(regs.first, t),
         ),
-        // Additional events strip
         if (regs.length > 1) _buildMoreRegisteredStrip(regs.sublist(1), t),
       ],
     );
   }
 
+  Widget _buildExploreCard(AppTk t) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(20, 26, 20, 22),
+        decoration: BoxDecoration(
+          color: t.card,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: kGold.withValues(alpha: 0.22)),
+          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 14, offset: const Offset(0, 4))],
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 52, height: 52,
+              decoration: BoxDecoration(
+                color: kGold.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: kGold.withValues(alpha: 0.22)),
+              ),
+              child: const Icon(Icons.event_available_rounded, size: 26, color: kGold),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'No Upcoming Events',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: t.text,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              "You haven't registered for any events yet.\nExplore what's happening around you.",
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 11.5,
+                color: t.muted,
+                height: 1.55,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 22),
+            GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                _onNavBarTapped(1);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFC49230), kGold, Color(0xFFEAB866)],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: kGold.withValues(alpha: 0.32),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Browse Events',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Icon(Icons.arrow_forward_rounded, size: 15, color: Colors.white),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMainEventBannerCard(Map<String, dynamic> reg, AppTk t) {
     final evMap   = reg['events'] as Map?;
-    final title   = reg['event_title'] as String? ?? 'â€”';
+    final title   = reg['event_title'] as String? ?? '—';
     final dStr    = evMap?['event_date'] as String?;
     if (dStr == null) return const SizedBox.shrink();
 
@@ -690,7 +849,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     final fmtDate  = '${months[target.month - 1]} ${target.day}';
 
     return GestureDetector(
-      onTap: () => _showNextEventQR(reg),
+      onTap: () => _navigateToEventDetail(reg),
       child: Container(
         height: 196,
         decoration: BoxDecoration(
@@ -731,23 +890,27 @@ class _StudentDashboardState extends State<StudentDashboard>
               top: 14, left: 14,
               child: EventPhasePill(phase: initPhase),
             ),
-            // Top-right QR chip
+            // Top-right QR chip — independent tap target to show the QR dialog
+            // directly without navigating to the event detail page.
             Positioned(
               top: 14, right: 14,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.40), width: 1.2),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.qr_code_2_rounded, size: 13, color: Colors.white),
-                    SizedBox(width: 5),
-                    Text('My QR', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
-                  ],
+              child: GestureDetector(
+                onTap: () => _showNextEventQR(reg),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.40), width: 1.2),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.qr_code_2_rounded, size: 13, color: Colors.white),
+                      SizedBox(width: 5),
+                      Text('My QR', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -783,7 +946,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                               const SizedBox(width: 4),
                               Text(fmtDate, style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.white70)),
                               if (location.isNotEmpty) ...[
-                                const Text(' Â· ', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.white38)),
+                                const Text(' · ', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.white38)),
                                 const Icon(Icons.location_on_outlined, size: 11, color: Colors.white70),
                                 const SizedBox(width: 3),
                                 Expanded(
@@ -846,7 +1009,7 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   Widget _buildCompactRegCard(Map<String, dynamic> reg, AppTk t) {
     final evMap    = reg['events'] as Map?;
-    final title    = reg['event_title'] as String? ?? 'â€”';
+    final title    = reg['event_title'] as String? ?? '—';
     final dStr     = evMap?['event_date'] as String?;
     final imageUrl = evMap?['event_image_url'] as String?;
 
@@ -860,7 +1023,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     }
 
     return GestureDetector(
-      onTap: () => _showNextEventQR(reg),
+      onTap: () => _navigateToEventDetail(reg),
       child: Container(
         width: 210,
         margin: const EdgeInsets.only(right: 10),
@@ -926,11 +1089,18 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // STATS CARD â€” unified horizontal card
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
+  // STATS CARD — unified horizontal card
+  // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildStatsCard(AppTk t) {
+    final hasData = _totalRegistrations > 0;
+    final rate    = hasData ? _attendedCount / _totalRegistrations : 0.0;
+
+    void goToMyEvents() => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const MyRegisteredEventsPage()),
+        );
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
       child: Column(
@@ -945,16 +1115,27 @@ class _StudentDashboardState extends State<StudentDashboard>
               border: Border.all(color: t.border),
               boxShadow: [BoxShadow(color: t.shadow, blurRadius: 16, offset: const Offset(0, 4))],
             ),
-            child: IntrinsicHeight(
-              child: Row(
-                children: [
-                  _statCell('$_totalRegistrations', 'Registered', Icons.how_to_reg_rounded, kGold, t),
-                  _VertDivider(t: t),
-                  _statCell('$_attendedCount', 'Attended', Icons.check_circle_rounded, const Color(0xFF16A34A), t),
-                  _VertDivider(t: t),
-                  _statCell('$_upcomingCount', 'Upcoming', Icons.event_rounded, const Color(0xFF3B82F6), t),
-                ],
-              ),
+            child: Column(
+              children: [
+                IntrinsicHeight(
+                  child: Row(
+                    children: [
+                      _statCell('$_totalRegistrations', 'Registered',
+                          Icons.how_to_reg_rounded, kGold, t,
+                          onTap: goToMyEvents),
+                      _VertDivider(t: t),
+                      _statCell('$_attendedCount', 'Attended',
+                          Icons.check_circle_rounded, const Color(0xFF16A34A), t,
+                          onTap: goToMyEvents),
+                      _VertDivider(t: t),
+                      _statCell('$_upcomingCount', 'Upcoming',
+                          Icons.event_rounded, const Color(0xFF3B82F6), t,
+                          onTap: () => _onNavBarTapped(1)),
+                    ],
+                  ),
+                ),
+                if (hasData) _buildAttendanceRate(rate, t),
+              ],
             ),
           ),
         ],
@@ -962,66 +1143,131 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  Widget _statCell(String value, String label, IconData icon, Color color, AppTk t) {
+  Widget _buildAttendanceRate(double rate, AppTk t) {
+    final pct   = (rate * 100).round();
+    final color = rate >= 0.7
+        ? const Color(0xFF16A34A)
+        : rate >= 0.4 ? kGold : const Color(0xFFEF4444);
+    return Column(
+      children: [
+        Divider(height: 1, color: t.divider),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Attendance rate',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: t.muted,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '$pct%  ·  $_attendedCount of $_totalRegistrations attended',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 7),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: rate),
+                  duration: const Duration(milliseconds: 700),
+                  curve: Curves.easeOut,
+                  builder: (_, v, child) => LinearProgressIndicator(
+                    value: v,
+                    minHeight: 5,
+                    backgroundColor: t.shimmer1,
+                    valueColor: AlwaysStoppedAnimation<Color>(color),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _statCell(String value, String label, IconData icon, Color color, AppTk t,
+      {VoidCallback? onTap}) {
     return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 16, 14, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 26,
-                    fontWeight: FontWeight.w800,
-                    color: t.text,
-                    height: 1.0,
+      child: GestureDetector(
+        onTap: onTap == null ? null : () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 16, 14, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      color: t.text,
+                      height: 1.0,
+                    ),
                   ),
-                ),
-                const Spacer(),
-                Container(
-                  width: 30, height: 30,
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(9),
+                  const Spacer(),
+                  Container(
+                    width: 30, height: 30,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Icon(icon, color: color, size: 15),
                   ),
-                  child: Icon(icon, color: color, size: 15),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: t.muted,
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: t.muted,
               ),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              width: 22,
-              height: 2.5,
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(2),
+              const SizedBox(height: 10),
+              Container(
+                width: 22,
+                height: 2.5,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
   // ANNOUNCEMENTS
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildAnnouncementsSection(AppTk t) {
     return Padding(
@@ -1079,7 +1325,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 
   Widget _announcementItem(Map<String, dynamic> ann, {required bool showDivider, required AppTk t}) {
-    final title     = ann['title']      as String? ?? 'â€”';
+    final title     = ann['title']      as String? ?? '—';
     final createdAt = ann['created_at'] as String?;
     final annId     = ann['id']?.toString() ?? '';
     final isRead    = NotifReadStore.isRead('ann_$annId');
@@ -1156,7 +1402,7 @@ class _StudentDashboardState extends State<StudentDashboard>
 
 
 
-  // â”€â”€ Shared helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Shared helpers ────────────────────────────────────────────────────────
 
   Widget _imagePlaceholder() {
     return Container(
@@ -1199,9 +1445,9 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
   // BOTTOM NAVIGATION
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildBottomNav(AppTk t) {
     return SafeArea(
@@ -1245,9 +1491,9 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // Sub-widgets
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
 class _NavItem extends StatelessWidget {
   final IconData     activeIcon;

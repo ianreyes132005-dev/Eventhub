@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../models/event_registration.dart';
 import '../../../shared/widgets/qr_code_dialog.dart';
@@ -31,12 +31,12 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     _reg = widget.registration;
   }
 
-  // â”€â”€ Data helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Data helpers ───────────────────────────────────────────────────────────
 
   Map<String, dynamic> get _e => widget.event;
 
-  String get _title => _e['title'] as String? ?? 'â€”';
-  String get _location => _e['location'] as String? ?? 'â€”';
+  String get _title => _e['title'] as String? ?? '—';
+  String get _location => _e['location'] as String? ?? '—';
   String get _description => (_e['description'] as String?)?.trim() ?? '';
   String get _type => _e['event_type'] as String? ?? '';
   String get _imageUrl => _e['event_image_url'] as String? ?? '';
@@ -58,7 +58,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
 
   String _fmtDate() {
     final d = _e['event_date'] as String?;
-    if (d == null) return 'â€”';
+    if (d == null) return '—';
     try {
       final dt = DateTime.parse(d);
       const m = [
@@ -70,7 +70,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   }
 
   String _fmtTime(String? t) {
-    if (t == null) return 'â€”';
+    if (t == null) return '—';
     final p = t.split(':');
     if (p.length < 2) return t;
     final h = int.tryParse(p[0]) ?? 0;
@@ -82,8 +82,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   String get _timeRange {
     final s = _fmtTime(_e['start_time'] as String?);
     final e = _fmtTime(_e['end_time'] as String?);
-    if (s == 'â€”') return 'â€”';
-    return e == 'â€”' ? s : '$s â€“ $e';
+    if (s == '—') return '—';
+    return e == '—' ? s : '$s — $e';
   }
 
   String get _deadlineText {
@@ -98,7 +98,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
 
   String get _createdText {
     final iso = _e['created_at'] as String?;
-    if (iso == null) return 'â€”';
+    if (iso == null) return '—';
     try {
       final dt = DateTime.parse(iso).toLocal();
       const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -126,7 +126,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     }
   }
 
-  // â”€â”€ Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Actions ────────────────────────────────────────────────────────────────
 
   Future<void> _handleRegister() async {
     setState(() => _registering = true);
@@ -170,7 +170,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +203,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // â”€â”€ Hero image (collapsible) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Hero image (collapsible) ──────────────────────────────────────────────
 
   Widget _buildHero(BuildContext context) {
     return SliverAppBar(
@@ -318,7 +318,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // â”€â”€ Scrollable body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Scrollable body ────────────────────────────────────────────────────────
 
   Widget _buildBody() {
     return Container(
@@ -370,7 +370,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // â”€â”€ Quick info chips row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Quick info chips row ───────────────────────────────────────────────────
 
   Widget _buildQuickInfoRow() {
     return Padding(
@@ -451,7 +451,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // â”€â”€ About â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── About ──────────────────────────────────────────────────────────────────
 
   Widget _buildAboutSection() {
     return Padding(
@@ -477,7 +477,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // â”€â”€ Capacity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Capacity ───────────────────────────────────────────────────────────────
 
   Widget _buildCapacitySection() {
     final pct = (_fillRatio * 100).toInt();
@@ -520,7 +520,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               _miniStat(
                 icon: Icons.bar_chart_rounded,
                 label: 'Fill Rate',
-                value: _capacity > 0 ? '$pct%' : 'â€”',
+                value: _capacity > 0 ? '$pct%' : '—',
                 color: barColor,
               ),
             ],
@@ -616,7 +616,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // â”€â”€ Schedule â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Schedule ───────────────────────────────────────────────────────────────
 
   Widget _buildScheduleSection() {
     return Padding(
@@ -763,7 +763,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // â”€â”€ Sticky bottom action bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Sticky bottom action bar ───────────────────────────────────────────────
 
   Widget _buildBottomBar() {
     return Container(
@@ -812,7 +812,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               )
             : const Icon(Icons.how_to_reg_rounded, size: 20),
         label: Text(
-          _registering ? 'Registeringâ€¦' : 'Register for this Event',
+          _registering ? 'Registering…' : 'Register for this Event',
           style: const TextStyle(
             fontFamily: 'Poppins',
             fontSize: 15,
@@ -938,7 +938,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  // â”€â”€ Shared helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Shared helpers ────────────────────────────────────────────────────────
 
   Widget _sectionTitle(String text) {
     return Text(

@@ -1,11 +1,13 @@
-﻿import 'package:fl_chart/fl_chart.dart';
+import 'dart:async';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/app_colors.dart';
 import '../../core/services/supabase_service.dart';
 import '../organizer/web/web_shared.dart';
 import '../../shared/widgets/event_phase_pill.dart';
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Admin palette Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Admin palette ────────────────────────────────────────────────────────────
 const _kAccent     = Color(0xFFEA580C); // orange
 const _kSideTop    = Color(0xFF4A2894);
 const _kSideMid    = Color(0xFF3B1F7A);
@@ -20,8 +22,8 @@ const _kSideGrad = LinearGradient(
   end: Alignment.bottomCenter,
 );
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Navigation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-enum AdminPage { overview, students, organizers, events, registrations }
+// ─── Navigation ───────────────────────────────────────────────────────────────
+enum AdminPage { overview, students, organizers, events, registrations, logs }
 
 const _kNavItems = [
   (AdminPage.overview,      Icons.dashboard_rounded,      'Dashboard'),
@@ -29,11 +31,12 @@ const _kNavItems = [
   (AdminPage.organizers,    Icons.badge_rounded,          'Organizers'),
   (AdminPage.events,        Icons.event_rounded,          'Events'),
   (AdminPage.registrations, Icons.how_to_reg_rounded,     'Registrations'),
+  (AdminPage.logs,          Icons.history_rounded,        'Logs'),
 ];
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 // Shell
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 
 class AdminWebDashboard extends StatefulWidget {
   const AdminWebDashboard({super.key});
@@ -205,12 +208,13 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
     AdminPage.organizers    => const _AdminOrganizersPage(),
     AdminPage.events        => const _AdminEventsPage(),
     AdminPage.registrations => const _AdminRegistrationsPage(),
+    AdminPage.logs          => const _AdminLogsPage(),
   };
 }
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 // Sidebar
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 
 class _AdminSidebar extends StatefulWidget {
   final bool      collapsed;
@@ -506,9 +510,9 @@ class _AdminSidebarState extends State<_AdminSidebar>
   String? get _name => widget.name;
 }
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 // Nav item
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 
 class _AdminNavItem extends StatefulWidget {
   final IconData icon; final String label;
@@ -610,7 +614,7 @@ class _AdminNavItemState extends State<_AdminNavItem> {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Sign-out buttons Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Sign-out buttons ──────────────────────────────────────────────────────
 
 class _SignOutIconBtn extends StatefulWidget {
   final VoidCallback onTap; final Color borderColor;
@@ -671,9 +675,9 @@ class _InlineSignOutBtnState extends State<_InlineSignOutBtn> {
   );
 }
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 // Top bar
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 
 class _AdminTopBar extends StatelessWidget {
   final bool         collapsed;
@@ -692,6 +696,7 @@ class _AdminTopBar extends StatelessWidget {
     AdminPage.organizers    => 'Organizers',
     AdminPage.events        => 'Events',
     AdminPage.registrations => 'Registrations',
+    AdminPage.logs          => 'Logs',
   };
 
   @override
@@ -774,9 +779,9 @@ class _TopIconBtnState extends State<_TopIconBtn> {
   );
 }
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 // Overview page
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 
 class _TopEvent {
   final String title;
@@ -794,7 +799,6 @@ class _AdminOverviewPage extends StatefulWidget {
 class _AdminOverviewPageState extends State<_AdminOverviewPage> {
   bool      _loading = true;
   bool      _dashError = false;
-  bool      _refreshing = false;
   DateTime? _chartWindowStart;
 
   int    _studentTotal = 0, _studentActive = 0;
@@ -813,8 +817,37 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
   List<Map<String, dynamic>> _recentRegs     = [];
   List<Map<String, dynamic>> _upcomingEvents = [];
 
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
+
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() { super.initState(); _load(); _subscribeRealtime(); }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
+    super.dispose();
+  }
+
+  void _subscribeRealtime() {
+    _channel = SupabaseService.client.channel('admin-overview');
+    for (final table in ['students', 'organizers', 'events', 'registrations']) {
+      _channel!.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (_, [__]) => _debounceLoad(),
+      );
+    }
+    _channel!.subscribe();
+  }
+
+  void _debounceLoad() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) _load(silent: true);
+    });
+  }
 
   Future<void> _load({bool silent = false}) async {
     if (mounted) setState(() { if (!silent) _loading = true; _dashError = false; });
@@ -829,8 +862,8 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       ]);
 
       // Two lightweight reg queries in parallel:
-      // 1. Stat counts â€” 3 columns, all rows (much less data than full rows)
-      // 2. Recent 10 â€” full display columns, limited (for activity feed)
+      // 1. Stat counts — 3 columns, all rows (much less data than full rows)
+      // 2. Recent 10 — full display columns, limited (for activity feed)
       List<Map<String, dynamic>> statsRegs = [], recentRows = [];
       try {
         final regResults = await Future.wait([
@@ -857,7 +890,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       final studentActive = students.where((s) => s['is_active'] == true).length;
       final orgActive     = orgs.where((o) => o['is_active'] == true).length;
 
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Event stats Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Event stats ───────────────────────────────────────────────────
       final statusCounts = <String, int>{};
       var upcomingCount = 0;
       final upcomingList = <Map<String, dynamic>>[];
@@ -878,7 +911,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
         }
       }
 
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Registration stats Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Registration stats ────────────────────────────────────────────
       final checkedInTotal = statsRegs.where((r) => r['status'] == 'checked_in').length;
       final checkInRate    = statsRegs.isEmpty ? 0.0 : checkedInTotal / statsRegs.length * 100;
 
@@ -903,8 +936,8 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
       final regNeedsReview = statsRegs.where((r) => r['status'] == 'photo_submitted').length;
 
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Top 5 events by registration count Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-      // Top 5 events by current_participants â€” already in events query, no extra reg fetch needed
+      // ── Top 5 events by registration count ───────────────────────────
+      // Top 5 events by current_participants — already in events query, no extra reg fetch needed
       final topEvents = (events
           .where((e) => (e['current_participants'] as int? ?? 0) > 0)
           .toList()
@@ -912,7 +945,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
                 .compareTo(a['current_participants'] as int? ?? 0)))
           .take(5)
           .map((e) => _TopEvent(
-              title:    e['title'] as String? ?? 'â€”',
+              title:    e['title'] as String? ?? '—',
               count:    e['current_participants'] as int? ?? 0,
               capacity: e['max_participants']    as int? ?? 0))
           .toList();
@@ -944,13 +977,6 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
     }
   }
 
-  Future<void> _refresh() async {
-    if (_refreshing) return;
-    setState(() => _refreshing = true);
-    await _load(silent: true);
-    if (mounted) setState(() => _refreshing = false);
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator(color: _kAccent));
@@ -972,10 +998,10 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
     );
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Photo review alert Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Photo review alert ──────────────────────────────────────────────────────
 
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Header Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Header ─────────────────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
@@ -984,7 +1010,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
           style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
               fontWeight: FontWeight.w800, color: kText)),
         const SizedBox(height: 2),
-        const Text('J-Jireh EventHub  Â·  Administration',
+        const Text('J-Jireh EventHub  ·  Administration',
           style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kMuted)),
       ])),
       if (_regNeedsReview > 0) ...[
@@ -1009,14 +1035,11 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
             ),
           ),
         ),
-        const SizedBox(width: 12),
       ],
-      WebBtn(label: 'Refresh', icon: Icons.refresh_rounded,
-          onTap: _refreshing ? () {} : _refresh, outlined: true, color: _kAccent),
     ]);
   }
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ KPI row Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── KPI row ────────────────────────────────────────────────────────────────
 
   Widget _buildKpiRow() => Row(children: [
     Expanded(child: _KpiCard(
@@ -1059,10 +1082,10 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
     )),
   ]);
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Today snapshot row Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Today snapshot row ───────────────────────────────────────────────────────
 
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Charts row Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Charts row ─────────────────────────────────────────────────────────────
 
   Widget _buildChartsRow() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Expanded(
@@ -1117,7 +1140,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
     ),
   ]);
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Bottom row Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Bottom row ─────────────────────────────────────────────────────────────
 
   Widget _buildBottomRow() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Expanded(
@@ -1195,7 +1218,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
     ),
   ]);
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Recent registrations Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Recent registrations ───────────────────────────────────────────────────
 
   Widget _buildRecentRegs() => WebCard(
     padding: EdgeInsets.zero,
@@ -1272,11 +1295,11 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(flex: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(r['student_name'] as String? ?? 'â€”',
+                    Text(r['student_name'] as String? ?? '—',
                       style: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
                           fontWeight: FontWeight.w600, color: kText),
                       maxLines: 1, overflow: TextOverflow.ellipsis),
-                    Text(r['event_title'] as String? ?? 'â€”',
+                    Text(r['event_title'] as String? ?? '—',
                       style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText),
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   ])),
@@ -1320,7 +1343,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ KPI card Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── KPI card ─────────────────────────────────────────────────────────────────
 
 class _KpiCard extends StatefulWidget {
   final IconData      icon;
@@ -1422,7 +1445,7 @@ class _KpiCardState extends State<_KpiCard> {
   );
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Registration trend line chart Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Registration trend line chart ────────────────────────────────────────────
 
 class _RegTrendChart extends StatelessWidget {
   final List<double> dailyRegs;
@@ -1568,7 +1591,7 @@ class _RegTrendChart extends StatelessWidget {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Chart window toggle (7D / 30D) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Chart window toggle (7D / 30D) ──────────────────────────────────────────
 
 class _ChartWindowToggle extends StatelessWidget {
   final int                selected;
@@ -1617,7 +1640,7 @@ class _ChartWindowToggle extends StatelessWidget {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Event status donut chart Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Event status donut chart ─────────────────────────────────────────────────
 
 class _EventStatusDonut extends StatefulWidget {
   final Map<String, int> statusCounts;
@@ -1708,7 +1731,7 @@ class _EventStatusDonutState extends State<_EventStatusDonut> {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Top events progress bars Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Top events progress bars ─────────────────────────────────────────────────
 
 class _TopEventsChart extends StatelessWidget {
   final List<_TopEvent> events;
@@ -1790,10 +1813,10 @@ class _TopEventsChart extends StatelessWidget {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Today snapshot stat cell Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Today snapshot stat cell ─────────────────────────────────────────────────────
 
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Upcoming event tile Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Upcoming event tile ──────────────────────────────────────────────────────
 
 class _UpcomingEventTile extends StatelessWidget {
   final Map<String, dynamic> event;
@@ -1802,10 +1825,10 @@ class _UpcomingEventTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title   = event['title']         as String? ?? 'â€”';
+    final title   = event['title']         as String? ?? '—';
     final dStr    = event['event_date']    as String?;
     final status  = (event['event_status'] as String? ?? '').toLowerCase();
-    final orgName = (event['organizers']   as Map<String, dynamic>?)?['full_name'] as String? ?? 'â€”';
+    final orgName = (event['organizers']   as Map<String, dynamic>?)?['full_name'] as String? ?? '—';
     final rawTime = event['start_time']    as String?;
     String timeLabel = '';
     if (rawTime != null && rawTime.isNotEmpty) {
@@ -1889,7 +1912,7 @@ class _UpcomingEventTile extends StatelessWidget {
               maxLines: 1, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 2),
             Text(
-              timeLabel.isNotEmpty ? '$timeLabel  Â·  by $orgName' : 'by $orgName',
+              timeLabel.isNotEmpty ? '$timeLabel  ·  by $orgName' : 'by $orgName',
               style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted),
               maxLines: 1, overflow: TextOverflow.ellipsis),
           ])),
@@ -1906,7 +1929,7 @@ class _UpcomingEventTile extends StatelessWidget {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Placeholder note Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Placeholder note ─────────────────────────────────────────────────────────
 
 class _PlaceholderNote extends StatelessWidget {
   final String text;
@@ -1918,9 +1941,9 @@ class _PlaceholderNote extends StatelessWidget {
   );
 }
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 // Students page
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 
 class _AdminStudentsPage extends StatefulWidget {
   const _AdminStudentsPage();
@@ -1939,6 +1962,9 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
   bool   _sortAsc      = false;
   final _searchCtrl = TextEditingController();
 
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
+
   List<String> get _yearOptions {
     final years = _all
         .map((s) => s['year_level'])
@@ -1950,12 +1976,36 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
   }
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() { super.initState(); _load(); _subscribeRealtime(); }
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    _debounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
+    super.dispose();
+  }
 
-  Future<void> _load() async {
-    setState(() { _loading = true; _error = false; });
+  void _subscribeRealtime() {
+    _channel = SupabaseService.client.channel('admin-students');
+    for (final table in ['students', 'registrations']) {
+      _channel!.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (_, [__]) => _debounceLoad(),
+      );
+    }
+    _channel!.subscribe();
+  }
+
+  void _debounceLoad() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) _load(silent: true);
+    });
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (mounted) setState(() { if (!silent) _loading = true; _error = false; });
     try {
       final results = await Future.wait([
         SupabaseService.client
@@ -2076,14 +2126,42 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
   }
 
   Future<void> _addStudent() async {
-    final result = await showDialog<Map<String, dynamic>?>(
-      context: context, builder: (_) => const _StudentDialog(student: null));
-    if (result == null) return;
-    try {
-      await SupabaseService.client.from('students').insert(result);
-      _load();
-      if (mounted) WebAlert.success(context: context, title: 'Added', message: 'New student record created.');
-    } catch (e) { if (mounted) _snack('Failed: $e'); }
+    String? createdName;
+    final ok = await showDialog<bool?>(
+      context: context,
+      builder: (_) => _StudentDialog(
+        student: null,
+        onCreate: (data) async {
+          try {
+            createdName      = data['full_name'] as String?;
+            final password   = data['password'] as String;
+            final studentData = Map<String, dynamic>.from(data)..remove('password');
+            final res = await SupabaseService.client.functions.invoke(
+              'create-student',
+              body: {...studentData, 'password': password},
+            );
+            final body = res.data is Map
+                ? Map<String, dynamic>.from(res.data as Map)
+                : null;
+            if (res.status != 200) {
+              return body?['message'] as String? ?? 'Failed to create account.';
+            }
+            return null; // success
+          } catch (e) {
+            return 'Failed: $e';
+          }
+        },
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _load();
+    if (mounted) {
+      WebAlert.success(
+        context: context,
+        title: 'Account Created',
+        message: 'Student account for ${createdName ?? 'student'} has been created.',
+      );
+    }
   }
 
   Future<void> _deleteStudent(String lrn, String name) async {
@@ -2125,7 +2203,7 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
 
     return SingleChildScrollView(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Page header Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Page header ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 18, kWebPad, 14),
         color: Colors.white,
@@ -2140,16 +2218,13 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
                 style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: kSubText)),
             ])),
             WebSearchField(
-              controller: _searchCtrl, hint: 'Search name or LRNÃ¢â‚¬Â¦',
+              controller: _searchCtrl, hint: 'Search name or LRN…',
               onChanged: (v) { _search = v; _applyFilter(); }, width: 240),
-            const SizedBox(width: 12),
-            WebBtn(label: 'Refresh', icon: Icons.refresh_rounded,
-                onTap: _load, outlined: true, color: _kAccent),
             const SizedBox(width: 10),
             WebBtn(label: 'Add Student', icon: Icons.add_rounded, onTap: _addStudent),
           ]),
           const SizedBox(height: 16),
-          // Ã¢â€â‚¬Ã¢â€â‚¬ Stat tiles Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+          // ── Stat tiles ────────────────────────────────────────────────
           Row(children: [
             _StudentStatCard(label: 'Total Enrolled', value: '$totalCount',
                 color: _kAccent, icon: Icons.people_rounded),
@@ -2180,7 +2255,7 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
           ]),
         ]),
       ),
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Filter bar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Filter bar ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
         decoration: const BoxDecoration(
@@ -2252,7 +2327,7 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
           ],
         ]),
       ),
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Body Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Body ─────────────────────────────────────────────────────────
         if (_filtered.isEmpty)
           Padding(
             padding: const EdgeInsets.all(kWebPad),
@@ -2299,7 +2374,7 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
                       _filtered[i]['is_active'] == true),
                     onDelete: () => _deleteStudent(
                       _filtered[i]['lrn'] as String,
-                      _filtered[i]['full_name'] as String? ?? 'â€”'),
+                      _filtered[i]['full_name'] as String? ?? '—'),
                   ),
                 ),
                 Container(
@@ -2368,7 +2443,7 @@ class _StudentRowState extends State<_StudentRow> {
           const SizedBox(width: 12),
           // Name + "no auth" warning
           Expanded(flex: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(s['full_name'] as String? ?? 'Ã¢â‚¬â€',
+            Text(s['full_name'] as String? ?? '—',
               style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: active ? kText : kMuted),
@@ -2379,7 +2454,7 @@ class _StudentRowState extends State<_StudentRow> {
                     color: Color(0xFFF59E0B), fontWeight: FontWeight.w600)),
           ])),
           // LRN
-          Expanded(flex: 2, child: Text(s['lrn'] as String? ?? 'Ã¢â‚¬â€',
+          Expanded(flex: 2, child: Text(s['lrn'] as String? ?? '—',
             style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText),
             maxLines: 1, overflow: TextOverflow.ellipsis)),
           // Year level badge
@@ -2394,7 +2469,7 @@ class _StudentRowState extends State<_StudentRow> {
                 child: Text('Yr $yr',
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 11,
                       fontWeight: FontWeight.w700, color: Color(0xFF6D28D9))))
-            : const Text('â€”', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kMuted))),
+            : const Text('—', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kMuted))),
           // Registration count
           Expanded(child: widget.regCount > 0
               ? Container(
@@ -2425,7 +2500,7 @@ class _StudentRowState extends State<_StudentRow> {
           Expanded(child: WebStatusBadge(
             label: active ? 'Active' : 'Inactive',
             color: active ? const Color(0xFF10B981) : kMuted)),
-          // Account link status Ã¢â‚¬â€ amber when unlinked
+          // Account link status — amber when unlinked
           Expanded(child: Row(children: [
             Container(width: 7, height: 7,
                 decoration: BoxDecoration(
@@ -2440,7 +2515,7 @@ class _StudentRowState extends State<_StudentRow> {
           // Created date
           Expanded(flex: 2, child: Text(webFmtDate(s['created_at'] as String?),
             style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: kMuted))),
-          // Actions Ã¢â‚¬â€ always rendered at fixed width; _ActBtn provides its own hover color
+          // Actions — always rendered at fixed width; _ActBtn provides its own hover color
           SizedBox(
             width: 108,
             child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
@@ -2467,7 +2542,7 @@ class _StudentRowState extends State<_StudentRow> {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Mini stat tile Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Mini stat tile ────────────────────────────────────────────────────────
 
 class _MiniStat extends StatelessWidget {
   final String   label, value;
@@ -2507,7 +2582,7 @@ class _MiniStat extends StatelessWidget {
   );
 }
 
-// â”€â”€â”€ Student stat card (Students tab â€” full-width Expanded KPI style) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Student stat card (Students tab — full-width Expanded KPI style) ─────────
 
 class _StudentStatCard extends StatelessWidget {
   final String   label, value;
@@ -2571,7 +2646,7 @@ class _StudentStatCard extends StatelessWidget {
   );
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Sortable table header for Students Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Sortable table header for Students ────────────────────────────────────
 
 class _StudentTableHeader extends StatelessWidget {
   final String sortField;
@@ -2655,11 +2730,14 @@ class _SortColBtnState extends State<_SortColBtn> {
   );
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Student dialog Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Student dialog ────────────────────────────────────────────────────────
 
 class _StudentDialog extends StatefulWidget {
   final Map<String, dynamic>? student;
-  const _StudentDialog({required this.student});
+  // For add mode only: called with the validated form data.
+  // Returns an error message string on failure, or null on success.
+  final Future<String?> Function(Map<String, dynamic>)? onCreate;
+  const _StudentDialog({required this.student, this.onCreate});
   @override State<_StudentDialog> createState() => _StudentDialogState();
 }
 class _StudentDialogState extends State<_StudentDialog>
@@ -2668,6 +2746,9 @@ class _StudentDialogState extends State<_StudentDialog>
   late final Animation<double>   _scale, _fade;
   final _lrnCtrl  = TextEditingController();
   final _nameCtrl = TextEditingController();
+  final _pwCtrl   = TextEditingController();
+  bool  _pwHidden = true;
+  bool  _saving   = false;
   int?  _selectedYear;
 
   bool get _isEdit => widget.student != null;
@@ -2690,20 +2771,46 @@ class _StudentDialogState extends State<_StudentDialog>
   @override
   void dispose() {
     _ctrl.dispose();
-    _lrnCtrl.dispose(); _nameCtrl.dispose();
+    _lrnCtrl.dispose();
+    _nameCtrl.dispose();
+    _pwCtrl.dispose();
     super.dispose();
   }
 
-  void _save() {
+  Future<void> _submit() async {
     final lrn  = _lrnCtrl.text.trim();
     final name = _nameCtrl.text.trim();
+    final pw   = _pwCtrl.text;
     if (!_isEdit && !RegExp(r'^\d{12}$').hasMatch(lrn)) {
       _snack('LRN must be exactly 12 digits'); return;
     }
     if (name.isEmpty) { _snack('Full name is required'); return; }
+    if (!_isEdit && pw.length < 6) {
+      _snack('Password must be at least 6 characters'); return;
+    }
     final data = <String, dynamic>{'full_name': name, 'year_level': _selectedYear};
-    if (!_isEdit) { data['lrn'] = lrn; data['is_active'] = true; }
-    Navigator.of(context).pop(data);
+    if (!_isEdit) {
+      data['lrn']       = lrn;
+      data['password']  = pw;
+      data['is_active'] = true;
+    }
+
+    if (_isEdit) {
+      // Edit mode: pop immediately with data for the parent to save.
+      Navigator.of(context).pop(data);
+      return;
+    }
+
+    // Add mode: call onCreate inside the dialog so we can show a loading state.
+    setState(() => _saving = true);
+    final err = await widget.onCreate!(data);
+    if (!mounted) return;
+    if (err != null) {
+      setState(() => _saving = false);
+      _snack(err);
+      return;
+    }
+    Navigator.of(context).pop(true); // true = success
   }
 
   void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
@@ -2723,16 +2830,19 @@ class _StudentDialogState extends State<_StudentDialog>
           child: _dialogShell(
             icon: Icons.people_rounded, iconColor: _kAccent,
             title: _isEdit ? 'Edit Student' : 'Add Student',
+            loading: _saving,
             body: Column(children: [
               if (!_isEdit) ...[
                 TextField(
                   controller: _lrnCtrl,
+                  enabled: !_saving,
                   decoration: webInputDeco('LRN (e.g. 123456789012)', icon: Icons.badge_outlined),
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText)),
                 const SizedBox(height: 12),
               ],
               TextField(
                 controller: _nameCtrl,
+                enabled: !_saving,
                 decoration: webInputDeco('Full Name', icon: Icons.person_outline_rounded),
                 style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText)),
               const SizedBox(height: 12),
@@ -2745,7 +2855,7 @@ class _StudentDialogState extends State<_StudentDialog>
                   for (final y in [1, 2, 3, 4]) ...[
                     Expanded(
                       child: GestureDetector(
-                        onTap: () => setState(
+                        onTap: _saving ? null : () => setState(
                             () => _selectedYear = _selectedYear == y ? null : y),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 140),
@@ -2778,13 +2888,31 @@ class _StudentDialogState extends State<_StudentDialog>
               ]),
               if (!_isEdit) ...[
                 const SizedBox(height: 12),
-                _InfoNote(
-                  'Login credentials are provisioned separately via SQL. This creates the profile record only.'),
+                TextField(
+                  controller: _pwCtrl,
+                  obscureText: _pwHidden,
+                  enabled: !_saving,
+                  decoration: webInputDeco('Password', icon: Icons.lock_outline_rounded).copyWith(
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _pwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                        size: 18, color: kSubText,
+                      ),
+                      onPressed: () => setState(() => _pwHidden = !_pwHidden),
+                    ),
+                  ),
+                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Student logs in with the last 4 digits of their LRN + this password.',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText),
+                ),
               ],
             ]),
             confirmLabel: _isEdit ? 'Save Changes' : 'Add Student',
             confirmColor: _kAccent,
-            onConfirm: _save,
+            onConfirm: _submit,
           ),
         ),
       ),
@@ -2792,9 +2920,9 @@ class _StudentDialogState extends State<_StudentDialog>
   );
 }
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 // Organizers page
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 
 class _AdminOrganizersPage extends StatefulWidget {
   const _AdminOrganizersPage();
@@ -2802,7 +2930,7 @@ class _AdminOrganizersPage extends StatefulWidget {
 }
 
 class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
-  bool   _loading = true, _error = false, _refreshing = false;
+  bool   _loading = true, _error = false;
   String _errorMsg = '';
   List<Map<String, dynamic>> _all = [], _filtered = [];
   Map<String, int> _eventCounts = {};
@@ -2812,10 +2940,37 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
   bool   _sortAsc      = false;
   final _searchCtrl = TextEditingController();
 
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
+
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() { super.initState(); _load(); _subscribeRealtime(); }
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    _debounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
+    super.dispose();
+  }
+
+  void _subscribeRealtime() {
+    _channel = SupabaseService.client.channel('admin-organizers');
+    for (final table in ['organizers', 'events']) {
+      _channel!.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (_, [__]) => _debounceLoad(),
+      );
+    }
+    _channel!.subscribe();
+  }
+
+  void _debounceLoad() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) _load(silent: true);
+    });
+  }
 
   Future<void> _load({bool silent = false}) async {
     if (mounted) setState(() { if (!silent) _loading = true; _error = false; });
@@ -2841,13 +2996,6 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
     } catch (e) {
       if (mounted) setState(() { _loading = false; _error = true; _errorMsg = e.toString(); });
     }
-  }
-
-  Future<void> _refresh() async {
-    if (_refreshing) return;
-    setState(() => _refreshing = true);
-    await _load(silent: true);
-    if (mounted) setState(() => _refreshing = false);
   }
 
   void _applyFilter() {
@@ -2941,15 +3089,43 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
   Future<void> _addOrganizer() async {
     final nextId = await _nextOrgId();
     if (!mounted) return;
-    final result = await showDialog<Map<String, dynamic>?>(
+    String? createdName;
+    final ok = await showDialog<bool?>(
       context: context,
-      builder: (_) => _OrganizerDialog(organizer: null, suggestedId: nextId));
-    if (result == null) return;
-    try {
-      await SupabaseService.client.from('organizers').insert(result);
-      _load();
-      if (mounted) WebAlert.success(context: context, title: 'Added', message: 'Organizer record created.');
-    } catch (e) { if (mounted) _snack('Failed: $e'); }
+      builder: (_) => _OrganizerDialog(
+        organizer: null,
+        suggestedId: nextId,
+        onCreate: (data) async {
+          try {
+            createdName = data['full_name'] as String?;
+            final password     = data['password'] as String;
+            final organizerData = Map<String, dynamic>.from(data)..remove('password');
+            final res = await SupabaseService.client.functions.invoke(
+              'create-organizer',
+              body: {...organizerData, 'password': password},
+            );
+            final body = res.data is Map
+                ? Map<String, dynamic>.from(res.data as Map)
+                : null;
+            if (res.status != 200) {
+              return body?['message'] as String? ?? 'Failed to create account.';
+            }
+            return null; // success
+          } catch (e) {
+            return 'Failed: $e';
+          }
+        },
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _load();
+    if (mounted) {
+      WebAlert.success(
+        context: context,
+        title: 'Account Created',
+        message: 'Organizer account for ${createdName ?? 'organizer'} has been created.',
+      );
+    }
   }
 
   Future<String> _nextOrgId() async {
@@ -2957,11 +3133,11 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
       final rows = await SupabaseService.client.from('organizers')
           .select('organizer_id').order('organizer_id', ascending: false).limit(1);
       final list = rows as List;
-      if (list.isEmpty) return 'JJ0001';
-      final last = list.first['organizer_id'] as String? ?? 'JJ0000';
+      if (list.isEmpty) return 'Org0001';
+      final last = list.first['organizer_id'] as String? ?? 'Org0000';
       final num  = int.tryParse(last.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-      return 'JJ${(num + 1).toString().padLeft(4, '0')}';
-    } catch (_) { return 'JJ0001'; }
+      return 'Org${(num + 1).toString().padLeft(4, '0')}';
+    } catch (_) { return 'Org0001'; }
   }
 
   Future<void> _deleteOrganizer(String id, String name) async {
@@ -3007,7 +3183,7 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
 
     return SingleChildScrollView(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Page header Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Page header ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 18, kWebPad, 14),
         color: Colors.white,
@@ -3022,16 +3198,13 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
                 style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: kSubText)),
             ])),
             WebSearchField(
-              controller: _searchCtrl, hint: 'Search name, ID, or orgÃ¢â‚¬Â¦',
+              controller: _searchCtrl, hint: 'Search name, ID, or org…',
               onChanged: (v) { _search = v; _applyFilter(); }, width: 240),
-            const SizedBox(width: 12),
-            WebBtn(label: 'Refresh', icon: Icons.refresh_rounded,
-                onTap: _refreshing ? () {} : _refresh, outlined: true, color: _kAccent),
             const SizedBox(width: 10),
             WebBtn(label: 'Add Organizer', icon: Icons.add_rounded, onTap: _addOrganizer),
           ]),
           const SizedBox(height: 16),
-          // Ã¢â€â‚¬Ã¢â€â‚¬ Stat tiles Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+          // ── Stat tiles ────────────────────────────────────────────────
           Row(children: [
             _StudentStatCard(label: 'Total Organizers', value: '$totalCount',
                 color: kGold, icon: Icons.badge_rounded),
@@ -3062,7 +3235,7 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
           ]),
         ]),
       ),
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Filter bar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Filter bar ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
         decoration: const BoxDecoration(
@@ -3112,7 +3285,7 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
           ],
         ]),
       ),
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Body Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Body ─────────────────────────────────────────────────────────
         if (_filtered.isEmpty)
           Padding(
             padding: const EdgeInsets.all(kWebPad),
@@ -3181,7 +3354,7 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Sortable table header for Organizers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Sortable table header for Organizers ──────────────────────────────────
 
 class _OrganizerTableHeader extends StatelessWidget {
   final String sortField;
@@ -3243,7 +3416,7 @@ class _OrganizerRowState extends State<_OrganizerRow> {
     final active      = o['is_active'] == true;
     final linked      = o['user_id'] != null;
     final orgName     = o['organization'] as String?;
-    final orgId       = o['organizer_id'] as String? ?? 'â€”';
+    final orgId       = o['organizer_id'] as String? ?? '—';
     final initials    = (o['full_name'] as String? ?? '?').trim().split(' ')
         .where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase()).take(2).join();
     final avatarColor = active ? kGold : kMuted;
@@ -3280,7 +3453,7 @@ class _OrganizerRowState extends State<_OrganizerRow> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(o['full_name'] as String? ?? 'â€”',
+                      Text(o['full_name'] as String? ?? '—',
                         style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
                             fontWeight: FontWeight.w600, color: active ? kText : kMuted),
                         maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -3295,7 +3468,7 @@ class _OrganizerRowState extends State<_OrganizerRow> {
                               color: Color(0xFFF59E0B), fontWeight: FontWeight.w600)),
                     ],
                   )),
-                  // Org ID â€” gold-tinted badge
+                  // Org ID — gold-tinted badge
                   Expanded(child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
@@ -3380,13 +3553,20 @@ class _OrganizerRowState extends State<_OrganizerRow> {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Organizer dialog Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Organizer dialog ──────────────────────────────────────────────────────
 
 class _OrganizerDialog extends StatefulWidget {
   final Map<String, dynamic>? organizer;
   final String?               suggestedId;
   final int                   eventCount;
-  const _OrganizerDialog({required this.organizer, this.suggestedId, this.eventCount = 0});
+  // For add mode only: returns an error message on failure, null on success.
+  final Future<String?> Function(Map<String, dynamic>)? onCreate;
+  const _OrganizerDialog({
+    required this.organizer,
+    this.suggestedId,
+    this.eventCount = 0,
+    this.onCreate,
+  });
   @override State<_OrganizerDialog> createState() => _OrganizerDialogState();
 }
 class _OrganizerDialogState extends State<_OrganizerDialog>
@@ -3396,6 +3576,9 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
   final _idCtrl   = TextEditingController();
   final _nameCtrl = TextEditingController();
   final _orgCtrl  = TextEditingController();
+  final _pwCtrl   = TextEditingController();
+  bool  _pwHidden = true;
+  bool  _saving   = false;
 
   bool get _isEdit => widget.organizer != null;
 
@@ -3419,24 +3602,49 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
   @override
   void dispose() {
     _ctrl.dispose();
-    _idCtrl.dispose(); _nameCtrl.dispose(); _orgCtrl.dispose();
+    _idCtrl.dispose(); _nameCtrl.dispose(); _orgCtrl.dispose(); _pwCtrl.dispose();
     super.dispose();
   }
 
-  void _save() {
-    final id   = _idCtrl.text.trim().toUpperCase();
-    final name = _nameCtrl.text.trim();
-    final org  = _orgCtrl.text.trim();
-    if (!_isEdit && !RegExp(r'^[A-Z]{2}\d{4}$').hasMatch(id)) {
-      _snack('ID must be 2 letters + 4 digits (e.g. JJ0001)'); return;
+  Future<void> _submit() async {
+    final rawId = _idCtrl.text.trim();
+    final name  = _nameCtrl.text.trim();
+    final org   = _orgCtrl.text.trim();
+    final pw    = _pwCtrl.text;
+    if (!_isEdit && !RegExp(r'^Org\d{4}$', caseSensitive: false).hasMatch(rawId)) {
+      _snack('ID must be Org followed by 4 digits (e.g. Org0001)'); return;
     }
+    // Normalize to consistent Org#### casing regardless of what user typed
+    final id = 'Org${rawId.substring(3)}';
     if (name.isEmpty) { _snack('Full name is required'); return; }
-    Navigator.of(context).pop(<String, dynamic>{
+    if (!_isEdit && pw.length < 6) {
+      _snack('Password must be at least 6 characters'); return;
+    }
+
+    if (_isEdit) {
+      Navigator.of(context).pop(<String, dynamic>{
+        'full_name':    name,
+        'organization': org.isEmpty ? null : org,
+      });
+      return;
+    }
+
+    // Add mode: call onCreate inside the dialog so we can show a loading state.
+    setState(() => _saving = true);
+    final err = await widget.onCreate!(<String, dynamic>{
+      'organizer_id': id,
       'full_name':    name,
       'organization': org.isEmpty ? null : org,
-      if (!_isEdit) 'organizer_id': id,
-      if (!_isEdit) 'is_active': true,
+      'password':     pw,
+      'is_active':    true,
     });
+    if (!mounted) return;
+    if (err != null) {
+      setState(() => _saving = false);
+      _snack(err);
+      return;
+    }
+    Navigator.of(context).pop(true); // true = success
   }
 
   void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
@@ -3456,6 +3664,7 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
           child: _dialogShell(
             icon: Icons.badge_rounded, iconColor: kGold,
             title: _isEdit ? 'Edit Organizer' : 'Add Organizer',
+            loading: _saving,
             body: Column(children: [
               if (_isEdit) ...[
                 _InfoNote(widget.eventCount > 0
@@ -3466,27 +3675,49 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
               if (!_isEdit) ...[
                 TextField(
                   controller: _idCtrl,
-                  decoration: webInputDeco('Organizer ID (e.g. JJ0001)', icon: Icons.tag_rounded),
+                  enabled: !_saving,
+                  decoration: webInputDeco('Organizer ID (e.g. Org0001)', icon: Icons.tag_rounded),
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText)),
                 const SizedBox(height: 12),
               ],
               TextField(
                 controller: _nameCtrl,
+                enabled: !_saving,
                 decoration: webInputDeco('Full Name', icon: Icons.person_outline_rounded),
                 style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText)),
               const SizedBox(height: 12),
               TextField(
                 controller: _orgCtrl,
+                enabled: !_saving,
                 decoration: webInputDeco('Organization / Department (optional)', icon: Icons.business_outlined),
                 style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText)),
               if (!_isEdit) ...[
                 const SizedBox(height: 12),
-                _InfoNote('Login credentials are provisioned via SQL after creating this profile record.'),
+                TextField(
+                  controller: _pwCtrl,
+                  obscureText: _pwHidden,
+                  enabled: !_saving,
+                  decoration: webInputDeco('Password', icon: Icons.lock_outline_rounded).copyWith(
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _pwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                        size: 18, color: kSubText,
+                      ),
+                      onPressed: () => setState(() => _pwHidden = !_pwHidden),
+                    ),
+                  ),
+                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Organizer logs in with their ID in lowercase (e.g. org0001) + this password.',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText),
+                ),
               ],
             ]),
             confirmLabel: _isEdit ? 'Save Changes' : 'Add Organizer',
             confirmColor: kGold,
-            onConfirm: _save,
+            onConfirm: _submit,
           ),
         ),
       ),
@@ -3494,9 +3725,9 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
   );
 }
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 // Events page (read-only)
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 
 class _AdminEventsPage extends StatefulWidget {
   const _AdminEventsPage();
@@ -3515,6 +3746,9 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
   bool   _sortAsc      = false;
   final _searchCtrl = TextEditingController();
 
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
+
   List<String> get _typeOptions {
     final types = _all
         .map((e) => e['event_type'] as String?)
@@ -3527,12 +3761,36 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
   }
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() { super.initState(); _load(); _subscribeRealtime(); }
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    _debounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
+    super.dispose();
+  }
 
-  Future<void> _load() async {
-    setState(() { _loading = true; _error = false; });
+  void _subscribeRealtime() {
+    _channel = SupabaseService.client.channel('admin-events');
+    for (final table in ['events', 'registrations']) {
+      _channel!.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (_, [__]) => _debounceLoad(),
+      );
+    }
+    _channel!.subscribe();
+  }
+
+  void _debounceLoad() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) _load(silent: true);
+    });
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (mounted) setState(() { if (!silent) _loading = true; _error = false; });
     try {
       final rows = await SupabaseService.client.from('events')
           .select('event_id, title, event_type, event_date, start_time, event_status, current_participants, max_participants, organizer_id, organizers(full_name, organization)')
@@ -3653,7 +3911,7 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
 
     return SingleChildScrollView(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Page header Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Page header ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 18, kWebPad, 14),
         color: Colors.white,
@@ -3664,18 +3922,15 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 18,
                     fontWeight: FontWeight.w800, color: kText)),
               const SizedBox(height: 2),
-              Text('$totalCount events Ã‚Â· system-wide view',
+              Text('$totalCount events · system-wide view',
                 style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: kSubText)),
             ])),
             WebSearchField(
-              controller: _searchCtrl, hint: 'Search title, organizer, or typeÃ¢â‚¬Â¦',
+              controller: _searchCtrl, hint: 'Search title, organizer, or type…',
               onChanged: (v) { _search = v; _applyFilter(); }, width: 260),
-            const SizedBox(width: 12),
-            WebBtn(label: 'Refresh', icon: Icons.refresh_rounded,
-                onTap: _load, outlined: true, color: _kAccent),
           ]),
           const SizedBox(height: 16),
-          // Ã¢â€â‚¬Ã¢â€â‚¬ Stat tiles Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+          // ── Stat tiles ────────────────────────────────────────────────
           Row(children: [
             _StudentStatCard(label: 'Total Events', value: '$totalCount',
                 color: _kAccent, icon: Icons.event_rounded),
@@ -3698,7 +3953,7 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
           ]),
         ]),
       ),
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Filter bar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Filter bar ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 10, kWebPad, 10),
         decoration: const BoxDecoration(
@@ -3747,7 +4002,7 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
               ),
             ],
           ]),
-          // Capacity filter row â€” shown only when at least one event is at capacity
+          // Capacity filter row — shown only when at least one event is at capacity
           if (atCapacityCount > 0) ...[
             const SizedBox(height: 8),
             Row(children: [
@@ -3767,7 +4022,7 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
                 selectedColor: const Color(0xFFEF4444)),
             ]),
           ],
-          // Type filter row â€” shown only when data has event types
+          // Type filter row — shown only when data has event types
           if (typeOpts.length > 1) ...[
             const SizedBox(height: 8),
             Row(children: [
@@ -3797,7 +4052,7 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
           ],
         ]),
       ),
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Body Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Body ─────────────────────────────────────────────────────────
         if (_filtered.isEmpty)
           Padding(
             padding: const EdgeInsets.all(kWebPad),
@@ -3868,7 +4123,7 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Event type color helper Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Event type color helper ──────────────────────────────────────────────────
 
 String _fmtEventTime(String? raw) {
   if (raw == null || raw.isEmpty) return '';
@@ -3904,7 +4159,7 @@ Color _eventTypeColor(String? type) => switch ((type ?? '').toLowerCase()) {
   _           => kMuted,
 };
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Sortable table header for Events Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Sortable table header for Events ────────────────────────────────────────
 
 class _EventTableHeader extends StatelessWidget {
   final String sortField;
@@ -3956,7 +4211,7 @@ class _EventRowState extends State<_EventRow> {
     final status       = e['event_status'] as String? ?? '';
     final type         = e['event_type']   as String? ?? '';
     final orgMap       = e['organizers']   as Map<String, dynamic>?;
-    final orgName      = orgMap?['full_name']    as String? ?? 'â€”';
+    final orgName      = orgMap?['full_name']    as String? ?? '—';
     final orgSub       = orgMap?['organization'] as String?;
     final cur          = e['current_participants'] as int? ?? 0;
     final max          = e['max_participants']     as int? ?? 0;
@@ -4009,7 +4264,7 @@ class _EventRowState extends State<_EventRow> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(e['title'] as String? ?? 'â€”',
+                      Text(e['title'] as String? ?? '—',
                         style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
                             fontWeight: FontWeight.w600,
                             color: isCancelled ? kMuted : kText),
@@ -4125,7 +4380,7 @@ class _EventRowState extends State<_EventRow> {
                       ),
                     ],
                   )),
-                  // Cancel action â€” placeholder keeps layout stable when no action
+                  // Cancel action — placeholder keeps layout stable when no action
                   SizedBox(
                     width: 44,
                     child: widget.onCancel != null
@@ -4147,9 +4402,9 @@ class _EventRowState extends State<_EventRow> {
   }
 }
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 // Registrations page (read-only)
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 
 class _AdminRegistrationsPage extends StatefulWidget {
   const _AdminRegistrationsPage();
@@ -4166,6 +4421,9 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
   String _sortField    = 'registered_at';
   bool   _sortAsc      = false;
   final _searchCtrl = TextEditingController();
+
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
 
   static const _kStatuses = [
     'pending', 'qr_scanned', 'photo_required',
@@ -4184,12 +4442,34 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
   }
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() { super.initState(); _load(); _subscribeRealtime(); }
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    _debounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
+    super.dispose();
+  }
 
-  Future<void> _load() async {
-    setState(() { _loading = true; _error = false; });
+  void _subscribeRealtime() {
+    _channel = SupabaseService.client.channel('admin-registrations')
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: 'registrations'),
+        (_, [__]) => _debounceLoad(),
+      )
+      ..subscribe();
+  }
+
+  void _debounceLoad() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) _load(silent: true);
+    });
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (mounted) setState(() { if (!silent) _loading = true; _error = false; });
     try {
       final rows = await SupabaseService.client.from('registrations')
           .select('id, student_name, student_school_id, event_title, status, registered_at, checked_in_at, selfie_url, student_user_id')
@@ -4316,7 +4596,7 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
 
     return SingleChildScrollView(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Page header Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Page header ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 18, kWebPad, 14),
         color: Colors.white,
@@ -4327,18 +4607,15 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 18,
                     fontWeight: FontWeight.w800, color: kText)),
               const SizedBox(height: 2),
-              Text('$totalCount registrations Ã‚Â· $checkInRate% check-in rate Ã‚Â· system-wide view',
+              Text('$totalCount registrations · $checkInRate% check-in rate · system-wide view',
                 style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: kSubText)),
             ])),
             WebSearchField(
-              controller: _searchCtrl, hint: 'Search student, LRN, or eventÃ¢â‚¬Â¦',
+              controller: _searchCtrl, hint: 'Search student, LRN, or event…',
               onChanged: (v) { _search = v; _applyFilter(); }, width: 260),
-            const SizedBox(width: 12),
-            WebBtn(label: 'Refresh', icon: Icons.refresh_rounded,
-                onTap: _load, outlined: true, color: _kAccent),
           ]),
           const SizedBox(height: 16),
-          // Ã¢â€â‚¬Ã¢â€â‚¬ Stat tiles Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+          // ── Stat tiles ────────────────────────────────────────────────
           Row(children: [
             _StudentStatCard(label: 'Total', value: '$totalCount',
                 color: _kAccent, icon: Icons.how_to_reg_rounded),
@@ -4367,7 +4644,7 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
               icon:  rejectedCount > 0 ? Icons.cancel_outlined : Icons.check_circle_outline_rounded,
             ),
           ]),
-          // â”€â”€ Check-in pipeline bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Check-in pipeline bar ───────────────────────────────────────
           if (totalCount > 0) ...[
             const SizedBox(height: 14),
             ClipRRect(
@@ -4401,7 +4678,7 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
                 _RegLegend(color: const Color(0xFFEF4444), label: '$rejectedCount rejected'),
             ]),
           ],
-          // â”€â”€ Needs-review urgent banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Needs-review urgent banner ──────────────────────────────────
           if (needsReview > 0) ...[
             const SizedBox(height: 10),
             MouseRegion(
@@ -4450,7 +4727,7 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
           ],
         ]),
       ),
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Filter bar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Filter bar ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
         decoration: const BoxDecoration(
@@ -4505,7 +4782,7 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
               ),
             ],
           ]),
-          // Event filter row â€” shown only when there are multiple distinct events
+          // Event filter row — shown only when there are multiple distinct events
           if (eventOpts.length > 1) ...[
             const SizedBox(height: 8),
             Row(children: [
@@ -4537,7 +4814,7 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
           ],
         ]),
       ),
-      // Ã¢â€â‚¬Ã¢â€â‚¬ Body Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+      // ── Body ─────────────────────────────────────────────────────────
         if (_filtered.isEmpty)
           Padding(
             padding: const EdgeInsets.all(kWebPad),
@@ -4603,7 +4880,7 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Sortable table header for Registrations Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ─── Sortable table header for Registrations ─────────────────────────────────
 
 class _RegLegend extends StatelessWidget {
   final Color  color;
@@ -4709,7 +4986,7 @@ class _RegistrationRowState extends State<_RegistrationRow> {
     final isRejected  = status == 'rejected';
     final checkedInAt = r['checked_in_at'] as String?;
     final name        = r['student_name'] as String? ?? '?';
-    final lrn         = r['student_school_id'] as String? ?? 'â€”';
+    final lrn         = r['student_school_id'] as String? ?? '—';
     final initials    = name.trim().split(' ')
         .where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase()).take(2).join();
 
@@ -4793,7 +5070,7 @@ class _RegistrationRowState extends State<_RegistrationRow> {
                     Icon(Icons.calendar_today_rounded, size: 11,
                         color: isRejected ? kMuted.withValues(alpha: 0.4) : kMuted.withValues(alpha: 0.55)),
                     const SizedBox(width: 5),
-                    Flexible(child: Text(r['event_title'] as String? ?? 'â€”',
+                    Flexible(child: Text(r['event_title'] as String? ?? '—',
                       style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
                           color: isRejected ? kMuted : kSubText),
                       maxLines: 1, overflow: TextOverflow.ellipsis)),
@@ -4804,7 +5081,7 @@ class _RegistrationRowState extends State<_RegistrationRow> {
                   // Registered date
                   Expanded(flex: 2, child: Text(webFmtDate(r['registered_at'] as String?),
                     style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: kMuted))),
-                  // Check-in date â€” green with time if checked in
+                  // Check-in date — green with time if checked in
                   Expanded(flex: 2, child: isCheckedIn && checkedInAt != null
                     ? Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4822,7 +5099,7 @@ class _RegistrationRowState extends State<_RegistrationRow> {
                             style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kMuted)),
                         ],
                       )
-                    : const Text('â€”', style: TextStyle(
+                    : const Text('—', style: TextStyle(
                         fontFamily: 'Poppins', fontSize: 11.5, color: kMuted))),
                   // Review Photo action
                   SizedBox(
@@ -4841,9 +5118,9 @@ class _RegistrationRowState extends State<_RegistrationRow> {
   }
 }
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 // Shared helper widgets
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// ═════════════════════════════════════════════════════════════════════════════
 
 // Row action button
 class _ActBtn extends StatefulWidget {
@@ -4945,7 +5222,8 @@ Widget _dialogShell({
   required Widget    body,
   required String    confirmLabel,
   required Color     confirmColor,
-  required VoidCallback onConfirm,
+  required VoidCallback? onConfirm,
+  bool loading = false,
 }) {
   return Container(
     decoration: BoxDecoration(
@@ -4974,7 +5252,7 @@ Widget _dialogShell({
         child: Row(children: [
           Expanded(
             child: Builder(builder: (ctx) => OutlinedButton(
-              onPressed: () => Navigator.of(ctx).pop(),
+              onPressed: loading ? null : () => Navigator.of(ctx).pop(),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: kCardBorder),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -4987,15 +5265,19 @@ Widget _dialogShell({
           const SizedBox(width: 10),
           Expanded(
             child: ElevatedButton(
-              onPressed: onConfirm,
+              onPressed: loading ? null : onConfirm,
               style: ElevatedButton.styleFrom(
                 backgroundColor: confirmColor, foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 padding: const EdgeInsets.symmetric(vertical: 13),
               ),
-              child: Text(confirmLabel,
-                style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+              child: loading
+                ? const SizedBox(
+                    width: 18, height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : Text(confirmLabel,
+                    style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
             ),
           ),
         ]),
@@ -5038,11 +5320,11 @@ class _DialogHeader extends StatelessWidget {
   ]);
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// Photo review dialog â€” shown when admin clicks "Review Photo" on a
+// ═══════════════════════════════════════════════════════════════════════════════
+// Photo review dialog — shown when admin clicks "Review Photo" on a
 // photo_submitted registration. Generates a signed URL for the private selfie
 // and presents approve / reject choices in one step (no double-confirm).
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════════
 
 class _PhotoReviewDialog extends StatefulWidget {
   final Map<String, dynamic> reg;
@@ -5092,9 +5374,9 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
   @override
   Widget build(BuildContext context) {
     final reg         = widget.reg;
-    final studentName = reg['student_name']      as String? ?? 'â€”';
-    final lrn         = reg['student_school_id'] as String? ?? 'â€”';
-    final eventTitle  = reg['event_title']        as String? ?? 'â€”';
+    final studentName = reg['student_name']      as String? ?? '—';
+    final lrn         = reg['student_school_id'] as String? ?? '—';
+    final eventTitle  = reg['event_title']        as String? ?? '—';
     final regDate     = webFmtDate(reg['registered_at'] as String?);
 
     return FadeTransition(
@@ -5270,5 +5552,992 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
         ),
       ),
     );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Logs page — helpers
+// ═════════════════════════════════════════════════════════════════════════════
+
+String _logRelTime(String? ts) {
+  if (ts == null || ts.isEmpty) return '—';
+  try {
+    final d    = DateTime.parse(ts).toLocal();
+    final diff = DateTime.now().difference(d);
+    if (diff.inSeconds < 60)  return 'Just now';
+    if (diff.inMinutes < 60)  return '${diff.inMinutes}m ago';
+    if (diff.inHours   < 24)  return '${diff.inHours}h ago';
+    if (diff.inDays    < 7)   return '${diff.inDays}d ago';
+    const m = ['Jan','Feb','Mar','Apr','May','Jun',
+                'Jul','Aug','Sep','Oct','Nov','Dec'];
+    return '${m[d.month - 1]} ${d.day}';
+  } catch (_) { return '—'; }
+}
+
+String _logFullTime(String? ts) {
+  if (ts == null || ts.isEmpty) return '—';
+  try {
+    final d  = DateTime.parse(ts).toLocal();
+    const m  = ['Jan','Feb','Mar','Apr','May','Jun',
+                 'Jul','Aug','Sep','Oct','Nov','Dec'];
+    final h  = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
+    final mi = d.minute.toString().padLeft(2, '0');
+    final ap = d.hour >= 12 ? 'PM' : 'AM';
+    return '${m[d.month - 1]} ${d.day}, ${d.year} · $h:$mi $ap';
+  } catch (_) { return '—'; }
+}
+
+Color _logRoleColor(String? role) => switch (role) {
+  'admin'     => _kAccent,
+  'organizer' => const Color(0xFF7C3AED),
+  'student'   => const Color(0xFF0EA5E9),
+  _           => kMuted,
+};
+
+String _logRoleLabel(String? role) => switch (role) {
+  'admin'     => 'Admin',
+  'organizer' => 'Organizer',
+  'student'   => 'Student',
+  _           => role?.toUpperCase() ?? '—',
+};
+
+IconData _logRoleIcon(String? role) => switch (role) {
+  'admin'     => Icons.admin_panel_settings_rounded,
+  'organizer' => Icons.badge_rounded,
+  'student'   => Icons.school_rounded,
+  _           => Icons.person_rounded,
+};
+
+Color _logActionColor(String? action) => switch (action) {
+  'created' => const Color(0xFF10B981),
+  'updated' => const Color(0xFF3B82F6),
+  'deleted' => const Color(0xFFEF4444),
+  _         => kMuted,
+};
+
+String _logActionLabel(String? action) => switch (action) {
+  'created' => 'Created',
+  'updated' => 'Updated',
+  'deleted' => 'Deleted',
+  _         => action?.toUpperCase() ?? '—',
+};
+
+IconData _logActionIcon(String? action) => switch (action) {
+  'created' => Icons.add_circle_outline_rounded,
+  'updated' => Icons.edit_outlined,
+  'deleted' => Icons.delete_outline_rounded,
+  _         => Icons.event_note_outlined,
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Logs page
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _AdminLogsPage extends StatefulWidget {
+  const _AdminLogsPage();
+  @override State<_AdminLogsPage> createState() => _AdminLogsPageState();
+}
+
+class _AdminLogsPageState extends State<_AdminLogsPage>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tab;
+  final _searchCtrl = TextEditingController();
+  String _search    = '';
+  String _dateRange = '7d';
+
+  // ── Login logs ─────────────────────────────────────────────────────────────
+  bool   _loginLoading = true;
+  bool   _loginError   = false;
+  String _loginRole    = 'All';
+  String _loginPlat    = 'All';
+  List<Map<String, dynamic>> _loginAll      = [];
+  List<Map<String, dynamic>> _loginFiltered = [];
+
+  // ── Event logs ─────────────────────────────────────────────────────────────
+  bool   _eventLoading = true;
+  bool   _eventError   = false;
+  String _eventAction  = 'All';
+  List<Map<String, dynamic>> _eventAll      = [];
+  List<Map<String, dynamic>> _eventFiltered = [];
+
+  RealtimeChannel? _loginCh;
+  RealtimeChannel? _eventCh;
+  Timer?           _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: 2, vsync: this);
+    _searchCtrl.addListener(_onSearch);
+    _loadLogin();
+    _loadEvent();
+    _subscribeRealtime();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _tab.dispose();
+    _searchCtrl.dispose();
+    if (_loginCh != null) SupabaseService.client.removeChannel(_loginCh!);
+    if (_eventCh != null) SupabaseService.client.removeChannel(_eventCh!);
+    super.dispose();
+  }
+
+  void _onSearch() {
+    _search = _searchCtrl.text;
+    _applyLogin();
+    _applyEvent();
+  }
+
+  DateTime? get _cutoff {
+    final now = DateTime.now();
+    return switch (_dateRange) {
+      'today' => DateTime(now.year, now.month, now.day),
+      '7d'    => now.subtract(const Duration(days: 7)),
+      '30d'   => now.subtract(const Duration(days: 30)),
+      _       => null,
+    };
+  }
+
+  void _subscribeRealtime() {
+    _loginCh = SupabaseService.client.channel('admin-login-logs')
+      ..on(RealtimeListenTypes.postgresChanges,
+          ChannelFilter(event: '*', schema: 'public', table: 'login_logs'),
+          (_, [a]) => _debouncedLoad())
+      ..subscribe();
+    _eventCh = SupabaseService.client.channel('admin-event-logs')
+      ..on(RealtimeListenTypes.postgresChanges,
+          ChannelFilter(event: '*', schema: 'public', table: 'event_logs'),
+          (_, [a]) => _debouncedLoad())
+      ..subscribe();
+  }
+
+  void _debouncedLoad() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) { _loadLogin(silent: true); _loadEvent(silent: true); }
+    });
+  }
+
+  Future<void> _loadLogin({bool silent = false}) async {
+    if (!silent && mounted) setState(() { _loginLoading = true; _loginError = false; });
+    try {
+      final rows = await SupabaseService.client
+          .from('login_logs')
+          .select('id, user_role, full_name, identifier, platform, created_at')
+          .order('created_at', ascending: false)
+          .limit(500);
+      if (!mounted) return;
+      _loginAll = List<Map<String, dynamic>>.from(rows as List);
+      _applyLogin();
+      if (mounted) setState(() => _loginLoading = false);
+    } catch (_) {
+      if (mounted) setState(() { _loginLoading = false; _loginError = true; });
+    }
+  }
+
+  Future<void> _loadEvent({bool silent = false}) async {
+    if (!silent && mounted) setState(() { _eventLoading = true; _eventError = false; });
+    try {
+      final rows = await SupabaseService.client
+          .from('event_logs')
+          .select('id, event_title, organizer_id, organizer_name, action, details, created_at')
+          .order('created_at', ascending: false)
+          .limit(500);
+      if (!mounted) return;
+      _eventAll = List<Map<String, dynamic>>.from(rows as List);
+      _applyEvent();
+      if (mounted) setState(() => _eventLoading = false);
+    } catch (_) {
+      if (mounted) setState(() { _eventLoading = false; _eventError = true; });
+    }
+  }
+
+  void _applyLogin() {
+    final cut = _cutoff;
+    final q   = _search.toLowerCase();
+    setState(() {
+      _loginFiltered = _loginAll.where((r) {
+        if (cut != null) {
+          final d = DateTime.tryParse(r['created_at'] as String? ?? '')?.toLocal();
+          if (d == null || d.isBefore(cut)) return false;
+        }
+        if (_loginRole != 'All' &&
+            r['user_role'] != _loginRole.toLowerCase()) return false;
+        if (_loginPlat != 'All' &&
+            r['platform']  != _loginPlat.toLowerCase())  return false;
+        if (q.isNotEmpty) {
+          final name  = (r['full_name']  as String? ?? '').toLowerCase();
+          final ident = (r['identifier'] as String? ?? '').toLowerCase();
+          if (!name.contains(q) && !ident.contains(q)) return false;
+        }
+        return true;
+      }).toList();
+    });
+  }
+
+  void _applyEvent() {
+    final cut = _cutoff;
+    final q   = _search.toLowerCase();
+    setState(() {
+      _eventFiltered = _eventAll.where((r) {
+        if (cut != null) {
+          final d = DateTime.tryParse(r['created_at'] as String? ?? '')?.toLocal();
+          if (d == null || d.isBefore(cut)) return false;
+        }
+        if (_eventAction != 'All' &&
+            r['action'] != _eventAction.toLowerCase()) return false;
+        if (q.isNotEmpty) {
+          final title  = (r['event_title']    as String? ?? '').toLowerCase();
+          final org    = (r['organizer_name'] as String? ?? '').toLowerCase();
+          final detail = (r['details']        as String? ?? '').toLowerCase();
+          if (!title.contains(q) && !org.contains(q) && !detail.contains(q)) return false;
+        }
+        return true;
+      }).toList();
+    });
+  }
+
+  void _setDateRange(String v) {
+    setState(() => _dateRange = v);
+    _applyLogin();
+    _applyEvent();
+  }
+
+  // Count logins for the given date bucket (used in the chip counts)
+  int _loginCountFor(String bucket) {
+    final now = DateTime.now();
+    final cut = switch (bucket) {
+      'today' => DateTime(now.year, now.month, now.day),
+      '7d'    => now.subtract(const Duration(days: 7)),
+      '30d'   => now.subtract(const Duration(days: 30)),
+      _       => null,
+    };
+    if (cut == null) return _loginAll.length;
+    return _loginAll.where((r) {
+      final d = DateTime.tryParse(r['created_at'] as String? ?? '')?.toLocal();
+      return d != null && !d.isBefore(cut);
+    }).length;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final loginFiltered = _loginFiltered.length;
+    final eventFiltered = _eventFiltered.length;
+    final loginTotal    = _loginAll.length;
+    final eventTotal    = _eventAll.length;
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // ── Header ───────────────────────────────────────────────────────────
+      Container(
+        color: Colors.white,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Title row + stat chips
+          Padding(
+            padding: const EdgeInsets.fromLTRB(kWebPad, 18, kWebPad, 10),
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('System Logs',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 18,
+                        fontWeight: FontWeight.w800, color: kText)),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${loginTotal + eventTotal} total entries · real-time audit trail',
+                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                        color: kSubText)),
+                ]),
+              ),
+              _LogStatChip(
+                icon: Icons.login_rounded, label: 'Logins',
+                count: loginTotal, color: const Color(0xFF0EA5E9)),
+              const SizedBox(width: 8),
+              _LogStatChip(
+                icon: Icons.event_note_rounded, label: 'Event Actions',
+                count: eventTotal, color: const Color(0xFF7C3AED)),
+            ]),
+          ),
+          // Date range filter + search
+          Padding(
+            padding: const EdgeInsets.fromLTRB(kWebPad, 0, kWebPad, 12),
+            child: Row(children: [
+              const Text('Period:',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                    fontWeight: FontWeight.w600, color: kText)),
+              const SizedBox(width: 8),
+              for (final (label, val) in [
+                ('Today', 'today'), ('Last 7 days', '7d'),
+                ('Last 30 days', '30d'), ('All time', 'all'),
+              ]) ...[
+                WebFilterChip(
+                  label: label, selected: _dateRange == val,
+                  onTap:  () => _setDateRange(val),
+                  count:  _loginCountFor(val),
+                  selectedColor: _kAccent,
+                ),
+                const SizedBox(width: 6),
+              ],
+              const SizedBox(width: 12),
+              Container(width: 1, height: 18, color: kCardBorder),
+              const SizedBox(width: 12),
+              WebSearchField(
+                controller: _searchCtrl, hint: 'Search logs…',
+                onChanged: (_) {}, width: 220),
+            ]),
+          ),
+          // Tab bar
+          Container(
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: kCardBorder)),
+            ),
+            child: TabBar(
+              controller: _tab,
+              labelColor:          _kAccent,
+              unselectedLabelColor: kSubText,
+              labelStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                  fontWeight: FontWeight.w700),
+              unselectedLabelStyle: const TextStyle(fontFamily: 'Poppins',
+                  fontSize: 13, fontWeight: FontWeight.w500),
+              indicatorColor:  _kAccent,
+              indicatorWeight: 2.5,
+              indicatorSize:   TabBarIndicatorSize.tab,
+              dividerColor:    Colors.transparent,
+              tabs: [
+                Tab(child: _LogTab(
+                  icon: Icons.login_rounded,
+                  label: 'Login Logs',
+                  count: loginFiltered,
+                  color: const Color(0xFF0EA5E9),
+                )),
+                Tab(child: _LogTab(
+                  icon: Icons.event_note_rounded,
+                  label: 'Event Logs',
+                  count: eventFiltered,
+                  color: const Color(0xFF7C3AED),
+                )),
+              ],
+            ),
+          ),
+        ]),
+      ),
+
+      // ── Tab content ───────────────────────────────────────────────────────
+      Expanded(
+        child: TabBarView(
+          controller: _tab,
+          children: [
+            _buildLoginTab(loginFiltered, loginTotal),
+            _buildEventTab(eventFiltered, eventTotal),
+          ],
+        ),
+      ),
+    ]);
+  }
+
+  // ── Login tab ─────────────────────────────────────────────────────────────
+
+  Widget _buildLoginTab(int filtered, int total) {
+    const roles = ['All', 'Admin', 'Organizer', 'Student'];
+    const plats = ['All', 'Web', 'Mobile'];
+
+    if (_loginLoading) {
+      return const Center(child: CircularProgressIndicator(color: _kAccent));
+    }
+    if (_loginError) {
+      return _ErrorState(message: '', onRetry: _loadLogin);
+    }
+
+    return Column(children: [
+      // Filter bar
+      Container(
+        padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
+        decoration: const BoxDecoration(
+          color: Color(0xFFFAFBFC),
+          border: Border(bottom: BorderSide(color: kCardBorder)),
+        ),
+        child: Row(children: [
+          const Text('Role:',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                fontWeight: FontWeight.w600, color: kText)),
+          const SizedBox(width: 8),
+          for (final r in roles) ...[
+            WebFilterChip(
+              label: r, selected: _loginRole == r,
+              onTap: () { setState(() => _loginRole = r); _applyLogin(); },
+              count: r == 'All'
+                  ? _loginAll.length
+                  : _loginAll.where((x) => x['user_role'] == r.toLowerCase()).length,
+              selectedColor: switch (r) {
+                'Admin'     => _kAccent,
+                'Organizer' => const Color(0xFF7C3AED),
+                'Student'   => const Color(0xFF0EA5E9),
+                _           => kGold,
+              },
+            ),
+            const SizedBox(width: 6),
+          ],
+          const SizedBox(width: 12),
+          Container(width: 1, height: 18, color: kCardBorder),
+          const SizedBox(width: 12),
+          const Text('Platform:',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                fontWeight: FontWeight.w600, color: kText)),
+          const SizedBox(width: 8),
+          for (final p in plats) ...[
+            WebFilterChip(
+              label: p, selected: _loginPlat == p,
+              onTap: () { setState(() => _loginPlat = p); _applyLogin(); },
+              count: p == 'All'
+                  ? _loginAll.length
+                  : _loginAll.where((x) => x['platform'] == p.toLowerCase()).length,
+              selectedColor: p == 'Web'
+                  ? const Color(0xFF4F46E5)
+                  : const Color(0xFF0D9488),
+            ),
+            const SizedBox(width: 6),
+          ],
+          if (_loginRole != 'All' || _loginPlat != 'All') ...[
+            const Spacer(),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () {
+                  setState(() { _loginRole = 'All'; _loginPlat = 'All'; });
+                  _applyLogin();
+                },
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.close_rounded, size: 13, color: kMuted),
+                  SizedBox(width: 4),
+                  Text('Clear', style: TextStyle(fontFamily: 'Poppins',
+                      fontSize: 11.5, fontWeight: FontWeight.w600, color: kMuted)),
+                ]),
+              ),
+            ),
+          ],
+        ]),
+      ),
+      // Body
+      if (_loginFiltered.isEmpty)
+        Expanded(child: Center(child: WebEmptyState(
+          icon: Icons.login_outlined,
+          title: 'No login events found',
+          subtitle: (_loginRole != 'All' || _loginPlat != 'All' || _search.isNotEmpty)
+              ? 'No entries match the current filters.'
+              : 'Login activity will appear here once users log in.',
+        )))
+      else
+        Expanded(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(kWebPad),
+              child: WebCard(
+                padding: EdgeInsets.zero,
+                child: Column(children: [
+                  // Table header
+                  Container(
+                    padding: const EdgeInsets.only(
+                        left: 23, right: 20, top: 10, bottom: 10),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF0F3F7),
+                      border: Border(bottom: BorderSide(color: kCardBorder)),
+                    ),
+                    child: const Row(children: [
+                      SizedBox(width: 52),
+                      Expanded(flex: 4, child: _LogColLabel('USER')),
+                      Expanded(flex: 2, child: _LogColLabel('ROLE')),
+                      Expanded(flex: 2, child: _LogColLabel('PLATFORM')),
+                      Expanded(flex: 2, child: _LogColLabel('LOGGED IN AT')),
+                    ]),
+                  ),
+                  // Rows
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _loginFiltered.length,
+                    separatorBuilder: (_, _) =>
+                        const Divider(height: 1, color: kCardBorder),
+                    itemBuilder: (_, i) =>
+                        _LoginLogRow(log: _loginFiltered[i]),
+                  ),
+                  // Footer
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 10),
+                    decoration: const BoxDecoration(
+                        border: Border(top: BorderSide(color: kCardBorder))),
+                    child: Text(
+                      filtered == total
+                          ? '$total login events'
+                          : 'Showing $filtered of $total login events',
+                      style: const TextStyle(fontFamily: 'Poppins',
+                          fontSize: 11.5, color: kSubText)),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        ),
+    ]);
+  }
+
+  // ── Event tab ─────────────────────────────────────────────────────────────
+
+  Widget _buildEventTab(int filtered, int total) {
+    const actions = ['All', 'Created', 'Updated', 'Deleted'];
+
+    if (_eventLoading) {
+      return const Center(child: CircularProgressIndicator(color: _kAccent));
+    }
+    if (_eventError) {
+      return _ErrorState(message: '', onRetry: _loadEvent);
+    }
+
+    return Column(children: [
+      // Filter bar
+      Container(
+        padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
+        decoration: const BoxDecoration(
+          color: Color(0xFFFAFBFC),
+          border: Border(bottom: BorderSide(color: kCardBorder)),
+        ),
+        child: Row(children: [
+          const Text('Action:',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                fontWeight: FontWeight.w600, color: kText)),
+          const SizedBox(width: 8),
+          for (final a in actions) ...[
+            WebFilterChip(
+              label: a, selected: _eventAction == a,
+              onTap: () { setState(() => _eventAction = a); _applyEvent(); },
+              count: a == 'All'
+                  ? _eventAll.length
+                  : _eventAll.where((x) => x['action'] == a.toLowerCase()).length,
+              selectedColor: switch (a) {
+                'Created' => const Color(0xFF10B981),
+                'Updated' => const Color(0xFF3B82F6),
+                'Deleted' => const Color(0xFFEF4444),
+                _         => kGold,
+              },
+            ),
+            const SizedBox(width: 6),
+          ],
+          if (_eventAction != 'All') ...[
+            const Spacer(),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () { setState(() => _eventAction = 'All'); _applyEvent(); },
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.close_rounded, size: 13, color: kMuted),
+                  SizedBox(width: 4),
+                  Text('Clear', style: TextStyle(fontFamily: 'Poppins',
+                      fontSize: 11.5, fontWeight: FontWeight.w600, color: kMuted)),
+                ]),
+              ),
+            ),
+          ],
+        ]),
+      ),
+      // Body
+      if (_eventFiltered.isEmpty)
+        Expanded(child: Center(child: WebEmptyState(
+          icon: Icons.event_note_outlined,
+          title: 'No event log entries found',
+          subtitle: (_eventAction != 'All' || _search.isNotEmpty)
+              ? 'No entries match the current filters.'
+              : 'Event actions will be logged here as organizers create or manage events.',
+        )))
+      else
+        Expanded(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(kWebPad),
+              child: WebCard(
+                padding: EdgeInsets.zero,
+                child: Column(children: [
+                  // Table header
+                  Container(
+                    padding: const EdgeInsets.only(
+                        left: 23, right: 20, top: 10, bottom: 10),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF0F3F7),
+                      border: Border(bottom: BorderSide(color: kCardBorder)),
+                    ),
+                    child: const Row(children: [
+                      SizedBox(width: 52),
+                      Expanded(flex: 4, child: _LogColLabel('EVENT')),
+                      Expanded(flex: 3, child: _LogColLabel('ORGANIZER')),
+                      Expanded(flex: 2, child: _LogColLabel('ACTION')),
+                      Expanded(flex: 3, child: _LogColLabel('DETAILS')),
+                      Expanded(flex: 2, child: _LogColLabel('TIME')),
+                    ]),
+                  ),
+                  // Rows
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _eventFiltered.length,
+                    separatorBuilder: (_, _) =>
+                        const Divider(height: 1, color: kCardBorder),
+                    itemBuilder: (_, i) =>
+                        _EventLogRow(log: _eventFiltered[i]),
+                  ),
+                  // Footer
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 10),
+                    decoration: const BoxDecoration(
+                        border: Border(top: BorderSide(color: kCardBorder))),
+                    child: Text(
+                      filtered == total
+                          ? '$total event log entries'
+                          : 'Showing $filtered of $total event log entries',
+                      style: const TextStyle(fontFamily: 'Poppins',
+                          fontSize: 11.5, color: kSubText)),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        ),
+    ]);
+  }
+}
+
+// ── Small widgets ──────────────────────────────────────────────────────────────
+
+class _LogTab extends StatelessWidget {
+  final IconData icon; final String label; final int count; final Color color;
+  const _LogTab({required this.icon, required this.label,
+      required this.count, required this.color});
+  @override
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+    Icon(icon, size: 15),
+    const SizedBox(width: 7),
+    Text(label),
+    const SizedBox(width: 7),
+    Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text('$count',
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
+            fontWeight: FontWeight.w700, color: color)),
+    ),
+  ]);
+}
+
+class _LogStatChip extends StatelessWidget {
+  final IconData icon; final String label; final int count; final Color color;
+  const _LogStatChip({required this.icon, required this.label,
+      required this.count, required this.color});
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.07),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: color.withValues(alpha: 0.20)),
+    ),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 14, color: color),
+      const SizedBox(width: 7),
+      Text('$count',
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+            fontWeight: FontWeight.w700, color: color)),
+      const SizedBox(width: 4),
+      Text(label,
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: color.withValues(alpha: 0.75))),
+    ]),
+  );
+}
+
+class _LogColLabel extends StatelessWidget {
+  final String text;
+  const _LogColLabel(this.text);
+  @override
+  Widget build(BuildContext context) => Text(text,
+    style: const TextStyle(fontFamily: 'Poppins', fontSize: 10,
+        fontWeight: FontWeight.w700, color: kMuted, letterSpacing: 0.5));
+}
+
+// ── Login log row ──────────────────────────────────────────────────────────────
+
+class _LoginLogRow extends StatefulWidget {
+  final Map<String, dynamic> log;
+  const _LoginLogRow({required this.log});
+  @override State<_LoginLogRow> createState() => _LoginLogRowState();
+}
+class _LoginLogRowState extends State<_LoginLogRow> {
+  bool _h = false;
+  @override
+  Widget build(BuildContext context) {
+    final r        = widget.log;
+    final role     = r['user_role']  as String? ?? '';
+    final name     = r['full_name']  as String? ?? '—';
+    final ident    = r['identifier'] as String? ?? '—';
+    final platform = r['platform']   as String? ?? '';
+    final ts       = r['created_at'] as String?;
+    final color    = _logRoleColor(role);
+    final initials = name == '—' ? '?' : name.trim().split(' ')
+        .where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase()).take(2).join();
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _h = true),
+      onExit:  (_) => setState(() => _h = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        color: _h ? _kAccent.withValues(alpha: 0.028) : Colors.transparent,
+        child: IntrinsicHeight(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Container(width: 3, color: color.withValues(alpha: 0.35)),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                  // Role-colored avatar
+                  Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: color.withValues(alpha: 0.18)),
+                    ),
+                    child: Center(child: Text(initials,
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                          fontWeight: FontWeight.w700, color: color))),
+                  ),
+                  const SizedBox(width: 12),
+                  // Name + identifier
+                  Expanded(flex: 4, child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(name,
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                            fontWeight: FontWeight.w600, color: kText),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 2),
+                      Text(ident,
+                        style: const TextStyle(fontFamily: 'Poppins',
+                            fontSize: 11, color: kSubText),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ],
+                  )),
+                  // Role badge
+                  Expanded(flex: 2, child: _LogRoleBadge(role: role)),
+                  // Platform badge
+                  Expanded(flex: 2, child: _LogPlatformBadge(platform: platform)),
+                  // Time with tooltip
+                  Expanded(flex: 2, child: Tooltip(
+                    message: _logFullTime(ts),
+                    preferBelow: false,
+                    waitDuration: const Duration(milliseconds: 400),
+                    child: Row(children: [
+                      const Icon(Icons.access_time_rounded,
+                          size: 12, color: kMuted),
+                      const SizedBox(width: 5),
+                      Flexible(child: Text(_logRelTime(ts),
+                        style: const TextStyle(fontFamily: 'Poppins',
+                            fontSize: 12, color: kSubText),
+                        maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    ]),
+                  )),
+                ]),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Event log row ──────────────────────────────────────────────────────────────
+
+class _EventLogRow extends StatefulWidget {
+  final Map<String, dynamic> log;
+  const _EventLogRow({required this.log});
+  @override State<_EventLogRow> createState() => _EventLogRowState();
+}
+class _EventLogRowState extends State<_EventLogRow> {
+  bool _h = false;
+  @override
+  Widget build(BuildContext context) {
+    final r      = widget.log;
+    final title  = r['event_title']    as String? ?? '—';
+    final orgId  = r['organizer_id']   as String? ?? '';
+    final orgNm  = r['organizer_name'] as String? ?? '';
+    final action = r['action']         as String? ?? '';
+    final detail = r['details']        as String? ?? '—';
+    final ts     = r['created_at']     as String?;
+    final color  = _logActionColor(action);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _h = true),
+      onExit:  (_) => setState(() => _h = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        color: _h ? const Color(0xFF7C3AED).withValues(alpha: 0.025)
+            : Colors.transparent,
+        child: IntrinsicHeight(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Container(width: 3, color: color.withValues(alpha: 0.40)),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                  // Action icon container
+                  Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.09),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: color.withValues(alpha: 0.18)),
+                    ),
+                    child: Icon(_logActionIcon(action), size: 18, color: color),
+                  ),
+                  const SizedBox(width: 12),
+                  // Event title
+                  Expanded(flex: 4, child: Text(title,
+                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                        fontWeight: FontWeight.w600, color: kText),
+                    maxLines: 2, overflow: TextOverflow.ellipsis)),
+                  // Organizer
+                  Expanded(flex: 3, child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (orgNm.isNotEmpty)
+                        Text(orgNm,
+                          style: const TextStyle(fontFamily: 'Poppins',
+                              fontSize: 12.5, fontWeight: FontWeight.w500,
+                              color: kText),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      if (orgId.isNotEmpty)
+                        Text(orgId,
+                          style: TextStyle(
+                            fontFamily: 'Poppins', fontSize: 11,
+                            color: orgNm.isEmpty ? kText : kSubText),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ],
+                  )),
+                  // Action badge
+                  Expanded(flex: 2, child: _LogActionBadge(action: action)),
+                  // Details
+                  Expanded(flex: 3, child: Text(detail,
+                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                        color: kSubText, height: 1.4),
+                    maxLines: 2, overflow: TextOverflow.ellipsis)),
+                  // Time with tooltip
+                  Expanded(flex: 2, child: Tooltip(
+                    message: _logFullTime(ts),
+                    preferBelow: false,
+                    waitDuration: const Duration(milliseconds: 400),
+                    child: Row(children: [
+                      const Icon(Icons.access_time_rounded,
+                          size: 12, color: kMuted),
+                      const SizedBox(width: 5),
+                      Flexible(child: Text(_logRelTime(ts),
+                        style: const TextStyle(fontFamily: 'Poppins',
+                            fontSize: 12, color: kSubText),
+                        maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    ]),
+                  )),
+                ]),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Badge widgets ──────────────────────────────────────────────────────────────
+
+class _LogRoleBadge extends StatelessWidget {
+  final String? role;
+  const _LogRoleBadge({this.role});
+  @override
+  Widget build(BuildContext context) {
+    final color = _logRoleColor(role);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.09),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withValues(alpha: 0.22)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(_logRoleIcon(role), size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(_logRoleLabel(role),
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                fontWeight: FontWeight.w600, color: color)),
+        ]),
+      ),
+    ]);
+  }
+}
+
+class _LogPlatformBadge extends StatelessWidget {
+  final String? platform;
+  const _LogPlatformBadge({this.platform});
+  @override
+  Widget build(BuildContext context) {
+    final isWeb = (platform ?? '') == 'web';
+    final color = isWeb ? const Color(0xFF4F46E5) : const Color(0xFF0D9488);
+    final icon  = isWeb ? Icons.language_rounded : Icons.smartphone_rounded;
+    final label = isWeb ? 'Web' : 'Mobile';
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.09),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withValues(alpha: 0.22)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(label,
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                fontWeight: FontWeight.w600, color: color)),
+        ]),
+      ),
+    ]);
+  }
+}
+
+class _LogActionBadge extends StatelessWidget {
+  final String? action;
+  const _LogActionBadge({this.action});
+  @override
+  Widget build(BuildContext context) {
+    final color = _logActionColor(action);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.09),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withValues(alpha: 0.22)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(_logActionIcon(action), size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(_logActionLabel(action),
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                fontWeight: FontWeight.w600, color: color)),
+        ]),
+      ),
+    ]);
   }
 }

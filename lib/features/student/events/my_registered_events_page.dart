@@ -1,5 +1,7 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../shared/widgets/app_loader.dart';
 import '../../../models/event_registration.dart';
 import '../../../shared/widgets/qr_code_dialog.dart';
@@ -7,9 +9,9 @@ import '../../../core/services/registration_service.dart';
 import '../../../core/app_colors.dart';
 
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // Page
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
 class MyRegisteredEventsPage extends StatefulWidget {
   const MyRegisteredEventsPage({super.key});
@@ -29,24 +31,47 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
 
   List<Map<String, dynamic>> _registrations = [];
 
-  // â”€â”€ Lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
     _load();
+    _subscribeRealtime();
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  // â”€â”€ Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  void _subscribeRealtime() {
+    _channel = Supabase.instance.client.channel('student-my-regs');
+    for (final table in ['registrations', 'events']) {
+      _channel!.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (_, [a]) {
+          _debounce?.cancel();
+          _debounce = Timer(const Duration(milliseconds: 600), () {
+            if (mounted && !_loading) _load(silent: true);
+          });
+        },
+      );
+    }
+    _channel!.subscribe();
+  }
 
-  Future<void> _load() async {
-    if (mounted) setState(() { _loading = true; _hasError = false; });
+  // ── Data ──────────────────────────────────────────────────────────────────
+
+  Future<void> _load({bool silent = false}) async {
+    if (mounted) setState(() { if (!silent) _loading = true; _hasError = false; });
     try {
       final rows = await RegistrationService.getMyRegistrationsWithEvents();
       if (mounted) setState(() { _registrations = rows; _loading = false; });
@@ -56,7 +81,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     }
   }
 
-  // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   bool _isCheckedIn(Map<String, dynamic> reg) =>
       (reg['status'] as String? ?? '') == 'checked_in';
@@ -64,7 +89,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
   String _fmtDate(Map<String, dynamic> reg) {
     final ev = reg['events'] as Map?;
     final d  = ev?['event_date'] as String?;
-    if (d == null) return 'â€”';
+    if (d == null) return '—';
     try {
       final dt = DateTime.parse(d);
       const m  = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
@@ -76,19 +101,19 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     final ev = reg['events'] as Map?;
     final s  = ev?['start_time'] as String?;
     final e  = ev?['end_time']   as String?;
-    if (s == null) return 'â€”';
+    if (s == null) return '—';
     String fmt(String t) {
       final p = t.split(':');
       if (p.length < 2) return t;
       final h = int.tryParse(p[0]) ?? 0;
       return '${h % 12 == 0 ? 12 : h % 12}:${p[1]} ${h >= 12 ? 'PM' : 'AM'}';
     }
-    return e != null ? '${fmt(s)} â€“ ${fmt(e)}' : fmt(s);
+    return e != null ? '${fmt(s)} — ${fmt(e)}' : fmt(s);
   }
 
   String _fmtRegisteredAt(Map<String, dynamic> reg) {
     final iso = reg['registered_at'] as String?;
-    if (iso == null) return 'â€”';
+    if (iso == null) return '—';
     try {
       final dt = DateTime.parse(iso).toLocal();
       const m  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -96,7 +121,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     } catch (_) { return iso; }
   }
 
-  // â”€â”€ Filtering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Filtering ─────────────────────────────────────────────────────────────
 
   List<Map<String, dynamic>> get _filtered => _registrations.where((reg) {
     final label = eventStatusLabel(reg['events'] as Map<String, dynamic>? ?? {});
@@ -114,9 +139,9 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     return _registrations.where((r) => eventStatusLabel(r['events'] as Map<String, dynamic>? ?? {}) == f).length;
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
   // BUILD
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -162,7 +187,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     );
   }
 
-  // â”€â”€ Loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Loading ───────────────────────────────────────────────────────────────
 
   Widget _buildLoading(AppTk t) {
     return SingleChildScrollView(
@@ -177,7 +202,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     );
   }
 
-  // â”€â”€ Error â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Error ─────────────────────────────────────────────────────────────────
 
   Widget _buildError(AppTk t) {
     return Center(
@@ -222,7 +247,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     );
   }
 
-  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Header ────────────────────────────────────────────────────────────────
 
   Widget _buildHeader(AppTk t) {
     return Padding(
@@ -274,7 +299,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     );
   }
 
-  // â”€â”€ Stats card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Stats card ────────────────────────────────────────────────────────────
 
   Widget _buildStatsCard(AppTk t) {
     final total     = _registrations.length;
@@ -341,7 +366,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     );
   }
 
-  // â”€â”€ Search bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Search bar ────────────────────────────────────────────────────────────
 
   Widget _buildSearchBar(AppTk t) {
     return Padding(
@@ -358,7 +383,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
           onChanged: (v) => setState(() => _searchQuery = v),
           style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: t.text),
           decoration: InputDecoration(
-            hintText: 'Search your registrationsâ€¦',
+            hintText: 'Search your registrations…',
             hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.muted),
             prefixIcon: const Icon(Icons.search_rounded, color: kGold, size: 22),
             suffixIcon: _searchQuery.isNotEmpty
@@ -378,7 +403,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     );
   }
 
-  // â”€â”€ Filter row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Filter row ────────────────────────────────────────────────────────────
 
   Widget _buildFilterRow(AppTk t) {
     return Padding(
@@ -448,7 +473,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     );
   }
 
-  // â”€â”€ Empty state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Empty state ───────────────────────────────────────────────────────────
 
   Widget _buildEmpty(AppTk t) {
     final isFiltered = _filter != 'All' || _searchQuery.isNotEmpty;
@@ -515,16 +540,16 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     );
   }
 
-  // â”€â”€ Ticket card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Ticket card ───────────────────────────────────────────────────────────
 
   Widget _buildTicket(Map<String, dynamic> reg, AppTk t) {
     final ev          = reg['events'] as Map?;
-    final title       = reg['event_title'] as String? ?? 'â€”';
+    final title       = reg['event_title'] as String? ?? '—';
     final imageUrl    = ev?['event_image_url'] as String?;
     final hasImage    = imageUrl != null && imageUrl.isNotEmpty;
     final statusLabel = eventStatusLabel(reg['events'] as Map<String, dynamic>? ?? {});
     final checkedIn   = _isCheckedIn(reg);
-    final location    = ev?['location'] as String? ?? 'â€”';
+    final location    = ev?['location'] as String? ?? '—';
     final sc          = eventStatusColor(statusLabel);
 
     return Container(
@@ -538,7 +563,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // â”€â”€ Banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Banner ──────────────────────────────────────────────────────────
           ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             child: SizedBox(
@@ -580,7 +605,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
             ),
           ),
 
-          // â”€â”€ Event info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Event info ─────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
             child: Column(
@@ -590,7 +615,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700, color: t.text, height: 1.25),
                   maxLines: 2, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 10),
-                _MetaRow(icon: Icons.calendar_today_rounded, text: '${_fmtDate(reg)}  Â·  ${_fmtTime(reg)}', t: t),
+                _MetaRow(icon: Icons.calendar_today_rounded, text: '${_fmtDate(reg)}  ·  ${_fmtTime(reg)}', t: t),
                 const SizedBox(height: 5),
                 _MetaRow(icon: Icons.location_on_rounded,    text: location,                               t: t),
                 const SizedBox(height: 5),
@@ -599,13 +624,13 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
             ),
           ),
 
-          // â”€â”€ Ticket divider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Ticket divider ─────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
             child: _TicketDivider(dividerColor: t.divider),
           ),
 
-          // â”€â”€ QR button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── QR button ──────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
             child: SizedBox(
@@ -614,7 +639,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
                 onPressed: () => _showQR(reg),
                 icon: const Icon(Icons.qr_code_2_rounded, size: 18),
                 label: Text(
-                  checkedIn ? 'View QR Code  Â·  Checked In âœ“' : 'View My QR Code',
+                  checkedIn ? 'View QR Code  ·  Checked In âœ“' : 'View My QR Code',
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -642,7 +667,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     );
   }
 
-  // â”€â”€ QR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── QR ────────────────────────────────────────────────────────────────────
 
   void _showQR(Map<String, dynamic> reg) {
     QRCodeDialog.show(context, EventRegistration(
@@ -657,11 +682,11 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // Sub-widgets
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
-// â”€â”€ Animated status chip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Animated status chip ──────────────────────────────────────────────────────
 
 class _StatusChip extends StatefulWidget {
   final String label;
@@ -720,7 +745,7 @@ class _StatusChipState extends State<_StatusChip>
   }
 }
 
-// â”€â”€ Check-in badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Check-in badge ────────────────────────────────────────────────────────────
 
 class _CheckInBadge extends StatelessWidget {
   final bool checkedIn;
@@ -754,7 +779,7 @@ class _CheckInBadge extends StatelessWidget {
   }
 }
 
-// â”€â”€ Meta row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Meta row ──────────────────────────────────────────────────────────────────
 
 class _MetaRow extends StatelessWidget {
   final IconData icon;
@@ -778,7 +803,7 @@ class _MetaRow extends StatelessWidget {
   }
 }
 
-// â”€â”€ Ticket divider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Ticket divider ────────────────────────────────────────────────────────────
 
 class _TicketDivider extends StatelessWidget {
   final Color dividerColor;
@@ -807,7 +832,7 @@ class _TicketDivider extends StatelessWidget {
   }
 }
 
-// â”€â”€ Dashed line via CustomPainter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Dashed line via CustomPainter ─────────────────────────────────────────────
 
 class _DashedLine extends StatelessWidget {
   final Color color;

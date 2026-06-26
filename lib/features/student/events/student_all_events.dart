@@ -1,5 +1,7 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'event_details_page.dart';
 import '../../../shared/widgets/app_loader.dart';
 import '../../../shared/widgets/app_alert.dart';
@@ -11,9 +13,9 @@ import '../../../core/services/registration_service.dart';
 import '../../../core/app_colors.dart';
 
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // Page
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
 class StudentAllEventsPage extends StatefulWidget {
   final bool showAsEmbedded;
@@ -36,24 +38,47 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   final Map<String, Map<String, dynamic>> _regByEventId = {};
   String? _registeringId;
 
-  // â”€â”€ Lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    _subscribeRealtime();
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  // â”€â”€ Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  void _subscribeRealtime() {
+    _channel = Supabase.instance.client.channel('student-all-events');
+    for (final table in ['events', 'registrations']) {
+      _channel!.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (_, [a]) {
+          _debounce?.cancel();
+          _debounce = Timer(const Duration(milliseconds: 600), () {
+            if (mounted && !_loading) _loadData(silent: true);
+          });
+        },
+      );
+    }
+    _channel!.subscribe();
+  }
 
-  Future<void> _loadData() async {
-    if (mounted) setState(() { _loading = true; _hasError = false; });
+  // ── Data ──────────────────────────────────────────────────────────────────
+
+  Future<void> _loadData({bool silent = false}) async {
+    if (mounted) setState(() { if (!silent) _loading = true; _hasError = false; });
     try {
       final results = await Future.wait([
         SupabaseService.getEvents(),
@@ -137,7 +162,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     );
   }
 
-  // â”€â”€ Filter logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Filter logic ──────────────────────────────────────────────────────────
 
   List<Map<String, dynamic>> get _filtered => _events.where((e) {
     final label = eventStatusLabel(e);
@@ -155,7 +180,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     return _events.where((e) => eventStatusLabel(e) == filter).length;
   }
 
-  // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   bool   _isFull(Map<String, dynamic> e) {
     final max = e['max_participants']    as int?;
@@ -175,13 +200,13 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     final max = e['max_participants']    as int?;
     final cur = e['current_participants'] as int?;
     if (max == null) return 'Unlimited';
-    if (_isFull(e))  return 'Full Â· $max spots';
+    if (_isFull(e))  return 'Full · $max spots';
     return '${cur ?? 0} / $max registered';
   }
 
   String _fmtDate(Map<String, dynamic> e) {
     final d = e['event_date'] as String?;
-    if (d == null) return 'â€”';
+    if (d == null) return '—';
     try {
       final dt = DateTime.parse(d);
       const m  = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
@@ -192,19 +217,19 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   String _fmtTime(Map<String, dynamic> e) {
     final s  = e['start_time'] as String?;
     final en = e['end_time']   as String?;
-    if (s == null) return 'â€”';
+    if (s == null) return '—';
     String fmt(String t) {
       final p = t.split(':');
       if (p.length < 2) return t;
       final h = int.tryParse(p[0]) ?? 0;
       return '${h % 12 == 0 ? 12 : h % 12}:${p[1]} ${h >= 12 ? 'PM' : 'AM'}';
     }
-    return en != null ? '${fmt(s)} â€“ ${fmt(en)}' : fmt(s);
+    return en != null ? '${fmt(s)} — ${fmt(en)}' : fmt(s);
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
   // BUILD
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -250,7 +275,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     );
   }
 
-  // â”€â”€ Loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Loading ───────────────────────────────────────────────────────────────
 
   Widget _buildLoading(AppTk t) {
     return SingleChildScrollView(
@@ -266,7 +291,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     );
   }
 
-  // â”€â”€ Error â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Error ─────────────────────────────────────────────────────────────────
 
   Widget _buildError(AppTk t) {
     return Center(
@@ -311,7 +336,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     );
   }
 
-  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Header ────────────────────────────────────────────────────────────────
 
   Widget _buildHeader(AppTk t) {
     final upcoming = _events.where((e) => eventStatusLabel(e) == 'Upcoming').length;
@@ -357,7 +382,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     );
   }
 
-  // â”€â”€ Search bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Search bar ────────────────────────────────────────────────────────────
 
   Widget _buildSearchBar(AppTk t) {
     return Padding(
@@ -374,7 +399,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
           onChanged: (v) => setState(() => _searchQuery = v),
           style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: t.text),
           decoration: InputDecoration(
-            hintText: 'Search events, venues, typeâ€¦',
+            hintText: 'Search events, venues, type…',
             hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.muted),
             prefixIcon: const Icon(Icons.search_rounded, color: kGold, size: 22),
             suffixIcon: _searchQuery.isNotEmpty
@@ -394,7 +419,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     );
   }
 
-  // â”€â”€ My Registered shortcut â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── My Registered shortcut ────────────────────────────────────────────────
 
   Widget _buildRegisteredShortcut(AppTk t) {
     final count = _regByEventId.length;
@@ -463,7 +488,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     );
   }
 
-  // â”€â”€ Filter row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Filter row ────────────────────────────────────────────────────────────
 
   Widget _buildFilterRow(AppTk t) {
     return Padding(
@@ -540,7 +565,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     );
   }
 
-  // â”€â”€ Empty state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Empty state ───────────────────────────────────────────────────────────
 
   Widget _buildEmpty(AppTk t) {
     final isFiltered = _filter != 'All' || _searchQuery.isNotEmpty;
@@ -570,7 +595,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
           Text(
             isFiltered
                 ? 'Try a different search or filter.'
-                : 'Check back soon â€” events will appear here.',
+                : 'Check back soon — events will appear here.',
             textAlign: TextAlign.center,
             style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.muted, height: 1.6),
           ),
@@ -596,7 +621,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     );
   }
 
-  // â”€â”€ Event card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Event card ────────────────────────────────────────────────────────────
 
   Widget _buildCard(Map<String, dynamic> event, AppTk t) {
     final eventId      = event['event_id'] as String;
@@ -628,7 +653,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // â”€â”€ Image â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                  // ── Image ──────────────────────────────────────────────────
                   _CardImage(
                     imageUrl: hasImage ? imageUrl : null,
                     statusLabel: statusLabel,
@@ -638,7 +663,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                     t: t,
                     onTap: () => _openDetails(event, eventId),
                   ),
-                  // â”€â”€ Body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                  // ── Body ───────────────────────────────────────────────────
                   GestureDetector(
                     onTap: () => _openDetails(event, eventId),
                     child: Padding(
@@ -651,7 +676,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                             const SizedBox(height: 8),
                           ],
                           Text(
-                            event['title'] as String? ?? 'â€”',
+                            event['title'] as String? ?? '—',
                             style: TextStyle(fontFamily: 'Poppins', fontSize: 15.5, fontWeight: FontWeight.w700, color: t.text, height: 1.25),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -659,7 +684,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                           const SizedBox(height: 10),
                           _MetaRow(icon: Icons.access_time_rounded, text: _fmtTime(event), t: t),
                           const SizedBox(height: 4),
-                          _MetaRow(icon: Icons.location_on_rounded,  text: event['location'] as String? ?? 'â€”', t: t),
+                          _MetaRow(icon: Icons.location_on_rounded,  text: event['location'] as String? ?? '—', t: t),
                           const SizedBox(height: 12),
                           _CapacityBar(
                             fill:    fill,
@@ -672,7 +697,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                       ),
                     ),
                   ),
-                  // â”€â”€ Action row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                  // ── Action row ─────────────────────────────────────────────
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
                     child: Row(
@@ -707,7 +732,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                           )
                         else
                           _PrimaryBtn(
-                            label:   isRegistering ? 'Registeringâ€¦' : 'Register',
+                            label:   isRegistering ? 'Registering…' : 'Register',
                             icon:    isRegistering ? null : Icons.how_to_reg_rounded,
                             color:   kGold,
                             onTap:   isRegistering ? null : () => _confirmRegister(event),
@@ -737,11 +762,11 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 // Sub-widgets
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
-// â”€â”€ Card image with overlays â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Card image with overlays ──────────────────────────────────────────────────
 
 class _CardImage extends StatelessWidget {
   final String?    imageUrl;
@@ -787,12 +812,12 @@ class _CardImage extends StatelessWidget {
                 ),
               ),
             ),
-            // Status chip â€” top left
+            // Status chip — top left
             Positioned(
               top: 12, left: 12,
               child: _StatusChip(label: statusLabel, color: sc),
             ),
-            // Registered badge â€” top right
+            // Registered badge — top right
             if (isRegistered)
               Positioned(
                 top: 12, right: 12,
@@ -814,7 +839,7 @@ class _CardImage extends StatelessWidget {
                   ),
                 ),
               ),
-            // Date pill â€” bottom right
+            // Date pill — bottom right
             Positioned(
               bottom: 10, right: 12,
               child: Container(
@@ -848,7 +873,7 @@ class _CardImage extends StatelessWidget {
   }
 }
 
-// â”€â”€ Animated status chip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Animated status chip ──────────────────────────────────────────────────────
 
 class _StatusChip extends StatefulWidget {
   final String label;
@@ -909,7 +934,7 @@ class _StatusChipState extends State<_StatusChip>
   }
 }
 
-// â”€â”€ Event type chip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Event type chip ───────────────────────────────────────────────────────────
 
 class _TypeChip extends StatelessWidget {
   final String label;
@@ -930,7 +955,7 @@ class _TypeChip extends StatelessWidget {
   }
 }
 
-// â”€â”€ Metadata row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Metadata row ──────────────────────────────────────────────────────────────
 
 class _MetaRow extends StatelessWidget {
   final IconData icon;
@@ -954,7 +979,7 @@ class _MetaRow extends StatelessWidget {
   }
 }
 
-// â”€â”€ Capacity progress bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Capacity progress bar ─────────────────────────────────────────────────────
 
 class _CapacityBar extends StatelessWidget {
   final double fill;
@@ -1013,7 +1038,7 @@ class _CapacityBar extends StatelessWidget {
   }
 }
 
-// â”€â”€ Primary action button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Primary action button ─────────────────────────────────────────────────────
 
 class _PrimaryBtn extends StatelessWidget {
   final String       label;
@@ -1074,7 +1099,7 @@ class _PrimaryBtn extends StatelessWidget {
   }
 }
 
-// â”€â”€ Header pill â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Header pill ───────────────────────────────────────────────────────────────
 
 class _HeaderPill extends StatelessWidget {
   final String label;

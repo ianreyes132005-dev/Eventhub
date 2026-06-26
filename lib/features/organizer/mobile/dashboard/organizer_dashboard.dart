@@ -142,7 +142,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
       final eventRows = await client
           .from('events')
-          .select('event_id, title, event_date, start_time, event_status, event_image_url, max_participants')
+          .select('event_id, title, event_date, start_time, end_time, event_status, event_image_url, max_participants')
           .eq('organizer_id', organizerId)
           .order('event_date', ascending: true);
 
@@ -1576,17 +1576,25 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
     final dStr  = e['event_date'] as String?;
     if (dStr == null) return const SizedBox.shrink();
 
-    DateTime target;
+    DateTime start;
+    DateTime? end;
     try {
-      final d = DateTime.parse(dStr);
+      final d     = DateTime.parse(dStr);
       final sTime = e['start_time'] as String?;
       if (sTime != null) {
         final p = sTime.split(':');
         final h = int.tryParse(p[0]) ?? 0;
         final m = p.length > 1 ? (int.tryParse(p[1]) ?? 0) : 0;
-        target = DateTime(d.year, d.month, d.day, h, m);
+        start = DateTime(d.year, d.month, d.day, h, m);
       } else {
-        target = DateTime(d.year, d.month, d.day, 8);
+        start = DateTime(d.year, d.month, d.day, 8);
+      }
+      final eTime = e['end_time'] as String?;
+      if (eTime != null && eTime.isNotEmpty) {
+        final p = eTime.split(':');
+        final h = int.tryParse(p[0]) ?? 0;
+        final m = p.length > 1 ? (int.tryParse(p[1]) ?? 0) : 0;
+        end = DateTime(d.year, d.month, d.day, h, m);
       }
     } catch (_) {
       return const SizedBox.shrink();
@@ -1595,7 +1603,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
     final imageUrl = e['event_image_url'] as String?;
     final hasImage = imageUrl != null && imageUrl.isNotEmpty;
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    final fmtDate = '${months[target.month - 1]} ${target.day}, ${target.year}';
+    final fmtDate = '${months[start.month - 1]} ${start.day}, ${start.year}';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
@@ -1636,64 +1644,12 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                 ),
               ),
 
-            // ── Content pinned to bottom ──────────────────────────────────
-            Positioned(
-              bottom: 0, left: 0, right: 0,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: kGold,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Text(
-                              'NEXT EVENT',
-                              style: TextStyle(fontFamily: 'Poppins', fontSize: 8, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: Colors.white),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            title,
-                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, height: 1.2),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 5),
-                          Row(
-                            children: [
-                              const Icon(Icons.calendar_today_rounded, size: 11, color: Colors.white70),
-                              const SizedBox(width: 4),
-                              Text(fmtDate, style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.white70)),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'STARTS IN',
-                          style: TextStyle(fontFamily: 'Poppins', fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 1.0, color: Colors.white60),
-                        ),
-                        const SizedBox(height: 4),
-                        LiveCountdown(target: target, textColor: Colors.white),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+            // ── Animated status + countdown overlay ───────────────────────
+            _NextEventBanner(
+              start:   start,
+              end:     end,
+              title:   title,
+              fmtDate: fmtDate,
             ),
           ],
         ),
@@ -2084,6 +2040,179 @@ class _OrgDateChip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Event banner overlay (badge + countdown, time-aware) ─────────────────────
+// Replaces the static "NEXT EVENT / STARTS IN" labels with a per-second timer
+// that reflects the current phase: upcoming → live → ended.
+
+class _NextEventBanner extends StatefulWidget {
+  final DateTime  start;
+  final DateTime? end;
+  final String    title;
+  final String    fmtDate;
+
+  const _NextEventBanner({
+    required this.start,
+    required this.end,
+    required this.title,
+    required this.fmtDate,
+  });
+
+  @override
+  State<_NextEventBanner> createState() => _NextEventBannerState();
+}
+
+class _NextEventBannerState extends State<_NextEventBanner> {
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _t = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now     = DateTime.now();
+    final started = now.isAfter(widget.start);
+    final ended   = widget.end != null && now.isAfter(widget.end!);
+
+    // Badge chip
+    final String badgeText;
+    final Color  badgeColor;
+    if (ended) {
+      badgeText  = 'ENDED';
+      badgeColor = const Color(0xFF6B7280);
+    } else if (started) {
+      badgeText  = 'LIVE NOW';
+      badgeColor = const Color(0xFF10B981);
+    } else {
+      badgeText  = 'NEXT EVENT';
+      badgeColor = kGold;
+    }
+
+    // Right-column header label
+    final String topLabel;
+    if (ended) {
+      topLabel = 'ENDED';
+    } else if (started && widget.end != null) {
+      topLabel = 'ENDS IN';
+    } else if (started) {
+      topLabel = 'LIVE';
+    } else {
+      topLabel = 'STARTS IN';
+    }
+
+    // Right-column bottom widget
+    Widget bottomRight;
+    if (ended) {
+      bottomRight = const Text(
+        'Ended',
+        style: TextStyle(
+          fontFamily: 'Poppins', fontSize: 14,
+          fontWeight: FontWeight.w700, color: Colors.white60,
+        ),
+      );
+    } else if (started && widget.end != null) {
+      final diff = widget.end!.difference(now);
+      final h    = diff.inHours;
+      final m    = diff.inMinutes.remainder(60).toString().padLeft(2, '0');
+      final s    = diff.inSeconds.remainder(60).toString().padLeft(2, '0');
+      bottomRight = Text(
+        h > 0 ? '${h.toString().padLeft(2, '0')}:$m:$s' : '$m:$s',
+        style: const TextStyle(
+          fontFamily: 'Poppins', fontSize: 22,
+          fontWeight: FontWeight.w800, color: Colors.white,
+        ),
+      );
+    } else {
+      bottomRight = LiveCountdown(target: widget.start, textColor: Colors.white);
+    }
+
+    return Positioned(
+      bottom: 0, left: 0, right: 0,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: badgeColor,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      badgeText,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins', fontSize: 8,
+                        fontWeight: FontWeight.w800, letterSpacing: 0.8,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    widget.title,
+                    style: const TextStyle(
+                      fontFamily: 'Poppins', fontSize: 15,
+                      fontWeight: FontWeight.w700, color: Colors.white, height: 1.2,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 5),
+                  Row(
+                    children: [
+                      const Icon(Icons.calendar_today_rounded, size: 11, color: Colors.white70),
+                      const SizedBox(width: 4),
+                      Text(
+                        widget.fmtDate,
+                        style: const TextStyle(
+                          fontFamily: 'Poppins', fontSize: 11, color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  topLabel,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins', fontSize: 9,
+                    fontWeight: FontWeight.w700, letterSpacing: 1.0,
+                    color: Colors.white60,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                bottomRight,
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
@@ -7,7 +7,7 @@ import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../core/app_colors.dart';
 
-// â”€â”€ Event type data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Event type data ────────────────────────────────────────────────────────
 const List<(String, IconData, Color)> _kTypeData = [
   ('Concert',  Icons.music_note_rounded,  Color(0xFF7C3AED)),
   ('Sports',   Icons.sports_rounded,      Color(0xFF2563EB)),
@@ -20,9 +20,9 @@ const _kBlue  = Color(0xFF2563EB);
 const _kGreen = Color(0xFF16A34A);
 const _kRed   = Color(0xFFDC2626);
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Screen
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class CreateEventScreen extends StatefulWidget {
   const CreateEventScreen({super.key});
@@ -31,14 +31,14 @@ class CreateEventScreen extends StatefulWidget {
 }
 
 class _CreateEventScreenState extends State<CreateEventScreen> {
-  // â”€â”€ Controllers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Controllers ─────────────────────────────────────────────────────────────
   final _nameCtrl      = TextEditingController();
   final _venueCtrl     = TextEditingController();
   final _descCtrl      = TextEditingController();
   final _capacityCtrl  = TextEditingController();
   final _otherTypeCtrl = TextEditingController();
 
-  // â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── State ────────────────────────────────────────────────────────────────────
   DateTime?  _selectedDate;
   TimeOfDay? _startTime;
   TimeOfDay? _endTime;
@@ -75,7 +75,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     super.dispose();
   }
 
-  // â”€â”€ Validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Validation ───────────────────────────────────────────────────────────────
 
   bool _validateForm() {
     if (_nameCtrl.text.trim().isEmpty)  { _snack('Event name is required', isError: true); return false; }
@@ -106,7 +106,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     return true;
   }
 
-  // â”€â”€ Pickers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Pickers ──────────────────────────────────────────────────────────────────
 
   void _toggleCalendar() => setState(() => _showCalendar = !_showCalendar);
 
@@ -152,7 +152,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     if (d != null) setState(() => _registrationDeadline = d);
   }
 
-  // â”€â”€ Banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Banner ───────────────────────────────────────────────────────────────────
 
   Future<void> _uploadBanner() async {
     try {
@@ -167,7 +167,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     }
   }
 
-  // â”€â”€ Publish â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Publish ──────────────────────────────────────────────────────────────────
 
   Future<void> _publishEvent() async {
     if (!_validateForm()) return;
@@ -225,7 +225,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     }
   }
 
-  // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Helpers ──────────────────────────────────────────────────────────────────
 
   String _fmtDate(DateTime d) {
     const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -253,9 +253,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _capacityCtrl.text = next == 0 ? '' : '$next';
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════════
   // BUILD
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -289,13 +289,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               ],
             ),
           ),
-          if (_isPublishing) const AppOverlayLoader(message: 'Publishing your eventâ€¦'),
+          if (_isPublishing) const AppOverlayLoader(message: 'Publishing your event…'),
         ],
       ),
     );
   }
 
-  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Header ───────────────────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     return Padding(
@@ -329,7 +329,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  // â”€â”€ Progress bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Progress bar ─────────────────────────────────────────────────────────────
 
   Widget _buildProgressBar() {
     final progress = _formProgress;
@@ -369,7 +369,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  // â”€â”€ Event Details section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Event Details section ────────────────────────────────────────────────────
 
   Widget _buildEventDetailsSection() {
     return _sectionCard(
@@ -387,11 +387,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           if (_selectedEventType == 'Other') ...[
             const SizedBox(height: 12),
             _inputField(label: 'Specify type', controller: _otherTypeCtrl,
-                hint: 'e.g. Academic Quiz, Cultural Nightâ€¦', icon: Icons.edit_note_rounded),
+                hint: 'e.g. Academic Quiz, Cultural Night…', icon: Icons.edit_note_rounded),
           ],
           const SizedBox(height: 18),
           _inputField(label: 'Description', controller: _descCtrl,
-              hint: 'Describe what the event is aboutâ€¦', icon: Icons.notes_rounded, maxLines: 4),
+              hint: 'Describe what the event is about…', icon: Icons.notes_rounded, maxLines: 4),
         ],
       ),
     );
@@ -437,7 +437,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  // â”€â”€ Schedule section â€” redesigned â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Schedule section — redesigned ─────────────────────────────────────────────
 
   Widget _buildScheduleSection() {
     return _sectionCard(
@@ -458,7 +458,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  // â”€â”€ Date field with inline collapsible calendar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Date field with inline collapsible calendar ───────────────────────────────
 
   Widget _buildDateField() {
     final filled = _selectedDate != null;
@@ -562,7 +562,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             ),
           ),
         ),
-        // Inline calendar â€” AnimatedSize expand/collapse
+        // Inline calendar — AnimatedSize expand/collapse
         AnimatedSize(
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
@@ -597,7 +597,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  // â”€â”€ Time row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Time row ─────────────────────────────────────────────────────────────────
 
   Widget _buildTimeRow() {
     // Duration chip
@@ -746,7 +746,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  // â”€â”€ Deadline field â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Deadline field ────────────────────────────────────────────────────────────
 
   Widget _buildDeadlineField() {
     final filled = _registrationDeadline != null;
@@ -848,7 +848,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  // â”€â”€ Venue & Capacity section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Venue & Capacity section ─────────────────────────────────────────────────
 
   Widget _buildVenueSection() {
     return _sectionCard(
@@ -883,7 +883,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 style: const TextStyle(fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700, color: kText),
                 decoration: InputDecoration(
-                  hintText: 'â€”',
+                  hintText: '—',
                   hintStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 16, color: kMuted),
                   filled: true, fillColor: Colors.grey.shade50,
                   contentPadding: const EdgeInsets.symmetric(vertical: 14),
@@ -916,7 +916,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     ),
   );
 
-  // â”€â”€ Banner section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Banner section ────────────────────────────────────────────────────────────
 
   Widget _buildBannerSection() {
     return _sectionCard(
@@ -947,7 +947,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             const SizedBox(height: 12),
             const Text('Tap to upload banner image', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: kText)),
             const SizedBox(height: 4),
-            const Text('Recommended: 16 : 9  Â·  JPG or PNG', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
+            const Text('Recommended: 16 : 9  ·  JPG or PNG', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
           ],
         ),
       ),
@@ -992,7 +992,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  // â”€â”€ Bottom bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Bottom bar ────────────────────────────────────────────────────────────────
 
   Widget _buildBottomBar() {
     return SafeArea(
@@ -1015,7 +1015,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             icon: _isPublishing
                 ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                 : const Icon(Icons.publish_rounded, size: 18),
-            label: Text(_isPublishing ? 'Publishingâ€¦' : 'Publish Event',
+            label: Text(_isPublishing ? 'Publishing…' : 'Publish Event',
               style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700)),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.transparent, foregroundColor: Colors.white,
@@ -1030,7 +1030,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  // â”€â”€ Shared helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Shared helpers ─────────────────────────────────────────────────────────────
 
   Widget _sectionCard({
     required IconData icon, required Color iconBg, required Color iconColor,
@@ -1103,9 +1103,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Inline Calendar Widget
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _InlineCalendar extends StatefulWidget {
   final DateTime?             selectedDate;
@@ -1149,7 +1149,7 @@ class _InlineCalendarState extends State<_InlineCalendar> {
 
   List<DateTime?> _cells() {
     final first  = DateTime(_year, _month, 1);
-    final offset = first.weekday % 7; // Sun=0 Mon=1 â€¦ Sat=6
+    final offset = first.weekday % 7; // Sun=0 Mon=1 … Sat=6
     final days   = DateUtils.getDaysInMonth(_year, _month);
     final list   = <DateTime?>[];
     for (var i = 0; i < offset; i++) { list.add(null); }
@@ -1264,9 +1264,9 @@ class _CalNavBtn extends StatelessWidget {
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Time Picker Bottom Sheet
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _TimePickerSheet extends StatefulWidget {
   final String     title;
@@ -1346,7 +1346,7 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
                 Text(widget.title, style: const TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w700, color: kText)),
                 Text(
                   widget.minTime != null
-                      ? 'Today\'s event â€” from ${_fmtMinTime(widget.minTime!)} onwards'
+                      ? 'Today\'s event — from ${_fmtMinTime(widget.minTime!)} onwards'
                       : 'Scroll to set hour, minute & period',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.grey.shade500),
                 ),
@@ -1541,9 +1541,9 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Deadline Picker Bottom Sheet
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _DeadlinePickerSheet extends StatefulWidget {
   final DateTime? initialDeadline;
@@ -1639,7 +1639,7 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
             ),
             const SizedBox(height: 16),
             Divider(color: Colors.grey.shade100, height: 1),
-            // â”€â”€ Mini calendar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Mini calendar ──────────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
               child: Column(
@@ -1691,7 +1691,7 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
             ),
             const SizedBox(height: 8),
             Divider(color: Colors.grey.shade100, height: 1),
-            // â”€â”€ Time drums â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Time drums ──────────────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 18, 24, 0),
               child: Row(

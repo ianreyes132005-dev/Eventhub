@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import 'web_shared.dart';
@@ -23,6 +25,8 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
   List<Map<String, dynamic>> _announcements = [];
 
   late final AnimationController _staggerCtrl;
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
 
   @override
   void initState() {
@@ -32,6 +36,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
     _msgCtrl.addListener(_updateLengths);
     _load();
     SupabaseService.announcementsVersion.addListener(_load);
+    _subscribeRealtime();
   }
 
   void _updateLengths() {
@@ -45,11 +50,28 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
     _staggerCtrl.dispose();
     _titleCtrl.dispose();
     _msgCtrl.dispose();
     SupabaseService.announcementsVersion.removeListener(_load);
     super.dispose();
+  }
+
+  void _subscribeRealtime() {
+    _channel = SupabaseService.client.channel('org-announcements');
+    _channel!.on(
+      RealtimeListenTypes.postgresChanges,
+      ChannelFilter(event: '*', schema: 'public', table: 'announcements'),
+      (_, [a]) {
+        _debounce?.cancel();
+        _debounce = Timer(const Duration(milliseconds: 600), () {
+          if (mounted) _load();
+        });
+      },
+    );
+    _channel!.subscribe();
   }
 
   Widget _stagger(Widget child, {required double start, required double end}) {
@@ -139,7 +161,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
     }
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ─────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -175,7 +197,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
     );
   }
 
-  // â”€â”€ Page header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Page header ───────────────────────────────────────────────────────────────
 
   Widget _buildPageHeader() {
     return Row(
@@ -222,19 +244,11 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
               )),
           ]),
         ),
-        const SizedBox(width: 12),
-        WebBtn(
-          label: 'Refresh',
-          icon:  Icons.refresh_rounded,
-          onTap: _load,
-          small: true,
-          outlined: true,
-        ),
       ],
     );
   }
 
-  // â”€â”€ Compose form â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Compose form ──────────────────────────────────────────────────────────────
 
   Widget _buildForm() => WebCard(
     padding: const EdgeInsets.all(22),
@@ -344,7 +358,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
                               required isFocused, maxLength}) => null,
           style: const TextStyle(
             fontFamily: 'Poppins', fontSize: 13, color: kText, height: 1.55),
-          decoration: webInputDeco('Write your announcement hereâ€¦'),
+          decoration: webInputDeco('Write your announcement here…'),
         ),
 
         // Error
@@ -385,7 +399,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
                   child: CircularProgressIndicator(
                     color: Colors.white, strokeWidth: 2))
               : const Icon(Icons.send_rounded, size: 16),
-            label: Text(_posting ? 'Sendingâ€¦' : 'Post Announcement',
+            label: Text(_posting ? 'Sending…' : 'Post Announcement',
               style: const TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 13.5,
@@ -406,7 +420,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
     ),
   );
 
-  // â”€â”€ Posted announcements list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Posted announcements list ─────────────────────────────────────────────────
 
   Widget _buildList() => WebCard(
     padding: const EdgeInsets.all(22),
@@ -472,7 +486,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
   );
 }
 
-// â”€â”€ Announcement card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Announcement card ─────────────────────────────────────────────────────────
 
 class _AnnouncementCard extends StatefulWidget {
   final Map<String, dynamic> announcement;
@@ -490,7 +504,7 @@ class _AnnouncementCardState extends State<_AnnouncementCard> {
   @override
   Widget build(BuildContext context) {
     final a       = widget.announcement;
-    final title   = a['title']      as String? ?? 'â€”';
+    final title   = a['title']      as String? ?? '—';
     final message = a['message']    as String? ?? '';
     final created = a['created_at'] as String?;
     final isLong  = message.length > 180;
@@ -594,7 +608,7 @@ class _AnnouncementCardState extends State<_AnnouncementCard> {
                         curve: Curves.easeInOut,
                         child: Text(
                           isLong && !_expanded
-                            ? '${message.substring(0, 180)}â€¦'
+                            ? '${message.substring(0, 180)}…'
                             : message,
                           style: const TextStyle(
                             fontFamily: 'Poppins',
@@ -642,7 +656,7 @@ class _AnnouncementCardState extends State<_AnnouncementCard> {
   }
 }
 
-// â”€â”€ Delete button with hover â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Delete button with hover ───────────────────────────────────────────────────
 
 class _DeleteBtn extends StatefulWidget {
   final VoidCallback onTap;
@@ -686,7 +700,7 @@ class _DeleteBtnState extends State<_DeleteBtn> {
   );
 }
 
-// â”€â”€ Field label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Field label ───────────────────────────────────────────────────────────────
 
 class _FieldLabel extends StatelessWidget {
   final String text;

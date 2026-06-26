@@ -1,7 +1,8 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../shared/widgets/event_phase_pill.dart';
@@ -19,9 +20,8 @@ class WebDashboardPage extends StatefulWidget {
 class _WebDashboardPageState extends State<WebDashboardPage>
     with TickerProviderStateMixin {
   bool      _loading      = true;
-  bool      _refreshing   = false;   // silent background refresh in progress
-  DateTime? _lastRefreshed;
-  Timer?    _autoRefreshTimer;
+  Timer?           _autoRefreshTimer;
+  RealtimeChannel? _rtChannel;
 
   // Stats
   int _activeEvents  = 0;
@@ -37,7 +37,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
   List<String>               _weekDayLabels   = [];
   List<Map<String, dynamic>> _eventAttendance = [];
 
-  // â”€â”€ Animations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Animations ────────────────────────────────────────────────────────────
   late final AnimationController _staggerCtrl;
   late final AnimationController _pulseCtrl;   // powers the "Live" dot
 
@@ -50,8 +50,8 @@ class _WebDashboardPageState extends State<WebDashboardPage>
         vsync: this, duration: const Duration(milliseconds: 1800))
       ..repeat(reverse: true);
     _load();
-    // Silently refresh data every 30 s so stat cards stay current during
-    // live check-in sessions without disturbing the user's view.
+    _subscribeRealtime();
+    // 30 s fallback keeps stats fresh even if a realtime event is missed.
     _autoRefreshTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) { if (mounted && !_loading) _load(silent: true); },
@@ -61,9 +61,22 @@ class _WebDashboardPageState extends State<WebDashboardPage>
   @override
   void dispose() {
     _autoRefreshTimer?.cancel();
+    if (_rtChannel != null) SupabaseService.client.removeChannel(_rtChannel!);
     _staggerCtrl.dispose();
     _pulseCtrl.dispose();
     super.dispose();
+  }
+
+  void _subscribeRealtime() {
+    _rtChannel = SupabaseService.client.channel('org-dashboard-${widget.orgId}');
+    for (final table in ['events', 'registrations']) {
+      _rtChannel!.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (_, [a]) { if (mounted && !_loading) _load(silent: true); },
+      );
+    }
+    _rtChannel!.subscribe();
   }
 
   @override
@@ -76,18 +89,14 @@ class _WebDashboardPageState extends State<WebDashboardPage>
   Future<void> _load({bool silent = false}) async {
     if (widget.orgId == null) return;
     if (!mounted) return;
-    if (silent) {
-      setState(() => _refreshing = true);
-    } else {
-      setState(() => _loading = true);
-    }
+    if (!silent) setState(() => _loading = true);
     try {
       final client = SupabaseService.client;
       final now    = DateTime.now();
 
       final eventRows = await client
           .from('events')
-          .select('event_id, title, event_date, start_time, location, '
+          .select('event_id, title, event_date, start_time, end_time, location, '
                   'event_status, max_participants, organizer_id')
           .eq('organizer_id', widget.orgId!);
 
@@ -105,12 +114,12 @@ class _WebDashboardPageState extends State<WebDashboardPage>
         orgRegs = List<Map<String, dynamic>>.from(regRows as List);
       }
 
-      // â”€â”€ Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── Stats ─────────────────────────────────────────────────────────
       final activeStatuses = {'upcoming', 'ongoing'};
       _activeEvents = events.where((e) => activeStatuses.contains(e['event_status'])).length;
       _totalRegs    = orgRegs.length;
 
-      // â”€â”€ Upcoming events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── Upcoming events ───────────────────────────────────────────────
       final upcoming = events
           .where((e) => e['event_status'] == 'upcoming' || e['event_status'] == 'ongoing')
           .toList()
@@ -122,7 +131,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
       _upcomingEvents = upcoming.take(5).toList();
       _recentRegs     = orgRegs.take(6).toList();
 
-      // â”€â”€ Weekly registrations: Mon=0 â€¦ Sun=6 for the current ISO week â”€â”€
+      // ── Weekly registrations: Mon=0 … Sun=6 for the current ISO week ──
       final monday = DateTime(now.year, now.month, now.day)
           .subtract(Duration(days: now.weekday - 1));
       final weekly = List.filled(7, 0);
@@ -139,7 +148,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
       _weeklyRegs    = weekly;
       _weekDayLabels = const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-      // â”€â”€ Past events (completed / cancelled / any non-active status) â”€â”€â”€
+      // ── Past events (completed / cancelled / any non-active status) ───
       // Used for both the event-attendance breakdown and the attendance-rate
       // stat card.  Upcoming & ongoing events are excluded because no student
       // has had the chance to be checked in yet; including them would deflate
@@ -168,7 +177,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
         final total     = orgRegs.where((r) => r['event_id'] == eid).length;
         final checkedIn = orgRegs.where((r) =>
             r['event_id'] == eid && r['status'] == 'checked_in').length;
-        String label = 'â€”';
+        String label = '—';
         final dStr = e['event_date'] as String?;
         if (dStr != null) {
           try {
@@ -180,14 +189,14 @@ class _WebDashboardPageState extends State<WebDashboardPage>
         }
         return <String, dynamic>{
           'label':           label,
-          'title':           (e['title'] as String?) ?? 'â€”',
+          'title':           (e['title'] as String?) ?? '—',
           'checkedIn':       checkedIn,
           'total':           total,
           'maxParticipants': (e['max_participants'] as int?) ?? 0,
         };
       }).toList();
 
-      // â”€â”€ Attendance rate â€” past events only â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── Attendance rate — past events only ────────────────────────────
       // Use ALL past events (not just last 5) for a school-wide rate.
       // Upcoming & ongoing events are excluded because no student has had
       // the chance to be checked in yet; including them deflates the rate.
@@ -203,29 +212,15 @@ class _WebDashboardPageState extends State<WebDashboardPage>
           .length;
 
       if (mounted) {
-        setState(() {
-          _loading       = false;
-          _refreshing    = false;
-          _lastRefreshed = DateTime.now();
-        });
-        // Only replay the entrance stagger on the first / manual full load.
+        setState(() => _loading = false);
         if (!silent) _staggerCtrl.forward(from: 0);
       }
     } catch (_) {
       if (mounted) {
-        setState(() { _loading = false; _refreshing = false; });
+        setState(() => _loading = false);
         if (!silent) _staggerCtrl.forward(from: 0);
       }
     }
-  }
-
-  // Formats the last-refresh time as "12:34 PM".
-  String _fmtRefreshTime(DateTime t) {
-    final h      = t.hour;
-    final m      = t.minute.toString().padLeft(2, '0');
-    final period = h >= 12 ? 'PM' : 'AM';
-    final h12    = h > 12 ? h - 12 : h == 0 ? 12 : h;
-    return '$h12:$m $period';
   }
 
   // Wraps [child] in a fade + upward-slide driven by [_staggerCtrl] over
@@ -273,7 +268,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     );
   }
 
-  // â”€â”€ Page header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Page header ───────────────────────────────────────────────────────────
   Widget _buildPageHeader() {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -288,38 +283,11 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             height: 1.1,
           ),
         ),
-        const Spacer(),
-        // While a silent refresh is running, replace the button with a subtle
-        // in-line indicator so the organizer knows data is being updated.
-        if (_refreshing)
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              SizedBox(
-                width: 13, height: 13,
-                child: CircularProgressIndicator(
-                    strokeWidth: 1.8, color: kGold),
-              ),
-              SizedBox(width: 8),
-              Text('Refreshingâ€¦',
-                style: TextStyle(
-                  fontFamily: 'Poppins', fontSize: 12,
-                  color: kMuted, fontWeight: FontWeight.w500,
-                )),
-            ],
-          )
-        else
-          WebBtn(
-            label: 'Refresh',
-            icon:  Icons.refresh_rounded,
-            onTap: () => _load(silent: true),
-            small: true, outlined: true,
-          ),
       ],
     );
   }
 
-  // â”€â”€ Stat cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Stat cards ───────────────────────────────────────────────────────────
   Widget _buildStatRow() {
     final todayCount = _weeklyRegs[DateTime.now().weekday - 1];
 
@@ -350,7 +318,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
         accentColor: const Color(0xFF8B5CF6),
       ),
       _DashStatCard(
-        value:       hasPastData ? '$rate%' : 'â€”',
+        value:       hasPastData ? '$rate%' : '—',
         label:       'Attendance Rate',
         icon:        Icons.show_chart_rounded,
         accentColor: rateColor,
@@ -388,7 +356,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     });
   }
 
-  // â”€â”€ Analytics section label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Analytics section label ───────────────────────────────────────────────
   Widget _buildAnalyticsLabel() {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -409,7 +377,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
           ),
         ),
         const SizedBox(width: 10),
-        // Pulsing green dot â€” indicates the 30-second auto-refresh is active.
+        // Pulsing green dot — indicates the 30-second auto-refresh is active.
         AnimatedBuilder(
           animation: _pulseCtrl,
           builder: (_, _) => Opacity(
@@ -431,46 +399,11 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             color: Color(0xFF10B981),
             letterSpacing: 0.5,
           )),
-        const Spacer(),
-        // Last-updated / refreshing chip
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-          decoration: BoxDecoration(
-            color:        kGold.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(20),
-            border:       Border.all(color: kGold.withValues(alpha: 0.22)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_refreshing)
-                const SizedBox(
-                  width: 10, height: 10,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 1.5, color: kGold),
-                )
-              else
-                const Icon(Icons.update_rounded, size: 10, color: kGold),
-              const SizedBox(width: 4),
-              Text(
-                _refreshing
-                    ? 'Refreshingâ€¦'
-                    : _lastRefreshed == null
-                        ? 'Loadingâ€¦'
-                        : 'Updated ${_fmtRefreshTime(_lastRefreshed!)}',
-                style: const TextStyle(
-                  fontFamily: 'Poppins', fontSize: 10,
-                  fontWeight: FontWeight.w600, color: kGold,
-                ),
-              ),
-            ],
-          ),
-        ),
       ],
     );
   }
 
-  // â”€â”€ Content grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Content grid ──────────────────────────────────────────────────────────
   Widget _buildContentGrid() => LayoutBuilder(builder: (_, c) {
     final wide = c.maxWidth > 760;
     if (wide) {
@@ -563,7 +496,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     ),
   );
 
-  // â”€â”€ Weekly Registrations card (white + purple) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Weekly Registrations card (white + purple) ────────────────────────────
 
   Widget _buildWeeklyRegsCard() {
     const purple = Color(0xFF7C3AED);
@@ -609,7 +542,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                 children: [
                   Text('Weekly Registrations',
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: kText)),
-                  Text('Sign-up activity Â· this week',
+                  Text('Sign-up activity · this week',
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
                 ],
               ),
@@ -622,8 +555,8 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             _analyticsKpiChip(value: '$totalWeek', label: 'This Week', icon: Icons.how_to_reg_rounded, color: purple),
             const SizedBox(width: 10),
             _analyticsKpiChip(
-              value: peakLabel != null ? '$peakVal' : 'â€”',
-              label: peakLabel != null ? 'Peak Â· $peakLabel' : 'Peak Day',
+              value: peakLabel != null ? '$peakVal' : '—',
+              label: peakLabel != null ? 'Peak · $peakLabel' : 'Peak Day',
               icon: Icons.trending_up_rounded, color: indigo,
             ),
             const SizedBox(width: 10),
@@ -815,7 +748,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     );
   }
 
-  // â”€â”€ Event Attendance card (white + blue) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Event Attendance card (white + blue) ──────────────────────────────────
 
   Widget _buildEventAttendanceCard() {
     const blue = Color(0xFF2563EB);
@@ -854,7 +787,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                 children: [
                   Text('Event Attendance',
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: kText)),
-                  Text('Check-in data Â· last 5 past events',
+                  Text('Check-in data · last 5 past events',
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
                 ],
               ),
@@ -1029,7 +962,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     );
   }
 
-  // â”€â”€ Shared analytics helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Shared analytics helpers ──────────────────────────────────────────────
 
   Widget _analyticsKpiChip({
     required String   value,
@@ -1078,7 +1011,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
   }
 }
 
-// â”€â”€ Stat card with hover lift + animated progress â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Stat card with hover lift + animated progress ────────────────────────────
 
 class _DashStatCard extends StatefulWidget {
   final String   value;
@@ -1204,16 +1137,54 @@ class _DashStatCardState extends State<_DashStatCard> {
   }
 }
 
-// â”€â”€ Upcoming event row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Returns the status to display for an event, overriding the database value
+// with 'ended' when the event's end time (or the event day itself) has passed.
+// This handles the case where the backend hasn't yet updated the status.
+String _resolveDisplayStatus(Map<String, dynamic> event) {
+  final db = (event['event_status'] as String? ?? '').toLowerCase();
+  if (db != 'upcoming' && db != 'ongoing') return db;
+
+  final dStr = event['event_date'] as String?;
+  if (dStr == null) return db;
+
+  try {
+    final now  = DateTime.now();
+    final d    = DateTime.parse(dStr);
+    final eDay = DateTime(d.year, d.month, d.day);
+    final nDay = DateTime(now.year, now.month, now.day);
+
+    // Entire event day has passed → definitely ended
+    if (nDay.isAfter(eDay)) return 'ended';
+
+    // Same day: ended if we're past end_time
+    if (nDay == eDay) {
+      final eStr = event['end_time'] as String?;
+      if (eStr != null && eStr.isNotEmpty) {
+        final p = eStr.split(':');
+        final h = int.tryParse(p[0]) ?? 0;
+        final m = p.length > 1 ? (int.tryParse(p[1]) ?? 0) : 0;
+        if (now.isAfter(DateTime(d.year, d.month, d.day, h, m))) return 'ended';
+      }
+    }
+  } catch (_) {}
+  return db;
+}
+
+// ── Upcoming event row ────────────────────────────────────────────────────────
 class _EventListTile extends StatelessWidget {
   final Map<String, dynamic> event;
   const _EventListTile({required this.event});
 
   @override
   Widget build(BuildContext context) {
-    final status   = event['event_status'] as String?;
-    final color    = webEventStatusColor(status);
-    final isLive   = status == 'ongoing';
+    final dbStatus = event['event_status'] as String?;
+    final resolved = _resolveDisplayStatus(event);
+    final isEnded  = resolved == 'ended';
+    final color    = isEnded
+        ? const Color(0xFF6B7280)
+        : webEventStatusColor(dbStatus);
+    final label    = isEnded ? 'Ended' : webEventStatusLabel(dbStatus);
+    final isLive   = dbStatus == 'ongoing' && !isEnded;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -1228,7 +1199,7 @@ class _EventListTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(event['title'] as String? ?? 'â€”',
+                Text(event['title'] as String? ?? '—',
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
                     fontWeight: FontWeight.w600, color: kText),
                   maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -1242,7 +1213,7 @@ class _EventListTile extends StatelessWidget {
                   const Icon(Icons.location_on_rounded, size: 11, color: kMuted),
                   const SizedBox(width: 2),
                   Expanded(
-                    child: Text(event['location'] as String? ?? 'â€”',
+                    child: Text(event['location'] as String? ?? '—',
                       style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText),
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   ),
@@ -1254,14 +1225,14 @@ class _EventListTile extends StatelessWidget {
             const WebLiveDot(size: 8),
             const SizedBox(width: 6),
           ],
-          WebStatusBadge(label: webEventStatusLabel(status), color: color),
+          WebStatusBadge(label: label, color: color),
         ],
       ),
     );
   }
 }
 
-// â”€â”€ Recent registration row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Recent registration row ───────────────────────────────────────────────────
 class _RegRow extends StatelessWidget {
   final Map<String, dynamic> reg;
   const _RegRow({required this.reg});
@@ -1270,7 +1241,7 @@ class _RegRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final status      = reg['status'] as String?;
     final statusColor = webStatusColor(status);
-    final name        = reg['student_name'] as String? ?? 'â€”';
+    final name        = reg['student_name'] as String? ?? '—';
     final initials    = name.split(' ').where((w) => w.isNotEmpty)
         .map((w) => w[0].toUpperCase()).take(2).join();
 
@@ -1300,7 +1271,7 @@ class _RegRow extends StatelessWidget {
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
                     fontWeight: FontWeight.w600, color: kText),
                   maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(reg['event_title'] as String? ?? 'â€”',
+                Text(reg['event_title'] as String? ?? '—',
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText),
                   maxLines: 1, overflow: TextOverflow.ellipsis),
               ],

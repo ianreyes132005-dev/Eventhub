@@ -1,9 +1,9 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/chat_service.dart';
 
-// â”€â”€ Mobile-matched palette â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Mobile-matched palette ─────────────────────────────────────────────────────
 const Color _kBg      = Color(0xFFF7F3EC);
 const Color _kText    = Color(0xFF1A1A1A);
 const Color _kSub     = Color(0xFF6B7280);
@@ -11,7 +11,7 @@ const Color _kMuted   = Color(0xFFB0B7C3);
 const Color _kCard    = Color(0xFFFFFFFF);
 const Color _kSurface = Color(0xFFF1EDE6);
 
-// â”€â”€ Suggestion model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Suggestion model ──────────────────────────────────────────────────────────
 class _SuggestionItem {
   const _SuggestionItem(this.icon, this.text);
   final IconData icon;
@@ -27,7 +27,7 @@ const List<_SuggestionItem> _kOrgSuggestions = [
   _SuggestionItem(Icons.delete_outline_rounded,     'How do I delete a registration?'),
 ];
 
-// â”€â”€ Root widget â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Root widget ───────────────────────────────────────────────────────────────
 
 class WebAiChatbot extends StatefulWidget {
   final String? orgId;
@@ -214,7 +214,7 @@ class _WebAiChatbotState extends State<WebAiChatbot>
   }
 }
 
-// â”€â”€ AI Bot Logo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── AI Bot Logo ───────────────────────────────────────────────────────────────
 
 class _AiBotLogo extends StatelessWidget {
   final double size;
@@ -239,7 +239,7 @@ class _AiBotLogo extends StatelessWidget {
   );
 }
 
-// â”€â”€ Chat panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Chat panel ────────────────────────────────────────────────────────────────
 
 class _ChatPanel extends StatelessWidget {
   final bool                  loading;
@@ -298,7 +298,7 @@ class _ChatPanel extends StatelessWidget {
     ),
   );
 
-  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Header ─────────────────────────────────────────────────────────────────
 
   Widget _buildHeader() => Container(
     padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
@@ -341,7 +341,7 @@ class _ChatPanel extends StatelessWidget {
                           _MiniDots(),
                           SizedBox(width: 5),
                           Text(
-                            'Typingâ€¦',
+                            'Typing…',
                             style: TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 10,
@@ -404,7 +404,7 @@ class _ChatPanel extends StatelessWidget {
     ),
   );
 
-  // â”€â”€ Body (messages / welcome / loading / error) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Body (messages / welcome / loading / error) ───────────────────────────
 
   Widget _buildBody() {
     if (loading) {
@@ -420,7 +420,7 @@ class _ChatPanel extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             const Text(
-              'Starting chatâ€¦',
+              'Starting chat…',
               style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: _kMuted),
             ),
           ],
@@ -493,7 +493,7 @@ class _ChatPanel extends StatelessWidget {
     );
   }
 
-  // â”€â”€ Welcome / empty state with suggestions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Welcome / empty state with suggestions ────────────────────────────────
 
   Widget _buildWelcome() => SingleChildScrollView(
     padding: const EdgeInsets.fromLTRB(16, 22, 16, 16),
@@ -573,7 +573,7 @@ class _ChatPanel extends StatelessWidget {
     ),
   );
 
-  // â”€â”€ Input bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Input bar ─────────────────────────────────────────────────────────────
 
   Widget _buildInput() => Container(
     padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
@@ -605,7 +605,7 @@ class _ChatPanel extends StatelessWidget {
                 fontFamily: 'Poppins', fontSize: 12.5, color: _kText,
               ),
               decoration: const InputDecoration(
-                hintText: 'Ask EventHub AIâ€¦',
+                hintText: 'Ask EventHub AI…',
                 hintStyle: TextStyle(
                   fontFamily: 'Poppins', fontSize: 12.5, color: _kMuted,
                 ),
@@ -624,7 +624,7 @@ class _ChatPanel extends StatelessWidget {
   );
 }
 
-// â”€â”€ Suggestion row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Suggestion row ────────────────────────────────────────────────────────────
 
 class _SuggestionRow extends StatefulWidget {
   final _SuggestionItem item;
@@ -698,7 +698,7 @@ class _SuggestionRowState extends State<_SuggestionRow> {
   );
 }
 
-// â”€â”€ Message bubble â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Message bubble ────────────────────────────────────────────────────────────
 
 class _MessageBubble extends StatelessWidget {
   final ChatMessage msg;
@@ -780,7 +780,7 @@ class _MessageBubble extends StatelessWidget {
   }
 }
 
-// â”€â”€ Typing bubble â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Typing bubble ─────────────────────────────────────────────────────────────
 
 class _TypingBubble extends StatelessWidget {
   const _TypingBubble();
@@ -877,7 +877,7 @@ class _DotState extends State<_Dot> with SingleTickerProviderStateMixin {
   );
 }
 
-// â”€â”€ Mini dots â€” header typing indicator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Mini dots — header typing indicator ───────────────────────────────────────
 
 class _MiniDots extends StatefulWidget {
   const _MiniDots();
@@ -941,7 +941,7 @@ class _MiniDotsState extends State<_MiniDots> with TickerProviderStateMixin {
   );
 }
 
-// â”€â”€ Send button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Send button ───────────────────────────────────────────────────────────────
 
 class _SendBtn extends StatefulWidget {
   final VoidCallback onTap;
@@ -999,7 +999,7 @@ class _SendBtnState extends State<_SendBtn> {
   );
 }
 
-// â”€â”€ FAB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── FAB ───────────────────────────────────────────────────────────────────────
 
 class _ChatFab extends StatefulWidget {
   final bool         open;

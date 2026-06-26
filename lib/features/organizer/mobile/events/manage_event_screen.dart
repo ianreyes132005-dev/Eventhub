@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../shared/widgets/app_loader.dart';
@@ -6,7 +6,7 @@ import '../../../../shared/widgets/app_alert.dart';
 import '../../../../core/app_colors.dart';
 
 
-// â”€â”€ Static lookup tables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Static lookup tables ───────────────────────────────────────────────────
 const List<(String, IconData, Color)> _kTypeData = [
   ('Concert',  Icons.music_note_rounded,  Color(0xFF7C3AED)),
   ('Sports',   Icons.sports_rounded,      Color(0xFF2563EB)),
@@ -31,19 +31,19 @@ class ManageEventScreen extends StatefulWidget {
 }
 
 class _ManageEventScreenState extends State<ManageEventScreen> {
-  // â”€â”€ Controllers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Controllers ────────────────────────────────────────────────────────────
   late final TextEditingController _nameCtrl;
   late final TextEditingController _venueCtrl;
   late final TextEditingController _descCtrl;
   late final TextEditingController _capacityCtrl;
   late final TextEditingController _otherTypeCtrl;
 
-  // â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── State ──────────────────────────────────────────────────────────────────
   String _selectedType   = 'Concert';
   String _currentStatus  = 'upcoming';
   bool   _isSaving       = false;
 
-  // â”€â”€ Derived from eventData â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Derived from eventData ─────────────────────────────────────────────────
   String get _eventId =>
       (widget.eventData['event_id'] as String?) ??
       (widget.eventData['id']       as String?) ?? '';
@@ -51,10 +51,10 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
   int get _checkedIn   => widget.eventData['checkedIn']           as int? ?? 0;
   int get _capacity    => int.tryParse(_capacityCtrl.text)        ?? 0;
 
-  // â”€â”€ Date / time formatting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Date / time formatting ─────────────────────────────────────────────────
   String get _displayDate {
     final iso = widget.eventData['event_date'] as String?;
-    if (iso == null) return widget.eventData['date'] as String? ?? 'â€”';
+    if (iso == null) return widget.eventData['date'] as String? ?? '—';
     try {
       final dt = DateTime.parse(iso);
       const m = ['JAN','FEB','MAR','APR','MAY','JUN',
@@ -66,7 +66,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
   String get _displayTime {
     final s  = widget.eventData['start_time'] as String?;
     final en = widget.eventData['end_time']   as String?;
-    if (s == null) return widget.eventData['time'] as String? ?? 'â€”';
+    if (s == null) return widget.eventData['time'] as String? ?? '—';
     String fmt(String t) {
       final p = t.split(':');
       if (p.length < 2) return t;
@@ -93,7 +93,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
     _otherTypeCtrl = TextEditingController();
 
-    // Resolve type â€” if it doesn't match a known type, fall back to 'Other'
+    // Resolve type — if it doesn't match a known type, fall back to 'Other'
     final rawType = (d['event_type'] as String?) ?? (d['type'] as String?) ?? 'Concert';
     _selectedType = _kTypeData.any((t) => t.$1 == rawType) ? rawType : 'Other';
     if (_selectedType == 'Other') _otherTypeCtrl.text = rawType;
@@ -116,7 +116,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     super.dispose();
   }
 
-  // â”€â”€ Save to Supabase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Save to Supabase ───────────────────────────────────────────────────────
 
   Future<void> _saveChanges() async {
     if (_nameCtrl.text.trim().isEmpty) {
@@ -181,7 +181,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
     if (confirmed && mounted) {
       setState(() => _currentStatus = targetKey);
-      _snack('Status set to $targetDisplay â€” save to apply');
+      _snack('Status set to $targetDisplay — save to apply');
     }
   }
 
@@ -199,7 +199,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
     if (confirmed && mounted) {
       setState(() => _currentStatus = 'cancelled');
-      _snack('Status set to Cancelled â€” save to apply');
+      _snack('Status set to Cancelled — save to apply');
     }
   }
 
@@ -222,7 +222,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
   }
 
-  // â”€â”€ Status helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Status helpers ─────────────────────────────────────────────────────────
 
   Color _statusColor(String status) {
     for (final s in _kStatusData) {
@@ -238,9 +238,9 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     return 'Upcoming';
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
   // BUILD
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -275,13 +275,13 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
               ],
             ),
           ),
-          if (_isSaving) const AppOverlayLoader(message: 'Saving changesâ€¦'),
+          if (_isSaving) const AppOverlayLoader(message: 'Saving changes…'),
         ],
       ),
     );
   }
 
-  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Header ─────────────────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     final statusColor = _statusColor(_currentStatus);
@@ -386,7 +386,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
   }
 
-  // â”€â”€ Stats row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Stats row ──────────────────────────────────────────────────────────────
 
   Widget _buildStatsRow() {
     final cap    = int.tryParse(_capacityCtrl.text) ?? 0;
@@ -399,7 +399,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
         _statTile('$_checkedIn', 'Checked In', Icons.how_to_reg_rounded, const Color(0xFF16A34A)),
         const SizedBox(width: 10),
         _statTile(
-          cap > 0 ? '$fillPct%' : 'â€”',
+          cap > 0 ? '$fillPct%' : '—',
           'Attendance',
           Icons.bar_chart_rounded,
           const Color(0xFF2563EB),
@@ -446,7 +446,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
   }
 
-  // â”€â”€ Section: Event Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Section: Event Info ────────────────────────────────────────────────────
 
   Widget _buildEventInfoSection() {
     return _sectionCard(
@@ -472,7 +472,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
             _inputField(
               label: 'Specify type',
               controller: _otherTypeCtrl,
-              hint: 'e.g.  Cultural Night, Quiz Beeâ€¦',
+              hint: 'e.g.  Cultural Night, Quiz Bee…',
               icon: Icons.edit_note_rounded,
             ),
           ],
@@ -537,7 +537,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
   }
 
-  // â”€â”€ Section: Schedule â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Section: Schedule ──────────────────────────────────────────────────────
 
   Widget _buildScheduleSection() {
     return _sectionCard(
@@ -618,7 +618,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
   }
 
-  // â”€â”€ Section: Description & Capacity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Section: Description & Capacity ───────────────────────────────────────
 
   Widget _buildDetailsSection() {
     return _sectionCard(
@@ -631,7 +631,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
           _inputField(
             label: 'Description',
             controller: _descCtrl,
-            hint: 'Describe what this event is aboutâ€¦',
+            hint: 'Describe what this event is about…',
             icon: Icons.notes_rounded,
             maxLines: 4,
           ),
@@ -666,7 +666,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
                   color: kText,
                 ),
                 decoration: InputDecoration(
-                  hintText: 'â€”',
+                  hintText: '—',
                   hintStyle: const TextStyle(
                     fontFamily: 'Poppins', fontSize: 16, color: kMuted,
                   ),
@@ -752,7 +752,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
   }
 
-  // â”€â”€ Section: Event Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Section: Event Status ──────────────────────────────────────────────────
 
   Widget _buildStatusSection() {
     return _sectionCard(
@@ -856,7 +856,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
   }
 
-  // â”€â”€ Bottom action bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Bottom action bar ──────────────────────────────────────────────────────
 
   Widget _buildBottomBar() {
     return SafeArea(
@@ -900,7 +900,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            // Save changes â€” gradient when idle, muted when saving
+            // Save changes — gradient when idle, muted when saving
             Expanded(
               flex: 3,
               child: DecoratedBox(
@@ -931,7 +931,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
                         )
                       : const Icon(Icons.save_rounded, size: 18),
                   label: Text(
-                    _isSaving ? 'Savingâ€¦' : 'Save Changes',
+                    _isSaving ? 'Saving…' : 'Save Changes',
                     style: const TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 14,
@@ -959,7 +959,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
   }
 
-  // â”€â”€ Shared widget helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Shared widget helpers ──────────────────────────────────────────────────
 
   Widget _sectionCard({
     required IconData icon,

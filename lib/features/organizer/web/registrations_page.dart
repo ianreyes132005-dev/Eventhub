@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
@@ -25,7 +25,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
   final Map<String, String>  _selfieUrls  = {};
   final Set<String>          _processingIds = {};
 
-  // Realtime subscription â€” scoped to this organizer's events.
+  // Realtime subscription — scoped to this organizer's events.
   RealtimeChannel? _channel;
   List<String>     _orgEventIds = [];
 
@@ -73,7 +73,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     );
   }
 
-  // â”€â”€ Data loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Data loading ─────────────────────────────────────────────────────────────
 
   Future<void> _load() async {
     if (widget.orgId == null) return;
@@ -101,7 +101,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           .order('registered_at', ascending: false);
       final regs = List<Map<String, dynamic>>.from(regsRaw as List);
 
-      final titles = {'All', ...regs.map((r) => r['event_title'] as String? ?? 'â€”').toSet()};
+      final titles = {'All', ...regs.map((r) => r['event_title'] as String? ?? '—').toSet()};
       _eventTitles = titles.toList()..sort((a, b) => a == 'All' ? -1 : a.compareTo(b));
 
       // Store event IDs for realtime filtering, then (re)start the subscription.
@@ -273,7 +273,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     await _load();
   }
 
-  // â”€â”€ Selfie dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Selfie dialog ─────────────────────────────────────────────────────────────
 
   Future<void> _sendSelfieRequest(String id, String studentName) async {
     final ok = await WebAlert.confirm(
@@ -358,7 +358,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                   ),
                 ]),
               ),
-              // Selfie image â€” Flexible so it fills available space without overflowing
+              // Selfie image — Flexible so it fills available space without overflowing
               Flexible(
                 child: Padding(
                 padding: const EdgeInsets.all(20),
@@ -382,7 +382,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                               children: [
                                 const CircularProgressIndicator(color: kGold, strokeWidth: 2),
                                 const SizedBox(height: 12),
-                                Text('Loading selfieâ€¦',
+                                Text('Loading selfie…',
                                   style: TextStyle(
                                     fontFamily: 'Poppins', fontSize: 12,
                                     color: kMuted,
@@ -467,7 +467,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     );
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ─────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -506,7 +506,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     );
   }
 
-  // â”€â”€ Page header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Page header ───────────────────────────────────────────────────────────────
 
   Widget _buildPageHeader() {
     final total       = _all.length;
@@ -542,13 +542,6 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                 ],
               ),
               const Spacer(),
-              WebBtn(
-                label: 'Refresh',
-                icon:  Icons.refresh_rounded,
-                onTap: _load,
-                small: true,
-                outlined: true,
-              ),
             ],
           ),
           start: 0.00, end: 0.35,
@@ -569,10 +562,10 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     );
   }
 
-  // â”€â”€ Filter bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Filter bar ────────────────────────────────────────────────────────────────
 
   Widget _buildFilterBar() {
-    // Counts per status â€” shown as live badges on each filter chip so the
+    // Counts per status — shown as live badges on each filter chip so the
     // organizer sees at a glance how many registrations are in each state
     // without having to click through each filter.
     final counts = <String, int>{
@@ -605,12 +598,12 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
             const SizedBox(width: 16),
             WebSearchField(
               controller: _search,
-              hint: 'Search name, event, IDâ€¦',
+              hint: 'Search name, event, ID…',
               onChanged: (_) {},
             ),
           ],
         ),
-        // Event filter grid â€” shown only when there are multiple events.
+        // Event filter grid — shown only when there are multiple events.
         // Uses Wrap so chips automatically reflow into additional rows on
         // narrower viewports instead of scrolling off-screen horizontally.
         if (_eventTitles.length > 2) ...[
@@ -648,7 +641,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
             ],
           ),
           const SizedBox(height: 10),
-          // Chip grid â€” Wrap reflows into a new row when the row is full
+          // Chip grid — Wrap reflows into a new row when the row is full
           Wrap(
             spacing:    8,
             runSpacing: 8,
@@ -657,7 +650,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                   ? _all.length
                   : _all.where((r) => r['event_title'] == t).length;
               return WebFilterChip(
-                label:         t.length > 30 ? '${t.substring(0, 30)}â€¦' : t,
+                label:         t.length > 30 ? '${t.substring(0, 30)}…' : t,
                 selected:      _eventFilter == t,
                 selectedColor: const Color(0xFF8B5CF6),
                 count:         count,
@@ -710,7 +703,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Status dot â€” visible only when selected
+              // Status dot — visible only when selected
               if (selected) ...[
                 Container(
                   width: 6, height: 6,
@@ -758,7 +751,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     );
   }
 
-  // â”€â”€ Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Table ─────────────────────────────────────────────────────────────────────
 
   Widget _buildTable() {
     return Column(
@@ -792,8 +785,8 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           final sc     = webStatusColor(status);
           final isLast = i == _displayed.length - 1;
 
-          final name     = reg['student_name']     as String? ?? 'â€”';
-          final lrn      = reg['student_school_id'] as String? ?? 'â€”';
+          final name     = reg['student_name']     as String? ?? '—';
+          final lrn      = reg['student_school_id'] as String? ?? '—';
           final selfieUrl = _selfieUrls[id];
 
           final initials = name
@@ -816,7 +809,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
 
-                  // â”€â”€ Student (avatar + name + LRN) â”€â”€
+                  // ── Student (avatar + name + LRN) ──
                   Expanded(
                     flex: 4,
                     child: Row(children: [
@@ -871,7 +864,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                     ]),
                   ),
 
-                  // â”€â”€ Event â”€â”€
+                  // ── Event ──
                   Expanded(
                     flex: 3,
                     child: Row(children: [
@@ -884,7 +877,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                         ),
                       ),
                       Expanded(
-                        child: Text(reg['event_title'] as String? ?? 'â€”',
+                        child: Text(reg['event_title'] as String? ?? '—',
                           style: const TextStyle(
                             fontFamily: 'Poppins', fontSize: 12.5,
                             fontWeight: FontWeight.w500, color: kText,
@@ -894,7 +887,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                     ]),
                   ),
 
-                  // â”€â”€ Status â”€â”€
+                  // ── Status ──
                   Expanded(
                     flex: 2,
                     child: WebStatusBadge(
@@ -903,7 +896,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                     ),
                   ),
 
-                  // â”€â”€ Registered â”€â”€
+                  // ── Registered ──
                   Expanded(
                     flex: 2,
                     child: Column(
@@ -1009,7 +1002,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
   }
 }
 
-// â”€â”€ Status advance menu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Status advance menu ───────────────────────────────────────────────────────
 
 class _StatusMenu extends StatefulWidget {
   final String?              currentStatus;
@@ -1062,10 +1055,10 @@ class _StatusMenuState extends State<_StatusMenu> {
     final current      = widget.currentStatus;
     final currentColor = webStatusColor(current);
 
-    // Terminal state â€” green lock, no menu.
+    // Terminal state — green lock, no menu.
     if (current == 'checked_in') {
       return Tooltip(
-        message: 'Check-in is final â€” status cannot be changed',
+        message: 'Check-in is final — status cannot be changed',
         child: Container(
           width: 32, height: 32,
           decoration: BoxDecoration(
@@ -1085,7 +1078,7 @@ class _StatusMenuState extends State<_StatusMenu> {
     if (items.isEmpty) return const SizedBox(width: 32);
 
     final currentLabel = _statuses
-        .firstWhere((s) => s.$1 == current, orElse: () => ('', 'â€”'))
+        .firstWhere((s) => s.$1 == current, orElse: () => ('', '—'))
         .$2;
 
     return MouseRegion(
@@ -1104,7 +1097,7 @@ class _StatusMenuState extends State<_StatusMenu> {
         elevation: 8,
         shadowColor: Colors.black.withValues(alpha: 0.12),
         itemBuilder: (_) => [
-          // â”€â”€ Header â€” shows context before the organizer picks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Header — shows context before the organizer picks ──────────
           PopupMenuItem<String>(
             enabled: false,
             padding: EdgeInsets.zero,
@@ -1160,7 +1153,7 @@ class _StatusMenuState extends State<_StatusMenu> {
           ),
           const PopupMenuDivider(height: 1),
 
-          // â”€â”€ Selectable status items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Selectable status items ────────────────────────────────────
           ...items.map((s) {
             final (key, label) = s;
             final c          = webStatusColor(key);
@@ -1242,7 +1235,7 @@ class _StatusMenuState extends State<_StatusMenu> {
           }),
         ],
 
-        // â”€â”€ Trigger button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Trigger button ─────────────────────────────────────────────────
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           width: 32, height: 32,
@@ -1268,7 +1261,7 @@ class _StatusMenuState extends State<_StatusMenu> {
   }
 }
 
-// â”€â”€ Hover row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Hover row ─────────────────────────────────────────────────────────────────
 
 class _RegHoverRow extends StatefulWidget {
   final Widget child;
@@ -1302,7 +1295,7 @@ class _RegHoverRowState extends State<_RegHoverRow> {
   );
 }
 
-// â”€â”€ Icon action button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Icon action button ────────────────────────────────────────────────────────
 
 class _RegAction extends StatefulWidget {
   final IconData     icon;

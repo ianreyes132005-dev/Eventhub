@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../shared/widgets/app_loader.dart';
@@ -13,7 +13,7 @@ class EventDetailsScreen extends StatefulWidget {
 }
 
 class _EventDetailsScreenState extends State<EventDetailsScreen> {
-  // â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── State ──────────────────────────────────────────────────────────────────
   bool _loading      = true;
   bool _loadError    = false;
   bool _descExpanded = false;
@@ -22,7 +22,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   List<Map<String, dynamic>> _registrations = [];
   String? _organizerName;
 
-  // â”€â”€ Lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -30,7 +30,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     _loadData();
   }
 
-  // â”€â”€ Data fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Data fetch ─────────────────────────────────────────────────────────────
 
   Future<void> _loadData() async {
     setState(() { _loading = true; _loadError = false; });
@@ -84,14 +84,14 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     }
   }
 
-  // â”€â”€ Computed accessors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Computed accessors ─────────────────────────────────────────────────────
   // Prefer live Supabase data; fall back to passed-in eventData.
 
   Map<String, dynamic> get _d => _event ?? widget.eventData ?? {};
 
-  String  get _title    => _d['title']        as String? ?? _d['name']  as String? ?? 'â€”';
-  String  get _location => _d['location']     as String? ?? _d['venue'] as String? ?? 'â€”';
-  String  get _type     => _d['event_type']   as String? ?? _d['type']  as String? ?? 'â€”';
+  String  get _title    => _d['title']        as String? ?? _d['name']  as String? ?? '—';
+  String  get _location => _d['location']     as String? ?? _d['venue'] as String? ?? '—';
+  String  get _type     => _d['event_type']   as String? ?? _d['type']  as String? ?? '—';
   String  get _desc     => _d['description']  as String? ?? '';
   String? get _imgUrl   => _d['event_image_url'] as String?;
   String  get _status   =>
@@ -115,11 +115,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   int get _attendancePct =>
       _capacity > 0 ? (_checkedIn / _capacity * 100).clamp(0, 100).toInt() : 0;
 
-  // â”€â”€ Formatting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Formatting ─────────────────────────────────────────────────────────────
 
   String get _fmtDate {
     final d = _d['event_date'] as String?;
-    if (d == null) return _d['date'] as String? ?? 'â€”';
+    if (d == null) return _d['date'] as String? ?? '—';
     try {
       final dt = DateTime.parse(d);
       const m = [
@@ -133,14 +133,14 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   String get _fmtTime {
     final s  = _d['start_time'] as String?;
     final en = _d['end_time']   as String?;
-    if (s == null) return _d['time'] as String? ?? 'â€”';
+    if (s == null) return _d['time'] as String? ?? '—';
     String fmt(String t) {
       final p = t.split(':');
       if (p.length < 2) return t;
       final h = int.tryParse(p[0]) ?? 0;
       return '${h % 12 == 0 ? 12 : h % 12}:${p[1]} ${h >= 12 ? 'PM' : 'AM'}';
     }
-    return en != null ? '${fmt(s)} â€“ ${fmt(en)}' : fmt(s);
+    return en != null ? '${fmt(s)} — ${fmt(en)}' : fmt(s);
   }
 
   String get _fmtDeadline {
@@ -173,7 +173,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       case 'ongoing':   return 'Ongoing';
       case 'active':    return 'Active';
       case 'completed': return 'Completed';
-      case 'past':      return 'Past';
+      case 'past':      return 'Ended';
       case 'ended':     return 'Ended';
       case 'cancelled': return 'Cancelled';
       default:          return 'Upcoming';
@@ -215,19 +215,19 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       const m = ['Jan','Feb','Mar','Apr','May','Jun',
                   'Jul','Aug','Sep','Oct','Nov','Dec'];
       return '${m[dt.month - 1]} ${dt.day}';
-    } catch (_) { return 'â€”'; }
+    } catch (_) { return '—'; }
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
   // BUILD
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
       return const Scaffold(
         backgroundColor: kBackgroundAlt,
-        body: AppFullScreenLoader(message: 'Loading event detailsâ€¦'),
+        body: AppFullScreenLoader(message: 'Loading event details…'),
       );
     }
 
@@ -316,10 +316,10 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
-              // â”€â”€ Collapsible hero â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              // ── Collapsible hero ───────────────────────────────────────────
               _buildHeroSliver(),
 
-              // â”€â”€ Stats strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              // ── Stats strip ────────────────────────────────────────────────
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -327,7 +327,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 ),
               ),
 
-              // â”€â”€ Event information â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              // ── Event information ──────────────────────────────────────────
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
@@ -335,7 +335,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 ),
               ),
 
-              // â”€â”€ Capacity / fill bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              // ── Capacity / fill bar ────────────────────────────────────────
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
@@ -343,7 +343,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 ),
               ),
 
-              // â”€â”€ Description â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              // ── Description ────────────────────────────────────────────────
               if (_desc.isNotEmpty)
                 SliverToBoxAdapter(
                   child: Padding(
@@ -352,7 +352,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                   ),
                 ),
 
-              // â”€â”€ Recent registrations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+              // ── Recent registrations ───────────────────────────────────────
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
@@ -368,7 +368,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
-  // â”€â”€ Hero SliverAppBar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Hero SliverAppBar ──────────────────────────────────────────────────────
 
   Widget _buildHeroSliver() {
     return SliverAppBar(
@@ -489,7 +489,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     ),
   );
 
-  // â”€â”€ Stats strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Stats strip ────────────────────────────────────────────────────────────
 
   Widget _buildStatsStrip() {
     final data = [
@@ -544,7 +544,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
-  // â”€â”€ Event Information card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Event Information card ─────────────────────────────────────────────────
 
   Widget _buildInfoCard() {
     final rows = [
@@ -552,7 +552,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       (icon: Icons.access_time_rounded,    color: const Color(0xFF16A34A), label: 'Time',                value: _fmtTime),
       (icon: Icons.location_on_rounded,    color: kGold,                   label: 'Venue',               value: _location),
       (icon: Icons.category_rounded,       color: const Color(0xFF7C3AED), label: 'Event Type',          value: _type),
-      (icon: Icons.person_rounded,         color: const Color(0xFFEA580C), label: 'Organizer',           value: _organizerName ?? 'â€”'),
+      (icon: Icons.person_rounded,         color: const Color(0xFFEA580C), label: 'Organizer',           value: _organizerName ?? '—'),
       (icon: Icons.lock_clock_rounded,     color: kMuted,                  label: 'Reg. Deadline',       value: _fmtDeadline),
     ];
 
@@ -622,7 +622,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
-  // â”€â”€ Registration fill card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Registration fill card ─────────────────────────────────────────────────
 
   Widget _buildFillCard() {
     final fillColor = _fillRatio >= 0.9
@@ -763,14 +763,14 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
-  // â”€â”€ Description card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Description card ───────────────────────────────────────────────────────
 
   Widget _buildDescCard() {
     const maxLen = 200;
     final isLong  = _desc.length > maxLen;
     final display = _descExpanded || !isLong
         ? _desc
-        : '${_desc.substring(0, maxLen)}â€¦';
+        : '${_desc.substring(0, maxLen)}…';
 
     return _sectionCard(
       icon: Icons.notes_rounded,
@@ -822,7 +822,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
-  // â”€â”€ Recent Registrations card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Recent Registrations card ──────────────────────────────────────────────
 
   Widget _buildRegistrationsCard() {
     final preview = _registrations.take(5).toList();
@@ -903,8 +903,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   }
 
   Widget _buildRegRow(Map<String, dynamic> r) {
-    final name   = r['student_name']      as String? ?? 'â€”';
-    final sid    = r['student_school_id'] as String? ?? 'â€”';
+    final name   = r['student_name']      as String? ?? '—';
+    final sid    = r['student_school_id'] as String? ?? '—';
     final status = r['status']            as String? ?? 'pending';
     final date   = r['registered_at']     as String? ?? '';
     final color  = _regStatusColor(status);
@@ -943,7 +943,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
               Text(
-                '$sid  Â·  ${date.isNotEmpty ? _fmtRegDate(date) : 'â€”'}',
+                '$sid  ·  ${date.isNotEmpty ? _fmtRegDate(date) : '—'}',
                 style: const TextStyle(
                   fontFamily: 'Poppins', fontSize: 11, color: kMuted,
                 ),
@@ -973,7 +973,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
-  // â”€â”€ Shared section card helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Shared section card helper ─────────────────────────────────────────────
 
   Widget _sectionCard({
     required IconData icon,

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'create_event_screen.dart';
 import 'manage_event_screen.dart';
@@ -40,7 +40,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     super.dispose();
   }
 
-  // â”€â”€ Data loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Data loading ────────────────────────────────────────────────────────────
 
   Future<void> _loadData() async {
     setState(() { _loading = true; _loadError = false; });
@@ -115,12 +115,12 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     setState(() {});
   }
 
-  // â”€â”€ Status helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Status helpers ─────────────────────────────────────────────────────────
 
   String _statusLabel(Map<String, dynamic> e) {
     final s = (e['event_status'] as String? ?? '').toLowerCase();
     if (s == 'ongoing' || s == 'active')                    return 'Ongoing';
-    if (s == 'completed' || s == 'past' || s == 'ended')    return 'Past';
+    if (s == 'completed' || s == 'past' || s == 'ended')    return 'Ended';
     if (s == 'cancelled')                                    return 'Cancelled';
     if (s == 'draft'    || s == 'pending')                   return 'Draft';
     final dateStr = e['event_date'] as String?;
@@ -129,7 +129,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
         final date  = DateTime.parse(dateStr);
         final today = DateTime.now();
         if (date.isBefore(DateTime(today.year, today.month, today.day))) {
-          return 'Past';
+          return 'Ended';
         }
       } catch (_) {}
     }
@@ -139,7 +139,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   Color _statusColor(String label) {
     switch (label) {
       case 'Ongoing':   return const Color(0xFF16A34A);
-      case 'Past':      return const Color(0xFF6B7280);
+      case 'Ended':     return const Color(0xFF6B7280);
       case 'Cancelled': return Colors.red;
       case 'Draft':     return const Color(0xFF9333EA);
       default:          return const Color(0xFFE87A00);
@@ -148,7 +148,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
 
   String _formatDate(Map<String, dynamic> e) {
     final d = e['event_date'] as String?;
-    if (d == null) return 'â€”';
+    if (d == null) return '—';
     try {
       final dt = DateTime.parse(d);
       const m = ['JAN','FEB','MAR','APR','MAY','JUN',
@@ -160,7 +160,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   String _formatTime(Map<String, dynamic> e) {
     final s  = e['start_time'] as String?;
     final en = e['end_time']   as String?;
-    if (s == null) return 'â€”';
+    if (s == null) return '—';
     String fmt(String t) {
       final p = t.split(':');
       if (p.length < 2) return t;
@@ -170,16 +170,16 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     return en != null ? '${fmt(s)} - ${fmt(en)}' : fmt(s);
   }
 
-  // â”€â”€ Computed counts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Computed counts ────────────────────────────────────────────────────────
 
   int get _total         => _events.length;
   int get _upcomingCount => _events.where((e) => _statusLabel(e) == 'Upcoming').length;
   int get _ongoingCount  => _events.where((e) => _statusLabel(e) == 'Ongoing').length;
-  int get _pastCount     => _events.where((e) => _statusLabel(e) == 'Past').length;
+  int get _pastCount     => _events.where((e) => _statusLabel(e) == 'Ended').length;
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
   // BUILD
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -235,7 +235,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // â”€â”€ Loading state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Loading state ──────────────────────────────────────────────────────────
 
   Widget _buildLoadingState() {
     return SingleChildScrollView(
@@ -312,7 +312,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // â”€â”€ Standalone top bar (non-embedded mode) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Standalone top bar (non-embedded mode) ────────────────────────────────
 
   Widget _buildTopBar() {
     return Padding(
@@ -371,7 +371,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // â”€â”€ Inline page header (embedded mode) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Inline page header (embedded mode) ────────────────────────────────────
 
   Widget _buildPageHeader() {
     return Padding(
@@ -457,7 +457,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                           ),
                           const TextSpan(text: ' upcoming'),
                           TextSpan(
-                            text: '  Â·  $_total',
+                            text: '  ·  $_total',
                             style: const TextStyle(
                               fontWeight: FontWeight.w600,
                               color: kText,
@@ -499,14 +499,14 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // â”€â”€ Summary stat strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Summary stat strip ─────────────────────────────────────────────────────
 
   Widget _buildSummaryStrip() {
     final tiles = [
       (value: '$_total',        label: 'Total',    icon: Icons.event_rounded,         color: kGold),
       (value: '$_upcomingCount',label: 'Upcoming', icon: Icons.schedule_rounded,      color: const Color(0xFFE87A00)),
       (value: '$_ongoingCount', label: 'Ongoing',  icon: Icons.play_circle_rounded,   color: const Color(0xFF16A34A)),
-      (value: '$_pastCount',    label: 'Past',     icon: Icons.history_rounded,       color: const Color(0xFF6B7280)),
+      (value: '$_pastCount',    label: 'Ended',     icon: Icons.history_rounded,       color: const Color(0xFF6B7280)),
     ];
 
     return Padding(
@@ -556,7 +556,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // â”€â”€ Create new event (gradient card button) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Create new event (gradient card button) ────────────────────────────────
 
   Widget _buildCreateButton() {
     return Padding(
@@ -650,10 +650,10 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // â”€â”€ Filter pill row (horizontal scroll) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Filter pill row (horizontal scroll) ───────────────────────────────────
 
   Widget _buildFilterRow() {
-    const filters = ['All', 'Upcoming', 'Ongoing', 'Past', 'Draft'];
+    const filters = ['All', 'Upcoming', 'Ongoing', 'Ended', 'Draft'];
     return Padding(
       padding: const EdgeInsets.only(top: 18),
       child: SizedBox(
@@ -709,7 +709,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // â”€â”€ Search bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Search bar ─────────────────────────────────────────────────────────────
 
   Widget _buildSearchBar() {
     return Padding(
@@ -733,7 +733,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
             fontFamily: 'Poppins', fontSize: 14, color: kText,
           ),
           decoration: InputDecoration(
-            hintText: 'Search events, venue, or typeâ€¦',
+            hintText: 'Search events, venue, or type…',
             hintStyle: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 13,
@@ -775,7 +775,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // â”€â”€ Result count label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Result count label ─────────────────────────────────────────────────────
 
   Widget _buildResultCount() {
     return Padding(
@@ -792,15 +792,15 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // Event card â€” kept exactly as shown in screenshot
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
+  // Event card — kept exactly as shown in screenshot
+  // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildEventCard(Map<String, dynamic> e) {
     final eventId     = e['event_id'] as String;
-    final title       = e['title']    as String? ?? 'â€”';
-    final location    = e['location'] as String? ?? 'â€”';
-    final type        = e['event_type'] as String? ?? 'â€”';
+    final title       = e['title']    as String? ?? '—';
+    final location    = e['location'] as String? ?? '—';
+    final type        = e['event_type'] as String? ?? '—';
     final imageUrl    = e['event_image_url'] as String?;
     final registered  = e['current_participants'] as int? ?? 0;
     final capacity    = e['max_participants']     as int? ?? 0;
@@ -987,7 +987,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                             ),
                           ),
                           const Text(
-                            ' Â· ',
+                            ' · ',
                             style: TextStyle(color: kSubText),
                           ),
                           const Icon(
@@ -1060,41 +1060,50 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                 const SizedBox(height: 12),
 
                 // Action buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: _actionBtn('Manage', kGold, false, () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ManageEventScreen(
-                              eventData: {
-                                // Pass raw event row so ManageEventScreen can
-                                // format dates itself and never loses precision.
-                                ...e,
-                                'registered': registered,
-                                'checkedIn':  checkedIn,
-                              },
+                if (statusLabel == 'Ended')
+                  SizedBox(
+                    width: double.infinity,
+                    child: _actionBtn('Details', kGold, true, () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => EventDetailsScreen(eventData: e),
+                        ),
+                      );
+                    }),
+                  )
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _actionBtn('Manage', kGold, false, () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ManageEventScreen(
+                                eventData: {
+                                  ...e,
+                                  'registered': registered,
+                                  'checkedIn':  checkedIn,
+                                },
+                              ),
                             ),
-                          ),
-                        ).then((_) => _loadData());
-                      }),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _actionBtn('Details', kGold, true, () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            // EventDetailsScreen re-fetches from Supabase using
-                            // event_id, so only the id key is strictly needed.
-                            builder: (_) => EventDetailsScreen(eventData: e),
-                          ),
-                        );
-                      }),
-                    ),
-                  ],
-                ),
+                          ).then((_) => _loadData());
+                        }),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _actionBtn('Details', kGold, true, () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => EventDetailsScreen(eventData: e),
+                            ),
+                          );
+                        }),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),
@@ -1103,7 +1112,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // â”€â”€ Card helpers (unchanged) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Card helpers (unchanged) ───────────────────────────────────────────────
 
   Widget _statItem(String value, String label, Color color) {
     return Padding(
@@ -1136,9 +1145,33 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     String label,
     Color color,
     bool secondary,
-    VoidCallback onTap,
+    VoidCallback? onTap,
   ) {
-    // Secondary (outlined) variant â€” e.g. "Details"
+    // Disabled state — grey flat button, non-interactive
+    if (onTap == null) {
+      return ElevatedButton(
+        onPressed: null,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFF3F4F6),
+          disabledBackgroundColor: const Color(0xFFF3F4F6),
+          disabledForegroundColor: const Color(0xFF9CA3AF),
+          elevation: 0,
+          side: BorderSide(color: const Color(0xFF9CA3AF).withValues(alpha: 0.25)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+        ),
+        child: const Text(
+          'Manage',
+          style: TextStyle(
+            fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700,
+            color: Color(0xFF9CA3AF),
+          ),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    // Secondary (outlined) variant — e.g. "Details"
     if (secondary) {
       return ElevatedButton(
         onPressed: onTap,
@@ -1163,7 +1196,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
       );
     }
 
-    // Primary variant â€” gradient matching the AI Assistant button
+    // Primary variant — gradient matching the AI Assistant button
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: kGoldGradient,
@@ -1214,7 +1247,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // â”€â”€ Empty state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Empty state ────────────────────────────────────────────────────────────
 
   Widget _buildEmptyState() {
     final isFiltered =

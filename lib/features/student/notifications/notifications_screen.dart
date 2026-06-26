@@ -1,11 +1,11 @@
-﻿  import 'package:flutter/material.dart';
+  import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/services/notif_read_store.dart';
 import '../../../shared/widgets/app_loader.dart';
 
-// â”€â”€ Palette aliases (kept so the rest of the file compiles unchanged) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Palette aliases (kept so the rest of the file compiles unchanged) ─────────
 const _kBg    = kBackground;
 const _kGold  = kGold;
 const _kText  = kText;
@@ -13,9 +13,9 @@ const _kSub   = kSubText;
 const _kMuted = kMuted;
 const _kCard  = kCard;
 
-// â”€â”€ Notification type â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Notification type ─────────────────────────────────────────────────────────
 enum _NotifType { announcement, checkIn, selfieRequired, photoSubmitted }
-// â”€â”€ Notification model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Notification model ────────────────────────────────────────────────────────
 class _NotifItem {
   final String     id;
   final _NotifType type;
@@ -36,7 +36,7 @@ class _NotifItem {
   bool get isRead => NotifReadStore.isRead(id);
 }
 
-// â”€â”€ Time helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Time helpers ──────────────────────────────────────────────────────────────
 String _timeAgo(DateTime t) {
   final diff = DateTime.now().difference(t);
   if (diff.inSeconds < 60) return 'Just now';
@@ -59,9 +59,9 @@ String _groupLabel(DateTime t) {
 }
 
 String _preview(String s) =>
-    s.length > 110 ? '${s.substring(0, 110)}â€¦' : s;
+    s.length > 110 ? '${s.substring(0, 110)}…' : s;
 
-// â”€â”€ Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Screen ────────────────────────────────────────────────────────────────────
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key, this.markAllRead = false});
 
@@ -107,7 +107,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     super.dispose();
   }
 
-  // â”€â”€ Data loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Data loading ──────────────────────────────────────────────────────────
 
   Future<void> _load() async {
     if (mounted) setState(() => _loading = true);
@@ -129,7 +129,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
       final items = <_NotifItem>[];
 
-      // â”€â”€ Announcements â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── Announcements ─────────────────────────────────────────────────────
       for (final ann in annRows) {
         final id      = ann['id']?.toString() ?? '';
         final raw     = ann['created_at'] as String?;
@@ -146,7 +146,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         ));
       }
 
-      // â”€â”€ Registration status changes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── Registration status changes ───────────────────────────────────────
       for (final reg in regRows) {
         final rid     = reg['id']             as String? ?? '';
         final status  = reg['status']         as String? ?? '';
@@ -353,7 +353,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     );
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -383,7 +383,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     );
   }
 
-  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Header ────────────────────────────────────────────────────────────────
 
   Widget _buildHeader(int unread) {
     return Container(
@@ -476,7 +476,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     );
   }
 
-  // â”€â”€ Tab bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Tab bar ───────────────────────────────────────────────────────────────
 
   Widget _buildTabBar(int totalUnread) {
     // Per-tab unread counts
@@ -532,7 +532,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     );
   }
 
-  // â”€â”€ Grouped list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Grouped list ──────────────────────────────────────────────────────────
 
   Widget _buildGroupedList() {
     const groupOrder = ['Today', 'Yesterday', 'This Week', 'Earlier'];
@@ -581,7 +581,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     );
   }
 
-  // â”€â”€ Notification card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Notification card ─────────────────────────────────────────────────────
 
   Widget _buildCard(_NotifItem item) {
     final isRead = item.isRead;
@@ -663,13 +663,13 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // â”€â”€ Left accent strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                // ── Left accent strip ──────────────────────────────────
                 Container(
                   width: 4,
                   color: isRead ? Colors.transparent : accentColor,
                 ),
 
-                // â”€â”€ Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                // ── Content ────────────────────────────────────────────
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
@@ -792,11 +792,11 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     );
   }
 
-  // â”€â”€ Empty state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Empty state ───────────────────────────────────────────────────────────
 
   Widget _buildEmptyState() {
     const messages = [
-      ['No notifications yet', 'Check back later â€” updates from organizers will appear here.'],
+      ['No notifications yet', 'Check back later — updates from organizers will appear here.'],
       ['No announcements',     'Organizers haven\'t posted any announcements yet.'],
       ['No event updates',     'Registration and check-in updates will show up here.'],
     ];

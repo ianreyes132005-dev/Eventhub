@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/services/audit_service.dart';
 import '../../shared/widgets/gradient_button.dart';
 import '../../shared/widgets/app_alert.dart';
 import '../organizer/mobile/dashboard/organizer_dashboard.dart';
@@ -14,11 +15,11 @@ import '../student/dashboard/student_dashboard.dart';
 import '../admin/admin_dashboard.dart';
 import '../../core/app_colors.dart';
 
-// â”€â”€ Enums â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Enums ──────────────────────────────────────────────────────────────────────
 enum _LegalType  { terms, privacy }
 enum _LoginMode  { student, organizer }
 
-// â”€â”€ Auth screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Auth screen ────────────────────────────────────────────────────────────────
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -67,10 +68,10 @@ class _AuthScreenState extends State<AuthScreen> {
   late final TapGestureRecognizer  _termsTap;
   late final TapGestureRecognizer  _privacyTap;
 
-  // â”€â”€ Colors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Colors ────────────────────────────────────────────────────────────────────
   static const _kGoldLight = Color(0xFFFEF9E7);
-  static const _kBlue      = Color(0xFF0EA5E9);   // sky-500 â€” student accent
-  static const _kBlueLight = Color(0xFFE0F2FE);   // sky-100 â€” student bg tint
+  static const _kBlue      = Color(0xFF0EA5E9);   // sky-500 — student accent
+  static const _kBlueLight = Color(0xFFE0F2FE);   // sky-100 — student bg tint
 
   @override
   void initState() {
@@ -97,7 +98,7 @@ class _AuthScreenState extends State<AuthScreen> {
     super.dispose();
   }
 
-  // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Helpers ───────────────────────────────────────────────────────────────────
 
   bool get _isOrganizer => _mode == _LoginMode.organizer;
 
@@ -121,7 +122,7 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  // â”€â”€ Credential persistence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Credential persistence ─────────────────────────────────────────────────────
 
   Future<void> _loadSavedCredential() async {
     try {
@@ -247,7 +248,7 @@ class _AuthScreenState extends State<AuthScreen> {
     });
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ─────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -265,15 +266,15 @@ class _AuthScreenState extends State<AuthScreen> {
     }
 
     return Scaffold(
-      // Dark warm background â€” only visible in the hero area
+      // Dark warm background — only visible in the hero area
       backgroundColor: const Color(0xFF1C1814),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // â”€â”€ Hero: brand identity on dark background â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Hero: brand identity on dark background ───────────────────────
           _buildHero(),
 
-          // â”€â”€ Form sheet: white panel slides up with rounded top corners â”€â”€â”€â”€
+          // ── Form sheet: white panel slides up with rounded top corners ────
           Expanded(
             child: Container(
               decoration: const BoxDecoration(
@@ -289,7 +290,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Greeting â€” restyled as the form-sheet heading
+                    // Greeting — restyled as the form-sheet heading
                     const Text(
                       'Welcome back',
                       style: TextStyle(
@@ -327,7 +328,7 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  // â”€â”€ Logo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Logo ──────────────────────────────────────────────────────────────────────
 
   Widget _buildLogo() {
     return Row(
@@ -370,7 +371,7 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ),
         const SizedBox(width: 18),
-        // Brand name â€” gold + white on dark background
+        // Brand name — gold + white on dark background
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -402,7 +403,7 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  // â”€â”€ Mode toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Mode toggle ───────────────────────────────────────────────────────────────
 
   Widget _buildModeToggle() {
     final accent = _isOrganizer ? kGold : _kBlue;
@@ -516,7 +517,7 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  // â”€â”€ Login form â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Login form ────────────────────────────────────────────────────────────────
 
   Widget _buildLoginForm() {
     return Column(
@@ -756,7 +757,7 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  // â”€â”€ Login handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Login handler ─────────────────────────────────────────────────────────────
 
   Future<void> _handleLogin() async {
     if (_isLocked) return;
@@ -774,14 +775,19 @@ class _AuthScreenState extends State<AuthScreen> {
       final user = response.user;
       if (user == null) return;
 
-      // â”€â”€ Admin check â€” highest priority â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── Admin check — highest priority ────────────────────────────────────
       final adminData = await SupabaseService.client
           .from('admins')
-          .select('admin_id')
+          .select('admin_id, full_name')
           .eq('user_id', user.id)
           .maybeSingle();
 
       if (adminData != null) {
+        AuditService.logLogin(
+          userId: user.id, role: 'admin',
+          fullName:   adminData['full_name'] as String?,
+          identifier: email.split('@').first,
+        );
         await _clearRateLimit();
         await _saveCredential();
         if (mounted) {
@@ -794,13 +800,13 @@ class _AuthScreenState extends State<AuthScreen> {
 
       final organizerData = await SupabaseService.client
           .from('organizers')
-          .select('organizer_id')
+          .select('organizer_id, full_name')
           .eq('user_id', user.id)
           .maybeSingle();
 
       final isOrganizer = organizerData != null;
 
-      // â”€â”€ Role gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── Role gate ───────────────────────────────────────────────────────────
       if (_mode == _LoginMode.student && isOrganizer) {
         // Organizer account tried in student portal â†’ sign out + warn
         await Supabase.instance.client.auth.signOut();
@@ -835,11 +841,25 @@ class _AuthScreenState extends State<AuthScreen> {
         return;
       }
 
-      // â”€â”€ Persist credential if Remember Me is on â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── Persist credential if Remember Me is on ────────────────────────────
       await _clearRateLimit();
       await _saveCredential();
 
-      // â”€â”€ Route correctly â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── Audit log ───────────────────────────────────────────────────────────
+      if (isOrganizer) {
+        AuditService.logLogin(
+          userId: user.id, role: 'organizer',
+          fullName:   organizerData!['full_name'] as String?,
+          identifier: (organizerData['organizer_id'] as String? ?? '').toLowerCase(),
+        );
+      } else {
+        AuditService.logLogin(
+          userId: user.id, role: 'student',
+          identifier: _lrnCtrl.text.trim(),
+        );
+      }
+
+      // ── Route correctly ─────────────────────────────────────────────────────
       if (mounted) {
         Navigator.of(context).pushReplacement(
           _dashRoute(isOrganizer
@@ -871,7 +891,7 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  // â”€â”€ Field decoration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Field decoration ──────────────────────────────────────────────────────────
 
   InputDecoration _fieldDecoration({
     required String hint,
@@ -914,7 +934,7 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  // â”€â”€ Footer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Footer ────────────────────────────────────────────────────────────────────
 
   Widget _buildFooterText() {
     return Text.rich(
@@ -991,7 +1011,7 @@ class _AuthScreenState extends State<AuthScreen> {
   );
 }
 
-// â”€â”€ Legal bottom sheet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Legal bottom sheet ─────────────────────────────────────────────────────────
 
 class _LegalSheet extends StatelessWidget {
   const _LegalSheet({required this.type});
@@ -1136,13 +1156,13 @@ class _LegalSheet extends StatelessWidget {
         _section(Icons.manage_accounts_outlined, 'Account Responsibility',
             'Your account credentials are personal and confidential. You are responsible for all activity that occurs under your account. Do not share your login credentials with others. If you believe your account has been compromised, contact your school administrator immediately.'),
         _section(Icons.check_circle_outline_rounded, 'Permitted Use',
-            'You may use EventHub solely for legitimate school event registration, attendance, and communication purposes â€” including browsing events, registering for activities, viewing QR tickets, and receiving school announcements.'),
+            'You may use EventHub solely for legitimate school event registration, attendance, and communication purposes — including browsing events, registering for activities, viewing QR tickets, and receiving school announcements.'),
         _section(Icons.block_outlined, 'Prohibited Conduct',
-            'â€¢ Accessing accounts that do not belong to you\n'
-                'â€¢ Using the app for commercial or non-school purposes\n'
-                'â€¢ Sharing or tampering with event QR codes\n'
-                'â€¢ Uploading inappropriate or misleading selfie photos\n'
-                'â€¢ Circumventing the check-in verification system'),
+            '• Accessing accounts that do not belong to you\n'
+                '• Using the app for commercial or non-school purposes\n'
+                '• Sharing or tampering with event QR codes\n'
+                '• Uploading inappropriate or misleading selfie photos\n'
+                '• Circumventing the check-in verification system'),
         _section(Icons.camera_alt_outlined, 'Check-In Media',
             'Selfie photos submitted during check-in are used solely for identity verification. They are stored securely and accessible only to authorized event organizers within the school.'),
         _section(Icons.shield_outlined, 'Limitation of Liability',
@@ -1157,37 +1177,37 @@ class _LegalSheet extends StatelessWidget {
   List<Widget> _privacyContent() => [
         _section(Icons.info_outline_rounded, 'Information We Collect',
             'We collect the following personal data to operate EventHub:\n\n'
-                'â€¢ Identity: full name, email address\n'
-                'â€¢ Student: Learner Reference Number (LRN), grade level\n'
-                'â€¢ Events: registrations, attendance records, timestamps\n'
-                'â€¢ Media: selfie photos submitted during event check-in\n'
-                'â€¢ Usage: AI chat session activity logs'),
+                '• Identity: full name, email address\n'
+                '• Student: Learner Reference Number (LRN), grade level\n'
+                '• Events: registrations, attendance records, timestamps\n'
+                '• Media: selfie photos submitted during event check-in\n'
+                '• Usage: AI chat session activity logs'),
         _section(Icons.settings_suggest_outlined, 'How We Use Your Information',
             'Your information is used to:\n\n'
-                'â€¢ Authenticate your identity and grant app access\n'
-                'â€¢ Process event registrations and generate QR tickets\n'
-                'â€¢ Facilitate the selfie check-in verification process\n'
-                'â€¢ Deliver school announcements and event updates\n'
-                'â€¢ Power personalized AI assistant responses\n'
-                'â€¢ Generate attendance analytics for organizers'),
+                '• Authenticate your identity and grant app access\n'
+                '• Process event registrations and generate QR tickets\n'
+                '• Facilitate the selfie check-in verification process\n'
+                '• Deliver school announcements and event updates\n'
+                '• Power personalized AI assistant responses\n'
+                '• Generate attendance analytics for organizers'),
         _section(Icons.cloud_outlined, 'Data Storage & Security',
             'All data is stored on secure cloud infrastructure provided by Supabase. We implement industry-standard security measures including encrypted connections (TLS) and role-based access controls to protect your personal information.'),
         _section(Icons.face_outlined, 'Selfie and Photo Data',
             'Selfie photos captured during event check-in are stored in a private, access-controlled storage bucket. These images are:\n\n'
-                'â€¢ Used exclusively for attendance verification\n'
-                'â€¢ Visible only to authorized event organizers\n'
-                'â€¢ Never shared with third parties\n'
-                'â€¢ Retained only as long as operationally necessary'),
+                '• Used exclusively for attendance verification\n'
+                '• Visible only to authorized event organizers\n'
+                '• Never shared with third parties\n'
+                '• Retained only as long as operationally necessary'),
         _section(Icons.people_outline_rounded, 'Information Sharing',
             'We do not sell, trade, or transfer your personal information to third parties. Your data may be shared with school administrators and authorized organizers only as needed to operate school events.'),
         _section(Icons.access_time_outlined, 'Data Retention',
             'Personal data is retained for the duration of your enrollment and a reasonable period thereafter, as required by school policy. You may request deletion of your data by contacting your school administrator.'),
         _section(Icons.verified_user_outlined, 'Your Rights',
             'You have the right to:\n\n'
-                'â€¢ Access the personal information we hold about you\n'
-                'â€¢ Request correction of inaccurate data\n'
-                'â€¢ Request deletion of your account and associated data\n'
-                'â€¢ Withdraw consent for data processing where applicable\n\n'
+                '• Access the personal information we hold about you\n'
+                '• Request correction of inaccurate data\n'
+                '• Request deletion of your account and associated data\n'
+                '• Withdraw consent for data processing where applicable\n\n'
                 'Contact your school administrator to exercise these rights.'),
         _section(Icons.mail_outline_rounded, 'Contact Us',
             'For questions or concerns about this Privacy Policy, please contact your school administrator or reach out to the EventHub support team.',

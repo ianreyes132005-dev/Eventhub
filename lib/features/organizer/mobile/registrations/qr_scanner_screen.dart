@@ -1,4 +1,4 @@
-﻿import 'dart:ui' as ui;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -6,14 +6,14 @@ import 'scan_confirm_screen.dart';
 import 'package:eventhub/core/services/registration_service.dart';
 import '../../../../core/app_colors.dart';
 
-// â”€â”€ Design tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Design tokens ─────────────────────────────────────────────────────────────
 const Color kGoldDk   = Color(0xFFC49230);
 const Color kGoldLt   = Color(0xFFEAB866);
 const Color _kSuccess = Color(0xFF22C55E);
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Screen
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class QRScannerScreen extends StatefulWidget {
   const QRScannerScreen({super.key});
@@ -24,7 +24,7 @@ class QRScannerScreen extends StatefulWidget {
 
 class _QRScannerScreenState extends State<QRScannerScreen>
     with TickerProviderStateMixin {
-  // â”€â”€ Camera â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Camera ──────────────────────────────────────────────────────────────────
   final MobileScannerController _camera = MobileScannerController();
   bool _scanning     = true;
   bool _torchOn      = false;
@@ -32,7 +32,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
   bool _detected     = false;
   bool _showingSheet = false;
 
-  // â”€â”€ Animation controllers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Animation controllers ───────────────────────────────────────────────────
   late final AnimationController _lineCtrl;
   late final AnimationController _pulseCtrl;
   late final AnimationController _successCtrl;
@@ -94,7 +94,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
     super.dispose();
   }
 
-  // â”€â”€ QR detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── QR detection ────────────────────────────────────────────────────────────
 
   void _onDetect(BarcodeCapture capture) {
     if (!_scanning || _showingSheet) return;
@@ -115,7 +115,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
       if (mounted) _bannerCtrl.reverse();
     });
 
-    // Show the result sheet over the live camera â€” no route push needed
+    // Show the result sheet over the live camera — no route push needed
     showModalBottomSheet<void>(
       context:            context,
       isScrollControlled: true,
@@ -205,7 +205,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
                   color: Colors.white,
                 ),
                 decoration: InputDecoration(
-                  hintText: 'e.g. a1b2c3d4-â€¦',
+                  hintText: 'e.g. a1b2c3d4-…',
                   hintStyle: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 13,
@@ -288,7 +288,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
     );
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -305,10 +305,10 @@ class _QRScannerScreenState extends State<QRScannerScreen>
         body: Stack(
           fit: StackFit.expand,
           children: [
-            // â”€â”€ 1 Â· Camera preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── 1 · Camera preview ──────────────────────────────────────────
             MobileScanner(controller: _camera, onDetect: _onDetect),
 
-            // â”€â”€ 2 Â· Dark scrim with rounded-rect cutout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── 2 · Dark scrim with rounded-rect cutout ──────────────────────
             CustomPaint(
               painter: _ScrimPainter(
                 left: frameLeft, top: frameTop,
@@ -317,7 +317,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
               child: const SizedBox.expand(),
             ),
 
-            // â”€â”€ 3 Â· Corner brackets (animated scale + colour morph) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── 3 · Corner brackets (animated scale + colour morph) ───────────
             AnimatedBuilder(
               animation: Listenable.merge([_cornerScale, _successFrac]),
               builder: (_, __) {
@@ -341,7 +341,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
               },
             ),
 
-            // â”€â”€ 4 Â· Scan beam (hidden once QR detected) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── 4 · Scan beam (hidden once QR detected) ──────────────────────
             if (_scanning)
               AnimatedBuilder(
                 animation: Listenable.merge([_lineFrac, _successFrac]),
@@ -374,7 +374,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
                 },
               ),
 
-            // â”€â”€ 5 Â· Green success flash inside the frame â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── 5 · Green success flash inside the frame ─────────────────────
             AnimatedBuilder(
               animation: _successFrac,
               builder: (_, __) {
@@ -396,7 +396,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
               },
             ),
 
-            // â”€â”€ 6 Â· Top navigation bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── 6 · Top navigation bar ────────────────────────────────────────
             SafeArea(
               child: Padding(
                 padding:
@@ -446,7 +446,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
               ),
             ),
 
-            // â”€â”€ 7 Â· Instruction text above frame â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── 7 · Instruction text above frame ─────────────────────────────
             Positioned(
               top:   frameTop - 52,
               left:  0,
@@ -483,7 +483,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
               ),
             ),
 
-            // â”€â”€ 8 Â· Status pill below frame â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── 8 · Status pill below frame ───────────────────────────────────
             Positioned(
               top:   frameTop + frameSize + 22,
               left:  0,
@@ -502,7 +502,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
               ),
             ),
 
-            // â”€â”€ 9 Â· Bottom glass panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── 9 · Bottom glass panel ────────────────────────────────────────
             Positioned(
               bottom: 0,
               left:   0,
@@ -559,7 +559,7 @@ class _QRScannerScreenState extends State<QRScannerScreen>
               ),
             ),
 
-            // â”€â”€ 10 Â· Top success banner (slides in from above nav bar) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── 10 · Top success banner (slides in from above nav bar) ─────────
             AnimatedBuilder(
               animation: _bannerCtrl,
               builder: (_, __) {
@@ -617,9 +617,9 @@ class _QRScannerScreenState extends State<QRScannerScreen>
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// _ScanResultSheet â€” shown over the live camera after every successful scan
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
+// _ScanResultSheet — shown over the live camera after every successful scan
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _ScanResultSheet extends StatefulWidget {
   final String qrCode;
@@ -696,7 +696,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
     ));
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -768,7 +768,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
               child: const Text(
-                'Dismiss â€” Scan Next',
+                'Dismiss — Scan Next',
                 style: TextStyle(
                   fontFamily: 'Poppins', fontWeight: FontWeight.w600,
                   color: Colors.white60,
@@ -784,9 +784,9 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
   Widget _buildContent() {
     final reg    = _reg!;
     final status = reg['status']           as String? ?? '';
-    final name   = reg['student_name']     as String? ?? 'â€”';
-    final sid    = reg['student_school_id'] as String? ?? 'â€”';
-    final title  = reg['event_title']      as String? ?? 'â€”';
+    final name   = reg['student_name']     as String? ?? '—';
+    final sid    = reg['student_school_id'] as String? ?? '—';
+    final title  = reg['event_title']      as String? ?? '—';
 
     final canRetrigger = status == 'photo_required';
     final isFinal      = status == 'photo_submitted' ||
@@ -900,7 +900,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
               padding: const EdgeInsets.symmetric(vertical: 10),
             ),
             child: const Text(
-              'Dismiss â€” Scan Next Student',
+              'Dismiss — Scan Next Student',
               style: TextStyle(
                 fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w500,
               ),
@@ -911,7 +911,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
     );
   }
 
-  // â”€â”€ Action builders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Action builders ───────────────────────────────────────────────────────
 
   Widget _buildConfirmBtn() => ElevatedButton.icon(
     onPressed: _confirming ? null : _confirm,
@@ -922,7 +922,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
           )
         : const Icon(Icons.camera_alt_rounded, size: 18),
     label: Text(
-      _confirming ? 'Opening cameraâ€¦' : 'Confirm â€” Open Student Camera',
+      _confirming ? 'Opening camera…' : 'Confirm — Open Student Camera',
       style: const TextStyle(
         fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 14,
       ),
@@ -973,7 +973,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
               )
             : const Icon(Icons.refresh_rounded, size: 18),
         label: Text(
-          _confirming ? 'Re-opening cameraâ€¦' : 'Re-open Student Camera',
+          _confirming ? 'Re-opening camera…' : 'Re-open Student Camera',
           style: const TextStyle(
             fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 14,
           ),
@@ -1018,7 +1018,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
     );
   }
 
-  // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   String _initials(String name) {
     final parts = name.trim().split(' ');
@@ -1029,9 +1029,9 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Reusable sub-widgets
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _DragHandle extends StatelessWidget {
   @override
@@ -1046,7 +1046,7 @@ class _DragHandle extends StatelessWidget {
   );
 }
 
-/// Status chip rendered inside the dark sheet â€” uses its own color mapping.
+/// Status chip rendered inside the dark sheet — uses its own color mapping.
 class _SheetStatusChip extends StatelessWidget {
   final String status;
   const _SheetStatusChip({required this.status});
@@ -1316,9 +1316,9 @@ class _PulseDotState extends State<_PulseDot>
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Custom painters
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// Draws a 73%-opaque scrim over the full canvas with a rounded-rect hole.
 class _ScrimPainter extends CustomPainter {

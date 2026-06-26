@@ -1,10 +1,42 @@
-﻿import 'dart:typed_data';
+import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
+import '../../../core/services/audit_service.dart';
 import 'web_shared.dart';
+
+// Returns the display status for an event, overriding 'upcoming'/'ongoing'
+// with 'ended' when the event's end time (or whole event day) has passed.
+String _resolveDisplayStatus(Map<String, dynamic> event) {
+  final db = (event['event_status'] as String? ?? '').toLowerCase();
+  if (db != 'upcoming' && db != 'ongoing') return db;
+
+  final dStr = event['event_date'] as String?;
+  if (dStr == null) return db;
+
+  try {
+    final now  = DateTime.now();
+    final d    = DateTime.parse(dStr);
+    final eDay = DateTime(d.year, d.month, d.day);
+    final nDay = DateTime(now.year, now.month, now.day);
+
+    if (nDay.isAfter(eDay)) return 'ended';
+
+    if (nDay == eDay) {
+      final eStr = event['end_time'] as String?;
+      if (eStr != null && eStr.isNotEmpty) {
+        final p = eStr.split(':');
+        final h = int.tryParse(p[0]) ?? 0;
+        final m = p.length > 1 ? (int.tryParse(p[1]) ?? 0) : 0;
+        if (now.isAfter(DateTime(d.year, d.month, d.day, h, m))) return 'ended';
+      }
+    }
+  } catch (_) {}
+  return db;
+}
 
 // Event type definitions
 const _kTypes = [
@@ -30,11 +62,13 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   List<Map<String, dynamic>> _events    = [];
   List<Map<String, dynamic>> _displayed = [];
 
-  final _filters = ['All', 'Upcoming', 'Ongoing', 'Completed', 'Cancelled'];
+  final _filters = ['All', 'Upcoming', 'Ongoing', 'Ended', 'Cancelled'];
 
-  String? _hoveredTab;   // tracks which filter chip the cursor is over
+  String? _hoveredTab;
 
   late final AnimationController _staggerCtrl;
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
 
   @override
   void initState() {
@@ -42,13 +76,35 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     _staggerCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
     _search.addListener(_applyFilter);
     _load();
+    _subscribeRealtime();
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
     _staggerCtrl.dispose();
     _search.dispose();
     super.dispose();
+  }
+
+  void _subscribeRealtime() {
+    _channel = SupabaseService.client.channel('org-events-${widget.orgId}');
+    for (final table in ['events', 'registrations']) {
+      _channel!.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (_, [a]) => _debounceLoad(),
+      );
+    }
+    _channel!.subscribe();
+  }
+
+  void _debounceLoad() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 600), () {
+      if (mounted && !_loading) _load(silent: true);
+    });
   }
 
   Widget _stagger(Widget child, {required double start, required double end}) {
@@ -70,9 +126,9 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     );
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
     if (widget.orgId == null) return;
-    setState(() => _loading = true);
+    if (!silent) setState(() => _loading = true);
     try {
       final rows = await SupabaseService.client
           .from('events')
@@ -100,7 +156,9 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
         final title  = (e['title'] as String? ?? '').toLowerCase();
         final loc    = (e['location'] as String? ?? '').toLowerCase();
         final matchFilter = _filter == 'All' ||
-            status == _filter.toLowerCase();
+            (_filter == 'Ended'
+                ? (_resolveDisplayStatus(e) == 'ended')
+                : status == _filter.toLowerCase());
         final matchSearch = q.isEmpty ||
             title.contains(q) || loc.contains(q);
         return matchFilter && matchSearch;
@@ -161,13 +219,23 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
             .delete()
             .eq('event_id', id);
       } catch (eventErr) {
-        // Event deletion failed â€” re-insert the registrations we just deleted
+        // Event deletion failed — re-insert the registrations we just deleted
         // to restore a consistent state.
         if (savedRegs.isNotEmpty) {
           await SupabaseService.client.from('registrations').insert(savedRegs);
         }
         rethrow;
       }
+
+      AuditService.logEvent(
+        action: 'deleted',
+        eventTitle: e['title'] as String? ?? 'Unknown event',
+        eventId: id,
+        organizerId: widget.orgId,
+        details: savedRegs.isEmpty
+            ? 'Event deleted (no registrations)'
+            : 'Event deleted · ${savedRegs.length} registration${savedRegs.length == 1 ? '' : 's'} removed',
+      );
 
       _load();
     } catch (e) {
@@ -229,15 +297,18 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
 
   Widget _buildPageHeader() {
     final total     = _events.length;
-    final upcoming  = _events.where((e) => e['event_status'] == 'upcoming').length;
-    final ongoing   = _events.where((e) => e['event_status'] == 'ongoing').length;
-    final completed = _events.where((e) => e['event_status'] == 'completed').length;
+    final upcoming  = _events.where((e) => _resolveDisplayStatus(e) == 'upcoming').length;
+    final ongoing   = _events.where((e) => _resolveDisplayStatus(e) == 'ongoing').length;
+    final completed = _events.where((e) {
+      final r = _resolveDisplayStatus(e);
+      return r == 'completed' || r == 'ended';
+    }).length;
 
     final statCards = [
       WebStatCard(label: 'Total Events', value: '$total',     icon: Icons.event_rounded,       color: kGold),
       WebStatCard(label: 'Upcoming',     value: '$upcoming',  icon: Icons.schedule_rounded,     color: const Color(0xFF3B82F6)),
       WebStatCard(label: 'Ongoing',      value: '$ongoing',   icon: Icons.play_circle_rounded,  color: const Color(0xFF16A34A)),
-      WebStatCard(label: 'Completed',    value: '$completed', icon: Icons.check_circle_rounded, color: const Color(0xFF6B7280)),
+      WebStatCard(label: 'Ended',         value: '$completed', icon: Icons.check_circle_rounded, color: const Color(0xFF6B7280)),
     ];
 
     return Column(
@@ -278,13 +349,16 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   }
 
   Widget _buildFilterBar() {
-    // Live counts per status â€” displayed as badges on each chip so the
+    // Live counts per status — displayed as badges on each chip so the
     // organizer sees event distribution at a glance without filtering.
     final counts = <String, int>{
       'All':       _events.length,
-      'Upcoming':  _events.where((e) => e['event_status'] == 'upcoming').length,
-      'Ongoing':   _events.where((e) => e['event_status'] == 'ongoing').length,
-      'Completed': _events.where((e) => e['event_status'] == 'completed').length,
+      'Upcoming':  _events.where((e) => _resolveDisplayStatus(e) == 'upcoming').length,
+      'Ongoing':   _events.where((e) => _resolveDisplayStatus(e) == 'ongoing').length,
+      'Ended': _events.where((e) {
+        final r = _resolveDisplayStatus(e);
+        return r == 'completed' || r == 'ended';
+      }).length,
       'Cancelled': _events.where((e) => e['event_status'] == 'cancelled').length,
     };
 
@@ -305,7 +379,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
         const SizedBox(width: 16),
         WebSearchField(
           controller: _search,
-          hint: 'Search eventsâ€¦',
+          hint: 'Search events…',
           onChanged: (_) {},
         ),
       ],
@@ -349,7 +423,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Status dot â€” visible only when selected
+              // Status dot — visible only when selected
               if (selected) ...[
                 Container(
                   width: 6, height: 6,
@@ -426,8 +500,10 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
           final i      = entry.key;
           final e      = entry.value;
           final isLast = i == _displayed.length - 1;
-          final status = e['event_status'] as String?;
-          final sc     = webEventStatusColor(status);
+          final status   = e['event_status'] as String?;
+          final resolved = _resolveDisplayStatus(e);
+          final isEnded  = resolved == 'ended';
+          final sc       = isEnded ? const Color(0xFF6B7280) : webEventStatusColor(status);
           final type   = e['event_type'] as String?;
           final typeData = _kTypes.firstWhere(
             (t) => t.$1 == type,
@@ -473,7 +549,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(e['title'] as String? ?? 'â€”',
+                              Text(e['title'] as String? ?? '—',
                                 style: const TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 13,
@@ -527,7 +603,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                         const Icon(Icons.location_on_rounded, size: 12, color: kMuted),
                         const SizedBox(width: 4),
                         Flexible(
-                          child: Text(e['location'] as String? ?? 'â€”',
+                          child: Text(e['location'] as String? ?? '—',
                             style: const TextStyle(
                               fontFamily: 'Poppins', fontSize: 12.5, color: kSubText,
                             ),
@@ -577,7 +653,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                   Expanded(
                     flex: 2,
                     child: WebStatusBadge(
-                      label: webEventStatusLabel(status),
+                      label: isEnded ? 'Ended' : webEventStatusLabel(status),
                       color: sc,
                     ),
                   ),
@@ -613,7 +689,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   }
 }
 
-// â”€â”€ Event create/edit dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Event create/edit dialog ─────────────────────────────────────────────────
 
 class _EventDialog extends StatefulWidget {
   final String?                  orgId;
@@ -730,7 +806,7 @@ class _EventDialogState extends State<_EventDialog> {
       setState(() => _error = 'Please select an event date.');
       return;
     }
-    // Only validate "time in the past" when creating â€” editors must be able
+    // Only validate "time in the past" when creating — editors must be able
     // to update details of events that are already in progress or completed.
     if (!_isEdit) {
       final now = DateTime.now();
@@ -777,7 +853,7 @@ class _EventDialogState extends State<_EventDialog> {
               }
             }
           } catch (_) {
-            // Removal failure is non-fatal â€” the old file becomes orphaned
+            // Removal failure is non-fatal — the old file becomes orphaned
             // but the save should still proceed.
           }
         }
@@ -814,12 +890,27 @@ class _EventDialogState extends State<_EventDialog> {
       };
 
       if (_isEdit) {
-        await client.from('events')
-            .update(payload)
-            .eq('event_id', widget.existing!['event_id'] as String);
+        final eventId = widget.existing!['event_id'] as String;
+        await client.from('events').update(payload).eq('event_id', eventId);
+        AuditService.logEvent(
+          action: 'updated',
+          eventTitle: _titleCtrl.text.trim(),
+          eventId: eventId,
+          organizerId: widget.orgId,
+          details: 'Event details updated',
+        );
       } else {
         await client.from('events')
             .insert({...payload, 'organizer_id': widget.orgId!});
+        final cap = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
+        AuditService.logEvent(
+          action: 'created',
+          eventTitle: _titleCtrl.text.trim(),
+          organizerId: widget.orgId,
+          details: cap > 0
+              ? 'New event created · max $cap participants'
+              : 'New event created',
+        );
       }
 
       if (mounted) { Navigator.of(context).pop(true); }
@@ -889,7 +980,7 @@ class _EventDialogState extends State<_EventDialog> {
                     ),
                   ]),
                   const SizedBox(height: 14),
-                  // â”€â”€ Form completion progress bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                  // ── Form completion progress bar ──────────────────────────
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -948,7 +1039,7 @@ class _EventDialogState extends State<_EventDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // â”€â”€ Event Details â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ── Event Details ─────────────────────────────────────────
                     _DialogSection(
                       icon: Icons.event_note_rounded,
                       iconBg: kGoldLight,
@@ -971,13 +1062,13 @@ class _EventDialogState extends State<_EventDialog> {
                             controller: _descCtrl,
                             maxLines: 3,
                             style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
-                            decoration: webInputDeco('Tell students what this event is aboutâ€¦'),
+                            decoration: webInputDeco('Tell students what this event is about…'),
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 10),
-                    // â”€â”€ Schedule â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ── Schedule ──────────────────────────────────────────────
                     _DialogSection(
                       icon: Icons.schedule_rounded,
                       iconBg: const Color(0x1A2563EB),
@@ -1048,7 +1139,7 @@ class _EventDialogState extends State<_EventDialog> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    // â”€â”€ Location & Capacity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ── Location & Capacity ───────────────────────────────────
                     _DialogSection(
                       icon: Icons.place_rounded,
                       iconBg: const Color(0x1A16A34A),
@@ -1081,7 +1172,7 @@ class _EventDialogState extends State<_EventDialog> {
                                 style: const TextStyle(
                                   fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700, color: kText),
                                 decoration: InputDecoration(
-                                  hintText: 'â€”',
+                                  hintText: '—',
                                   hintStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 16, color: kMuted),
                                   filled: true, fillColor: const Color(0xFFF8F9FC),
                                   contentPadding: const EdgeInsets.symmetric(vertical: 12),
@@ -1110,7 +1201,7 @@ class _EventDialogState extends State<_EventDialog> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    // â”€â”€ Event Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ── Event Settings ────────────────────────────────────────
                     _DialogSection(
                       icon: Icons.tune_rounded,
                       iconBg: const Color(0x1A7C3AED),
@@ -1166,7 +1257,7 @@ class _EventDialogState extends State<_EventDialog> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    // â”€â”€ Banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ── Banner ────────────────────────────────────────────────
                     _DialogSection(
                       icon: Icons.image_rounded,
                       iconBg: const Color(0x1A7C3AED),
@@ -1627,7 +1718,7 @@ class _EventDialogState extends State<_EventDialog> {
   }
 }
 
-// â”€â”€ Dialog section card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Dialog section card ───────────────────────────────────────────────────────
 
 class _DialogSection extends StatelessWidget {
   final IconData icon;
@@ -1685,7 +1776,7 @@ class _DialogSection extends StatelessWidget {
   );
 }
 
-// â”€â”€ Shared micro-widgets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shared micro-widgets ──────────────────────────────────────────────────────
 
 class _HoverRow extends StatefulWidget {
   final Widget child;
@@ -1757,7 +1848,7 @@ class _IconBtnState extends State<_IconBtn> {
   );
 }
 
-// â”€â”€ Inline calendar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Inline calendar ───────────────────────────────────────────────────────────
 
 class _WebCalendar extends StatefulWidget {
   final DateTime?              selectedDate;
@@ -1906,7 +1997,7 @@ class _CalBtn extends StatelessWidget {
   );
 }
 
-// â”€â”€ Inline time picker (drum-style, matches mobile) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Inline time picker (drum-style, matches mobile) ──────────────────────────
 
 class _WebTimePicker extends StatefulWidget {
   final TimeOfDay?              initialTime;
@@ -1992,7 +2083,7 @@ class _WebTimePickerState extends State<_WebTimePicker> {
             const Spacer(),
             Text(
               widget.minTime != null
-                  ? 'Today â€” from ${_fmtMinTime(widget.minTime!)} onwards'
+                  ? 'Today — from ${_fmtMinTime(widget.minTime!)} onwards'
                   : 'Scroll to select',
               style: const TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: kMuted),
             ),

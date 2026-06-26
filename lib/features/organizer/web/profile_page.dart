@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
@@ -60,7 +60,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
     super.dispose();
   }
 
-  // â”€â”€ Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Actions ───────────────────────────────────────────────────────────────────
 
   Future<void> _saveProfile() async {
     final name = _nameCtrl.text.trim();
@@ -150,7 +150,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
     }
   }
 
-  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build ─────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -186,7 +186,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
     );
   }
 
-  // â”€â”€ Page header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Page header ───────────────────────────────────────────────────────────────
 
   Widget _buildPageHeader() {
     return const Column(
@@ -209,13 +209,13 @@ class _WebProfilePageState extends State<WebProfilePage> {
     );
   }
 
-  // â”€â”€ Profile banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Profile banner ────────────────────────────────────────────────────────────
 
   Widget _buildBanner() {
     final name = widget.name ?? 'Organizer';
-    final email = widget.email ?? 'â€”';
+    final email = widget.email ?? '—';
     final org  = widget.organization;
-    final orgId = widget.orgId ?? 'â€”';
+    final orgId = widget.orgId ?? '—';
     final initials = name
         .split(' ')
         .where((w) => w.isNotEmpty)
@@ -228,7 +228,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // â”€â”€ Banner strip â”€â”€
+          // ── Banner strip ──
           Stack(
             children: [
               Container(
@@ -290,7 +290,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
             ],
           ),
 
-          // â”€â”€ Avatar + info row â”€â”€
+          // ── Avatar + info row ──
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 22),
             child: Row(
@@ -425,7 +425,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
     );
   }
 
-  // â”€â”€ Edit profile card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Edit profile card ─────────────────────────────────────────────────────────
 
   Widget _buildProfileCard() => WebCard(
     padding: const EdgeInsets.all(22),
@@ -467,7 +467,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
         ),
         const SizedBox(height: 16),
 
-        // Email â€” read-only display (no controller, no memory leak)
+        // Email — read-only display (no controller, no memory leak)
         const _FieldLabel('Email Address'),
         const SizedBox(height: 7),
         Container(
@@ -481,7 +481,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
             const Icon(Icons.mail_outline_rounded, size: 16, color: kMuted),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(widget.email ?? 'â€”',
+              child: Text(widget.email ?? '—',
                 style: const TextStyle(
                   fontFamily: 'Poppins', fontSize: 13.5, color: kMuted,
                 )),
@@ -521,7 +521,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
                   child: CircularProgressIndicator(
                     color: Colors.white, strokeWidth: 2))
               : const Icon(Icons.check_rounded, size: 17),
-            label: Text(_savingProfile ? 'Savingâ€¦' : 'Save Changes',
+            label: Text(_savingProfile ? 'Saving…' : 'Save Changes',
               style: const TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 14,
@@ -542,7 +542,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
     ),
   );
 
-  // â”€â”€ Change password card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Change password card ──────────────────────────────────────────────────────
 
   Widget _buildPasswordCard() => WebCard(
     padding: const EdgeInsets.all(22),
@@ -565,7 +565,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
         const SizedBox(height: 7),
         _PwField(
           controller: _curPwCtrl,
-          hint:    'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢',
+          hint:    '••••••••',
           obscure: _obscureCur,
           onToggle: () => setState(() => _obscureCur = !_obscureCur),
         ),
@@ -611,7 +611,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
                   child: CircularProgressIndicator(
                     color: Colors.white, strokeWidth: 2))
               : const Icon(Icons.lock_reset_rounded, size: 17),
-            label: Text(_savingPw ? 'Updatingâ€¦' : 'Update Password',
+            label: Text(_savingPw ? 'Updating…' : 'Update Password',
               style: const TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 14,
@@ -636,7 +636,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
   );
 }
 
-// â”€â”€ Info chip (banner) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Info chip (banner) ────────────────────────────────────────────────────────
 
 class _InfoChip extends StatelessWidget {
   final IconData icon;
@@ -664,7 +664,7 @@ class _InfoChip extends StatelessWidget {
   );
 }
 
-// â”€â”€ Card section header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Card section header ───────────────────────────────────────────────────────
 
 class _CardHeader extends StatelessWidget {
   final IconData icon;
@@ -710,7 +710,7 @@ class _CardHeader extends StatelessWidget {
   ]);
 }
 
-// â”€â”€ Field label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Field label ───────────────────────────────────────────────────────────────
 
 class _FieldLabel extends StatelessWidget {
   final String text;
@@ -726,7 +726,7 @@ class _FieldLabel extends StatelessWidget {
     ));
 }
 
-// â”€â”€ Password field â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Password field ────────────────────────────────────────────────────────────
 
 class _PwField extends StatelessWidget {
   final TextEditingController controller;
@@ -764,7 +764,7 @@ class _PwField extends StatelessWidget {
   );
 }
 
-// â”€â”€ Password strength bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Password strength bar ─────────────────────────────────────────────────────
 
 class _PasswordStrengthBar extends StatelessWidget {
   final TextEditingController controller;
@@ -827,7 +827,7 @@ class _PasswordStrengthBar extends StatelessWidget {
   );
 }
 
-// â”€â”€ Feedback message bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Feedback message bar ──────────────────────────────────────────────────────
 
 class _MsgBar extends StatelessWidget {
   final String message;
@@ -866,7 +866,7 @@ class _MsgBar extends StatelessWidget {
   }
 }
 
-// â”€â”€ Security note â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Security note ─────────────────────────────────────────────────────────────
 
 class _SecurityNote extends StatelessWidget {
   const _SecurityNote();

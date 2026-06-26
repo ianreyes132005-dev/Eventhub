@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
@@ -10,9 +10,9 @@ import 'announcements_page.dart';
 import 'settings_page.dart';
 import 'ai_chatbot.dart';
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Shell
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class OrganizerWebDashboard extends StatefulWidget {
   const OrganizerWebDashboard({super.key});
@@ -36,7 +36,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   bool          _loading      = true;
   bool          _profileError = false;
 
-  // â”€â”€ Shell entrance animations (run once when profile finishes loading) â”€â”€â”€â”€â”€
+  // ── Shell entrance animations (run once when profile finishes loading) ─────
   late final AnimationController _entryCt;
   late final Animation<double>   _sidebarFade;
   late final Animation<Offset>   _sidebarSlide;
@@ -97,7 +97,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
     }
   }
 
-  // â”€â”€ Theme persistence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Theme persistence ─────────────────────────────────────────────────────
 
   Future<void> _loadTheme() async {
     final prefs      = await SharedPreferences.getInstance();
@@ -425,9 +425,9 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Nav items list
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 const _kNavItems = [
   (OrganizerPage.dashboard,     Icons.dashboard_rounded,       'Dashboard'),
@@ -437,9 +437,9 @@ const _kNavItems = [
   (OrganizerPage.settings,      Icons.settings_rounded,        'Settings'),
 ];
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Sidebar
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _Sidebar extends StatefulWidget {
   final AppTheme      theme;
@@ -477,8 +477,8 @@ class _SidebarState extends State<_Sidebar>
   @override
   void initState() {
     super.initState();
-    // 900 ms covers: header (0 ms) â†’ nav label (60 ms) â†’
-    // 5 nav items (120â€“360 ms) â†’ user section (420 ms end â‰ˆ 770 ms).
+    // 900 ms covers: header (0 ms) → nav label (60 ms) →
+    // 5 nav items (120–360 ms) → user section (420 ms end ≈ 770 ms).
     _sc = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 900));
     _sc.forward();
@@ -537,7 +537,7 @@ class _SidebarState extends State<_Sidebar>
     );
   }
 
-  // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Header ──────────────────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     final borderDeco = BoxDecoration(
@@ -547,7 +547,7 @@ class _SidebarState extends State<_Sidebar>
       ),
     );
 
-    // â”€â”€ Minimal mode: centered logo only â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Minimal mode: centered logo only ─────────────────────────────────
     if (widget.minimal) {
       return Container(
         height: kWebTopH,
@@ -557,7 +557,7 @@ class _SidebarState extends State<_Sidebar>
       );
     }
 
-    // â”€â”€ Collapsed: centered logo, no arrow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Collapsed: centered logo, no arrow ───────────────────────────────
     if (widget.collapsed) {
       return Container(
         height: kWebTopH,
@@ -567,7 +567,7 @@ class _SidebarState extends State<_Sidebar>
       );
     }
 
-    // â”€â”€ Expanded: full brand lockup, no collapse arrow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Expanded: full brand lockup, no collapse arrow ───────────────────
     return Container(
       height: kWebTopH,
       padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -620,7 +620,7 @@ class _SidebarState extends State<_Sidebar>
     );
   }
 
-  // â”€â”€ Logo circle (shared, resizable) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Logo circle (shared, resizable) ──────────────────────────────────────
 
   Widget _logoCircle(double size) => Container(
     width: size, height: size,
@@ -654,7 +654,7 @@ class _SidebarState extends State<_Sidebar>
     ),
   );
 
-  // â”€â”€ Section label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Section label ────────────────────────────────────────────────────────────
 
   Widget _buildNavSection() {
     if (_isCollapsed) return const SizedBox(height: 8);
@@ -683,7 +683,7 @@ class _SidebarState extends State<_Sidebar>
     );
   }
 
-  // â”€â”€ Nav items â€” each item cascades in with a 60 ms sequential delay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Nav items — each item cascades in with a 60 ms sequential delay ──────────
 
   Widget _buildNavItems() {
     return ListView(
@@ -710,7 +710,7 @@ class _SidebarState extends State<_Sidebar>
     );
   }
 
-  // â”€â”€ User section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── User section ─────────────────────────────────────────────────────────────
 
   Widget _buildUserSection() {
     final initials = (widget.name ?? '?').trim().split(' ')
@@ -861,9 +861,9 @@ class _SidebarState extends State<_Sidebar>
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Nav item
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _NavItem extends StatefulWidget {
   final IconData     icon;
@@ -1001,9 +1001,9 @@ class _NavItemState extends State<_NavItem> {
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Sign-out buttons
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _SignOutIconBtn extends StatefulWidget {
   final VoidCallback onTap;
@@ -1047,9 +1047,9 @@ class _SignOutIconBtnState extends State<_SignOutIconBtn> {
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Inline sign-out button (used in expanded user card)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _InlineSignOutBtn extends StatefulWidget {
   final VoidCallback onTap;
@@ -1094,9 +1094,9 @@ class _InlineSignOutBtnState extends State<_InlineSignOutBtn> {
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Top bar
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _TopBar extends StatefulWidget {
   final AppTheme     theme;
@@ -1232,60 +1232,49 @@ class _TopBarState extends State<_TopBar> {
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Page context indicator (replaces dead search bar)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _PageContext extends StatelessWidget {
   final OrganizerPage page;
   final AppTheme      theme;
   const _PageContext({required this.page, required this.theme});
 
-  static const _info = <OrganizerPage, (IconData, String, String)>{
-    OrganizerPage.dashboard:     (Icons.dashboard_rounded,   'Dashboard',     'Overview & activity'),
-    OrganizerPage.events:        (Icons.event_rounded,        'Events',        'Create, edit & manage'),
-    OrganizerPage.registrations: (Icons.how_to_reg_rounded,   'Registrations', 'Student sign-ups'),
-    OrganizerPage.announcements: (Icons.campaign_rounded,     'Announcements', 'Broadcast messages'),
-    OrganizerPage.settings:      (Icons.settings_rounded,     'Settings',      'Workspace & profile'),
+  static const _labels = <OrganizerPage, String>{
+    OrganizerPage.dashboard:     'Dashboard',
+    OrganizerPage.events:        'Events',
+    OrganizerPage.registrations: 'Registrations',
+    OrganizerPage.announcements: 'Announcements',
+    OrganizerPage.settings:      'Settings',
   };
 
   @override
   Widget build(BuildContext context) {
-    final (icon, title, subtitle) = _info[page]!;
-    final accent = theme.primaryColor;
+    final label = _labels[page] ?? '';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 34, height: 34,
-          decoration: BoxDecoration(
-            color:        accent.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, size: 17, color: accent),
+        const Text('Organizer',
+          style: TextStyle(
+            fontFamily: 'Poppins', fontSize: 13,
+            fontWeight: FontWeight.w500, color: kMuted)),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 6),
+          child: Icon(Icons.chevron_right_rounded, size: 16, color: kMuted),
         ),
-        const SizedBox(width: 10),
-        Column(
-          mainAxisSize:     MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title,
-              style: const TextStyle(
-                fontFamily: 'Poppins', fontSize: 13.5,
-                fontWeight: FontWeight.w700, color: kText)),
-            Text(subtitle,
-              style: const TextStyle(
-                fontFamily: 'Poppins', fontSize: 10.5, color: kMuted)),
-          ],
-        ),
+        Text(label,
+          style: const TextStyle(
+            fontFamily: 'Poppins', fontSize: 13,
+            fontWeight: FontWeight.w700, color: kText)),
       ],
     );
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Hamburger button (top bar)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _MenuBtn extends StatefulWidget {
   final VoidCallback onTap;
@@ -1321,9 +1310,9 @@ class _MenuBtnState extends State<_MenuBtn> {
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Sign-out button (top bar)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _TopBarSignOutBtn extends StatefulWidget {
   final VoidCallback onTap;
@@ -1371,9 +1360,9 @@ class _TopBarSignOutBtnState extends State<_TopBarSignOutBtn> {
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Notification data model
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _AppNotif {
   final String   title;
@@ -1388,9 +1377,9 @@ class _AppNotif {
   });
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Notification bell + dropdown panel (top bar)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _NotificationBell extends StatefulWidget {
   final String? orgId;
@@ -1401,7 +1390,7 @@ class _NotificationBell extends StatefulWidget {
 }
 
 class _NotificationBellState extends State<_NotificationBell> {
-  // Survives widget remounts â€” tracks the hash of the last batch of
+  // Survives widget remounts — tracks the hash of the last batch of
   // notifications the user actually opened the panel to read.
   static int _lastSeenHash = 0;
 
@@ -1424,7 +1413,7 @@ class _NotificationBellState extends State<_NotificationBell> {
     super.dispose();
   }
 
-  // â”€â”€ Data fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Data fetch ─────────────────────────────────────────────────────────────
 
   Future<void> _load() async {
     if (widget.orgId == null) {
@@ -1445,7 +1434,7 @@ class _NotificationBellState extends State<_NotificationBell> {
     try {
       final client = SupabaseService.client;
 
-      // Query 1 â€” all org events (id + display fields, capped at 200)
+      // Query 1 — all org events (id + display fields, capped at 200)
       final evtRows = await client
           .from('events')
           .select('event_id, title, event_date, start_time, event_status')
@@ -1456,7 +1445,7 @@ class _NotificationBellState extends State<_NotificationBell> {
       final evts   = List<Map<String, dynamic>>.from(evtRows as List);
       final evtIds = evts.map((e) => e['event_id'] as String).toList();
 
-      // Query 2 â€” today's new registrations across all org events
+      // Query 2 — today's new registrations across all org events
       if (evtIds.isNotEmpty) {
         final regRows = await client
             .from('registrations')
@@ -1479,8 +1468,8 @@ class _NotificationBellState extends State<_NotificationBell> {
           .where((e) => e['event_status'] == 'ongoing')
           .take(3)) {
         result.add(_AppNotif(
-          title:    e['title'] as String? ?? 'â€”',
-          subtitle: 'Event is live Â· check in students now',
+          title:    e['title'] as String? ?? '—',
+          subtitle: 'Event is live · check in students now',
           icon:     Icons.radio_button_checked_rounded,
           color:    const Color(0xFF10B981),
         ));
@@ -1494,7 +1483,7 @@ class _NotificationBellState extends State<_NotificationBell> {
           .take(3)) {
         final t = webFmtTime(e['start_time'] as String?);
         result.add(_AppNotif(
-          title:    e['title'] as String? ?? 'â€”',
+          title:    e['title'] as String? ?? '—',
           subtitle: 'Starting today${t.isNotEmpty ? ' at $t' : ''}',
           icon:     Icons.today_rounded,
           color:    const Color(0xFF3B82F6),
@@ -1509,7 +1498,7 @@ class _NotificationBellState extends State<_NotificationBell> {
           .take(2)) {
         final t = webFmtTime(e['start_time'] as String?);
         result.add(_AppNotif(
-          title:    e['title'] as String? ?? 'â€”',
+          title:    e['title'] as String? ?? '—',
           subtitle: 'Starting tomorrow${t.isNotEmpty ? ' at $t' : ''}',
           icon:     Icons.calendar_month_rounded,
           color:    const Color(0xFFF59E0B),
@@ -1529,7 +1518,7 @@ class _NotificationBellState extends State<_NotificationBell> {
     }
   }
 
-  // â”€â”€ Panel lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Panel lifecycle ────────────────────────────────────────────────────────
 
   void _toggle() {
     if (!_loaded) return;
@@ -1549,7 +1538,7 @@ class _NotificationBellState extends State<_NotificationBell> {
     if (mounted) setState(() => _open = false);
   }
 
-  // â”€â”€ Overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Overlay ────────────────────────────────────────────────────────────────
 
   Widget _buildOverlay() {
     return GestureDetector(
@@ -1597,7 +1586,7 @@ class _NotificationBellState extends State<_NotificationBell> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Header ───────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 13, 12, 11),
               child: Row(children: [
@@ -1609,7 +1598,7 @@ class _NotificationBellState extends State<_NotificationBell> {
                       fontWeight: FontWeight.w700, color: kText)),
                 ),
                 Text(
-                  'Today Â· ${webTodayLabel().split(',').last.trim()}',
+                  'Today · ${webTodayLabel().split(',').last.trim()}',
                   style: const TextStyle(fontFamily: 'Poppins',
                     fontSize: 10, color: kMuted),
                 ),
@@ -1626,7 +1615,7 @@ class _NotificationBellState extends State<_NotificationBell> {
             ),
             const Divider(height: 1, color: kCardBorder),
 
-            // â”€â”€ Body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Body ─────────────────────────────────────────────────
             if (_notifs.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -1706,7 +1695,7 @@ class _NotificationBellState extends State<_NotificationBell> {
     );
   }
 
-  // â”€â”€ Bell button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Bell button ────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {

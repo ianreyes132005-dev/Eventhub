@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:eventhub/core/services/supabase_service.dart';
 import '../../../../core/app_colors.dart';
@@ -169,9 +169,9 @@ class _EditOrganizerProfileScreenState
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ═══════════════════════════════════════════════════════════════════════════
   // BUILD
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ═══════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -196,7 +196,7 @@ class _EditOrganizerProfileScreenState
     );
   }
 
-  // â”€â”€ Hero â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Hero ──────────────────────────────────────────────────────────────────
 
   Widget _buildHero() {
     return Container(
@@ -253,7 +253,7 @@ class _EditOrganizerProfileScreenState
             ),
           ),
 
-          // Avatar â€” overlaps the bottom of the hero
+          // Avatar — overlaps the bottom of the hero
           Positioned(
             bottom: -48, left: 0, right: 0,
             child: Center(
@@ -295,7 +295,7 @@ class _EditOrganizerProfileScreenState
     );
   }
 
-  // â”€â”€ Body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Body ──────────────────────────────────────────────────────────────────
 
   Widget _buildBody() {
     return Padding(
@@ -303,7 +303,7 @@ class _EditOrganizerProfileScreenState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // â”€â”€ Personal Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Personal Info ────────────────────────────────────────────────
           _sectionLabel('Personal Info', Icons.person_rounded, kGold),
           const SizedBox(height: 10),
           _formCard(children: [
@@ -320,7 +320,7 @@ class _EditOrganizerProfileScreenState
 
           const SizedBox(height: 20),
 
-          // â”€â”€ Organization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Organization ─────────────────────────────────────────────────
           _sectionLabel('Organization', Icons.business_rounded, const Color(0xFF2563EB)),
           const SizedBox(height: 10),
           _formCard(children: [
@@ -337,13 +337,13 @@ class _EditOrganizerProfileScreenState
 
           const SizedBox(height: 20),
 
-          // â”€â”€ Locked Account Fields â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Locked Account Fields ────────────────────────────────────────
           _sectionLabel('Account', Icons.lock_rounded, kMuted),
           const SizedBox(height: 10),
           _formCard(children: [
             _lockedField(
               label:   'Email Address',
-              value:   widget.email ?? 'â€”',
+              value:   widget.email ?? '—',
               icon:    Icons.email_outlined,
               note:    'Contact support to update',
               isFirst: true,
@@ -362,7 +362,7 @@ class _EditOrganizerProfileScreenState
     );
   }
 
-  // â”€â”€ Save bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Save bar ──────────────────────────────────────────────────────────────
 
   Widget _buildSaveBar() {
     return SafeArea(
@@ -423,7 +423,7 @@ class _EditOrganizerProfileScreenState
                 )
               : const Icon(Icons.check_rounded, size: 20),
           label: Text(
-            _saving ? 'Savingâ€¦' : 'Save Changes',
+            _saving ? 'Saving…' : 'Save Changes',
             style: const TextStyle(
               fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700,
             ),
@@ -463,7 +463,7 @@ class _EditOrganizerProfileScreenState
     );
   }
 
-  // â”€â”€ Field widgets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Field widgets ─────────────────────────────────────────────────────────
 
   Widget _editField({
     required TextEditingController ctrl,
@@ -566,7 +566,7 @@ class _EditOrganizerProfileScreenState
     );
   }
 
-  // â”€â”€ Layout helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Layout helpers ─────────────────────────────────────────────────────────
 
   Widget _formCard({required List<Widget> children}) => Container(
     decoration: BoxDecoration(
