@@ -1454,48 +1454,53 @@ class _StudentDashboardState extends State<StudentDashboard>
       top: false,
       child: Container(
         decoration: BoxDecoration(
-          color: t.navBg,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+          color: const Color(0xFF1C1814),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 20, offset: const Offset(0, -2)),
+            BoxShadow(
+              color:      Colors.black.withValues(alpha: 0.30),
+              blurRadius: 16,
+              offset:     const Offset(0, -2),
+            ),
           ],
         ),
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+        padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
         child: Row(
-          children: [
-            _NavItem(
-              activeIcon:   Icons.home_rounded,
-              inactiveIcon: Icons.home_outlined,
-              label:        'Home',
-              active:       _selectedIndex == 0,
-              onTap:        () => _onNavBarTapped(0),
-            ),
-            _NavItem(
-              activeIcon:   Icons.event_rounded,
-              inactiveIcon: Icons.event_outlined,
-              label:        'Events',
-              active:       _selectedIndex == 1,
-              onTap:        () => _onNavBarTapped(1),
-            ),
-            _NavItem(
-              activeIcon:   Icons.person_rounded,
-              inactiveIcon: Icons.person_outline_rounded,
-              label:        'Profile',
-              active:       _selectedIndex == 2,
-              onTap:        () => _onNavBarTapped(2),
-            ),
-          ],
+            children: [
+              _NavItem(
+                activeIcon:   Icons.home_rounded,
+                inactiveIcon: Icons.home_outlined,
+                label:        'Home',
+                active:       _selectedIndex == 0,
+                onTap:        () => _onNavBarTapped(0),
+              ),
+              _NavItem(
+                activeIcon:   Icons.event_rounded,
+                inactiveIcon: Icons.event_outlined,
+                label:        'Events',
+                active:       _selectedIndex == 1,
+                onTap:        () => _onNavBarTapped(1),
+              ),
+              _NavItem(
+                activeIcon:   Icons.person_rounded,
+                inactiveIcon: Icons.person_outline_rounded,
+                label:        'Profile',
+                active:       _selectedIndex == 2,
+                onTap:        () => _onNavBarTapped(2),
+              ),
+            ],
+          ),
         ),
-      ),
     );
   }
 }
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Sub-widgets
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _NavItem extends StatelessWidget {
+class _NavItem extends StatefulWidget {
   final IconData     activeIcon;
   final IconData     inactiveIcon;
   final String       label;
@@ -1511,43 +1516,62 @@ class _NavItem extends StatelessWidget {
   });
 
   @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     return Expanded(
       child: GestureDetector(
-        onTap: onTap,
+        onTap:       widget.onTap,
+        onTapDown:   (_) => setState(() => _pressed = true),
+        onTapUp:     (_) => setState(() => _pressed = false),
+        onTapCancel: ()  => setState(() => _pressed = false),
         behavior: HitTestBehavior.opaque,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              padding: EdgeInsets.symmetric(
-                horizontal: active ? 22 : 16,
-                vertical: 7,
+        child: AnimatedScale(
+          scale:    _pressed ? 0.90 : 1.0,
+          duration: const Duration(milliseconds: 110),
+          curve:    Curves.easeOut,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve:    Curves.easeOut,
+                padding:  const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                decoration: BoxDecoration(
+                  color: widget.active
+                      ? kGold.withValues(alpha: 0.18)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  widget.active ? widget.activeIcon : widget.inactiveIcon,
+                  size:  22,
+                  color: widget.active
+                      ? kGold
+                      : Colors.white.withValues(alpha: 0.45),
+                ),
               ),
-              decoration: BoxDecoration(
-                color: active ? kGold.withValues(alpha: 0.18) : Colors.transparent,
-                borderRadius: BorderRadius.circular(14),
+              const SizedBox(height: 3),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize:   10,
+                  fontWeight: widget.active ? FontWeight.w700 : FontWeight.w400,
+                  color: widget.active
+                      ? kGold
+                      : Colors.white.withValues(alpha: 0.45),
+                ),
+                maxLines:  1,
+                textAlign: TextAlign.center,
               ),
-              child: Icon(
-                active ? activeIcon : inactiveIcon,
-                size: 22,
-                color: active ? kGold : Colors.white.withValues(alpha: 0.40),
-              ),
-            ),
-            const SizedBox(height: 3),
-            AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 180),
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 10,
-                fontWeight: active ? FontWeight.w700 : FontWeight.w400,
-                color: active ? kGold : Colors.white.withValues(alpha: 0.40),
-              ),
-              child: Text(label, maxLines: 1, textAlign: TextAlign.center),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

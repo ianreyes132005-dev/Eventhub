@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import 'package:eventhub/core/services/supabase_service.dart';
-import 'edit_organizer_profile_screen.dart';
 import '../../../../core/app_colors.dart';
 
 
@@ -105,9 +104,14 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
           'username': fn.toLowerCase().replaceAll(' ', '_'),
           'role': 'Event Organizer',
           'organization': orgRow['organization'] as String? ?? 'J-Jireh',
-          'memberSince': created != null
-              ? (DateTime.tryParse(created)?.year.toString() ?? '—')
-              : '—',
+          'memberSince': () {
+            if (created == null) return '—';
+            final dt = DateTime.tryParse(created);
+            if (dt == null) return '—';
+            const mos = ['Jan','Feb','Mar','Apr','May','Jun',
+                         'Jul','Aug','Sep','Oct','Nov','Dec'];
+            return '${mos[dt.month - 1]} ${dt.year}';
+          }(),
           'profileImage': orgRow['profile_image_url'],
           'managedEvents': eventList.length,
           'activeEvents': activeCount,
@@ -151,11 +155,11 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
                   delegate: SliverChildListDelegate([
                     _buildNameSection(t),
                     const SizedBox(height: 20),
-                    _buildEditButton(t),
+                    _buildStatsCard(t),
                     const SizedBox(height: 16),
                     _buildAccountCard(t),
                     const SizedBox(height: 12),
-                    _buildSecurityCard(t),
+                    _buildAboutTile(t),
                     const SizedBox(height: 12),
                     _buildLogoutTile(),
                   ]),
@@ -326,25 +330,21 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
       children: [
         Text(
           _organizer['fullName'] as String? ?? 'Organizer',
+          textAlign: TextAlign.center,
           style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: t.text),
         ),
         const SizedBox(height: 3),
         Text(
           _organizer['organization'] as String? ?? 'J-Jireh',
+          textAlign: TextAlign.center,
           style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub),
         ),
         const SizedBox(height: 10),
-        Wrap(
-          spacing: 6, runSpacing: 4, alignment: WrapAlignment.center,
-          children: [
-            _pill(_organizer['role'] as String? ?? 'Event Organizer', kGold.withValues(alpha: 0.12), kGold),
-            _pill(
-              isActive ? 'Active' : 'Inactive',
-              statusColor.withValues(alpha: 0.10),
-              statusColor,
-              icon: isActive ? Icons.check_circle_rounded : Icons.pause_circle_rounded,
-            ),
-          ],
+        _pill(
+          isActive ? 'Active' : 'Inactive',
+          statusColor.withValues(alpha: 0.10),
+          statusColor,
+          icon: isActive ? Icons.check_circle_rounded : Icons.pause_circle_rounded,
         ),
         const SizedBox(height: 6),
         Text(
@@ -371,42 +371,85 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     ),
   );
 
-  // ── Edit button ────────────────────────────────────────────────────────────
+  // ── Stats card ────────────────────────────────────────────────────────────
 
-  Widget _buildEditButton(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: kGoldGradient,
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [BoxShadow(color: kGold.withValues(alpha: 0.38), blurRadius: 14, offset: const Offset(0, 5))],
-        ),
-        child: SizedBox(
-          width: double.infinity, height: 48,
-          child: ElevatedButton.icon(
-            onPressed: () async {
-              final result = await Navigator.of(context).push<bool?>(
-                MaterialPageRoute(
-                  builder: (_) => EditOrganizerProfileScreen(
-                    fullName:     _organizer['fullName'] as String?,
-                    organization: _organizer['organization'] as String?,
-                    email:        _organizer['email'] as String?,
-                    username:     _organizer['username'] as String?,
-                  ),
-                ),
-              );
-              if (result == true) _loadProfile();
-            },
-            icon: const Icon(Icons.edit_rounded, size: 17),
-            label: const Text('Edit Profile',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.transparent, foregroundColor: Colors.white,
-              elevation: 0, shadowColor: Colors.transparent,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            ),
+  Widget _buildStatsCard(AppTk t) {
+    final total      = _organizer['managedEvents']         as int? ?? 0;
+    final active     = _organizer['activeEvents']          as int? ?? 0;
+    final registered = _organizer['registeredParticipants'] as int? ?? 0;
+
+    if (total == 0) {
+      return _card(
+        t: t,
+        margin: const EdgeInsets.symmetric(horizontal: 20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 52, height: 52,
+                decoration: BoxDecoration(color: t.border, shape: BoxShape.circle),
+                child: Icon(Icons.event_busy_rounded, size: 24, color: t.muted),
+              ),
+              const SizedBox(height: 14),
+              Text('No events yet',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
+                    fontWeight: FontWeight.w700, color: t.text)),
+              const SizedBox(height: 4),
+              Text('Create your first event to\nstart tracking your activity',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                    color: t.muted, height: 1.55)),
+            ],
           ),
+        ),
+      );
+    }
+
+    return _card(
+      t: t,
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          _statTile(Icons.event_rounded,  '$total',      'Total Events', kGold,                   t),
+          _vertDivider(t),
+          _statTile(Icons.bolt_rounded,   '$active',     'Active',       const Color(0xFF10B981), t),
+          _vertDivider(t),
+          _statTile(Icons.people_rounded, '$registered', 'Registered',   const Color(0xFF3B82F6), t),
+        ],
+      ),
+    );
+  }
+
+  Widget _vertDivider(AppTk t) =>
+      Container(width: 1, height: 60, color: t.divider);
+
+  Widget _statTile(IconData icon, String value, String label, Color color, AppTk t) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 34, height: 34,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 17, color: color),
+            ),
+            const SizedBox(height: 8),
+            Text(value,
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 20,
+                  fontWeight: FontWeight.w800, color: t.text, height: 1.0)),
+            const SizedBox(height: 3),
+            Text(label,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5,
+                  color: t.muted, fontWeight: FontWeight.w600)),
+          ],
         ),
       ),
     );
@@ -422,15 +465,11 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _sectionLabel('Account Information', t),
-          _infoTile(Icons.person_rounded,          'Full Name',     _organizer['fullName'] as String? ?? '—',       t: t),
+          _infoTile(Icons.email_outlined,  'Email Address', _organizer['email'] as String? ?? '—',        t: t),
           _divider(t),
-          _infoTile(Icons.email_outlined,          'Email Address', _organizer['email'] as String? ?? '—',          t: t),
+          _infoTile(Icons.business_rounded,'Organization',  _organizer['organization'] as String? ?? '—', t: t),
           _divider(t),
-          _infoTile(Icons.alternate_email_rounded, 'Username',      '@${_organizer['username'] as String? ?? '—'}', t: t),
-          _divider(t),
-          _infoTile(Icons.business_rounded,        'Organization',  _organizer['organization'] as String? ?? '—',   t: t),
-          _divider(t),
-          _infoTile(Icons.badge_rounded,           'Organizer ID',  _organizer['id'] as String? ?? '—',             t: t, isId: true),
+          _infoTile(Icons.badge_rounded,   'Organizer ID',  _organizer['id'] as String? ?? '—',           t: t, isId: true),
           const SizedBox(height: 4),
         ],
       ),
@@ -481,72 +520,132 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     );
   }
 
-  // ── Security card ──────────────────────────────────────────────────────────
+  // ── About ──────────────────────────────────────────────────────────────────
 
-  Widget _buildSecurityCard(AppTk t) {
+  Widget _buildAboutTile(AppTk t) {
     return _card(
       t: t,
       margin: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionLabel('Security', t),
-          _actionTile(
-            icon: Icons.lock_rounded,
-            title: 'Change Password',
-            subtitle: 'Update your account password',
-            onTap: _showChangePasswordDialog,
-            t: t,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          onTap: _showAboutDialog,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
+            child: Row(
+              children: [
+                Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: kGold.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.info_rounded, color: kGold, size: 18),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('About EventHub',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                            fontWeight: FontWeight.w600, color: t.text)),
+                      Text('Version 1.0.0 · J-Jireh Learning Center',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: t.muted, size: 20),
+              ],
+            ),
           ),
-          const SizedBox(height: 4),
-        ],
-      ),
-    );
-  }
-
-  Widget _actionTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    required AppTk t,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: const BorderRadius.only(
-        bottomLeft: Radius.circular(20), bottomRight: Radius.circular(20),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
-        child: Row(
-          children: [
-            Container(
-              width: 36, height: 36,
-              decoration: BoxDecoration(
-                color: kGold.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: kGold, size: 17),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
-                  const SizedBox(height: 2),
-                  Text(subtitle,
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right_rounded, color: t.muted, size: 20),
-          ],
         ),
       ),
     );
   }
+
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final t = AppTk(Theme.of(ctx).brightness == Brightness.dark);
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 72, height: 72,
+                  decoration: BoxDecoration(
+                    gradient: kGoldGradient,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [BoxShadow(color: kGold.withValues(alpha: 0.40), blurRadius: 16, offset: const Offset(0, 6))],
+                  ),
+                  child: const Icon(Icons.event_rounded, color: Colors.white, size: 36),
+                ),
+                const SizedBox(height: 16),
+                Text('EventHub',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: t.text)),
+                const SizedBox(height: 4),
+                const Text('Version 1.0.0',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kGold, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
+                Text(
+                  'J-Jireh Learning Center\'s official event management platform. Browse and register for school events, track your attendance, and scan in with your personal QR code — all in one place.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, height: 1.6, color: t.muted),
+                ),
+                const SizedBox(height: 16),
+                Divider(color: t.divider),
+                const SizedBox(height: 12),
+                _aboutInfoRow(Icons.school_rounded,         'School',   'J-Jireh Learning Center', t),
+                const SizedBox(height: 10),
+                _aboutInfoRow(Icons.build_rounded,          'Build',    'Flutter · Supabase',       t),
+                const SizedBox(height: 10),
+                _aboutInfoRow(Icons.devices_rounded,        'Platform', 'Android',                  t),
+                const SizedBox(height: 10),
+                _aboutInfoRow(Icons.support_agent_rounded,  'Contact',  'See school admin',         t),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Close',
+                      style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 14, color: kGold)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _aboutInfoRow(IconData icon, String label, String value, AppTk t) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 2),
+    child: Row(
+      children: [
+        Container(
+          width: 28, height: 28,
+          decoration: BoxDecoration(
+            color: kGold.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 14, color: kGold),
+        ),
+        const SizedBox(width: 12),
+        Text('$label  ',
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w600, color: t.text)),
+        Text(value,
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted)),
+      ],
+    ),
+  );
 
   // ── Logout ─────────────────────────────────────────────────────────────────
 
@@ -665,89 +764,4 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     }
   }
 
-  void _showChangePasswordDialog() {
-    final newCtrl     = TextEditingController();
-    final confirmCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        bool saving = false;
-        return StatefulBuilder(
-          builder: (ctx, setDialog) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: const Text('Change Password',
-              style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
-            content: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                _pwField(newCtrl, 'New Password'),
-                const SizedBox(height: 12),
-                _pwField(confirmCtrl, 'Confirm New Password'),
-              ]),
-            ),
-            actions: [
-              TextButton(
-                onPressed: saving ? null : () => Navigator.pop(ctx),
-                child: const Text('Cancel', style: TextStyle(fontFamily: 'Poppins')),
-              ),
-              ElevatedButton(
-                onPressed: saving ? null : () async {
-                  final nw = newCtrl.text.trim();
-                  final cf = confirmCtrl.text.trim();
-                  if (nw.isEmpty || cf.isEmpty) { _snack('Please fill in all fields', const Color(0xFFEF4444)); return; }
-                  if (nw != cf) { _snack('Passwords do not match', const Color(0xFFEF4444)); return; }
-                  if (nw.length < 6) { _snack('Password must be at least 6 characters', const Color(0xFFEF4444)); return; }
-                  setDialog(() => saving = true);
-                  try {
-                    await SupabaseService.client.auth.updateUser(UserAttributes(password: nw));
-                    if (ctx.mounted) Navigator.pop(ctx);
-                    _snack('Password updated successfully', const Color(0xFF16A34A));
-                  } catch (e) {
-                    setDialog(() => saving = false);
-                    _snack('Update failed: ${e.toString()}', const Color(0xFFEF4444));
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: kGold, foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                child: saving
-                    ? const SizedBox(width: 18, height: 18,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text('Update', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600)),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _pwField(TextEditingController ctrl, String label) => TextField(
-    controller: ctrl,
-    obscureText: true,
-    style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-    decoration: InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-      filled: true,
-      fillColor: kGold.withValues(alpha: 0.04),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: kGold.withValues(alpha: 0.30), width: 1.2),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: kGold, width: 1.8),
-      ),
-    ),
-  );
-
-  void _snack(String msg, Color color) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: color),
-    );
-  }
 }

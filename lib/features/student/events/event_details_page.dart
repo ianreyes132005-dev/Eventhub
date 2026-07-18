@@ -50,7 +50,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   Color get _statusColor {
     switch (_statusLabel) {
       case 'Ongoing':   return const Color(0xFF16A34A);
-      case 'Past':      return kSubText;
+      case 'Ended':     return kSubText;
       case 'Cancelled': return Colors.red;
       default:          return const Color(0xFFE87A00);
     }
@@ -61,11 +61,12 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     if (d == null) return '—';
     try {
       final dt = DateTime.parse(d);
-      const m = [
+      const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+      const months = [
         'January','February','March','April','May','June',
         'July','August','September','October','November','December',
       ];
-      return '${m[dt.month - 1]} ${dt.day}, ${dt.year}';
+      return '${days[dt.weekday - 1]}, ${months[dt.month - 1]} ${dt.day}, ${dt.year}';
     } catch (_) { return d; }
   }
 
@@ -138,7 +139,11 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
       if (!mounted) return;
       HapticFeedback.mediumImpact();
       setState(() { _reg = row; _registering = false; });
-      _showQR();
+      RegistrationSuccessPopup.show(
+        context,
+        eventTitle: _title,
+        onComplete: _showQR,
+      );
     } catch (e) {
       if (mounted) {
         setState(() => _registering = false);
@@ -513,7 +518,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                 label: 'Spots Left',
                 value: spotsLeft != null
                     ? (spotsLeft <= 0 ? 'Full' : spotsLeft.toString())
-                    : 'âˆž',
+                    : 'Unlimited',
                 color: _isFull ? Colors.red : const Color(0xFF16A34A),
               ),
               const SizedBox(width: 12),
@@ -831,26 +836,74 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   }
 
   Widget _qrButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 54,
-      child: ElevatedButton.icon(
-        onPressed: _showQR,
-        icon: const Icon(Icons.qr_code_rounded, size: 22),
-        label: const Text(
-          'View My QR Code',
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF16A34A).withValues(alpha: 0.34),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
           ),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF16A34A),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Material(
+          color: Colors.transparent,
+          child: Ink(
+            height: 54,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF15803D), Color(0xFF22C55E)],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+            ),
+            child: InkWell(
+              onTap: () {
+                HapticFeedback.lightImpact();
+                _showQR();
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 34, height: 34,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.qr_code_2_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 13),
+                    const Expanded(
+                      child: Text(
+                        'View My QR Code',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      color: Colors.white.withValues(alpha: 0.65),
+                      size: 14,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

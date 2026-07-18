@@ -28,6 +28,7 @@ String webEventStatusLabel(String? s) => switch (s) {
   'upcoming'  => 'Upcoming',
   'ongoing'   => 'Ongoing',
   'completed' => 'Completed',
+  'ended'     => 'Ended',
   'cancelled' => 'Cancelled',
   _           => s ?? '—',
 };
@@ -36,6 +37,7 @@ Color webEventStatusColor(String? s) => switch (s) {
   'upcoming'  => const Color(0xFF3B82F6),
   'ongoing'   => const Color(0xFF10B981),
   'completed' => const Color(0xFF6B7280),
+  'ended'     => const Color(0xFF6B7280),
   'cancelled' => const Color(0xFFEF4444),
   _           => const Color(0xFF9CA3AF),
 };

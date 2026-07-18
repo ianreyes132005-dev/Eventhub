@@ -54,14 +54,14 @@ class AppTk {
 String eventStatusLabel(Map<String, dynamic> event) {
   final s = (event['event_status'] as String? ?? '').toLowerCase();
   if (s == 'ongoing' || s == 'active')                return 'Ongoing';
-  if (s == 'completed' || s == 'past' || s == 'ended') return 'Past';
+  if (s == 'completed' || s == 'past' || s == 'ended') return 'Ended';
   if (s == 'cancelled')                               return 'Cancelled';
   final dateStr = event['event_date'] as String?;
   if (dateStr != null) {
     try {
       final d = DateTime.parse(dateStr);
       final now = DateTime.now();
-      if (d.isBefore(DateTime(now.year, now.month, now.day))) return 'Past';
+      if (d.isBefore(DateTime(now.year, now.month, now.day))) return 'Ended';
     } catch (_) {}
   }
   return 'Upcoming';
@@ -70,8 +70,17 @@ String eventStatusLabel(Map<String, dynamic> event) {
 Color eventStatusColor(String label) {
   switch (label) {
     case 'Ongoing':   return const Color(0xFF10B981);
-    case 'Past':      return const Color(0xFF6B7280);
+    case 'Ended':     return const Color(0xFF6B7280);
     case 'Cancelled': return const Color(0xFFEF4444);
     default:          return const Color(0xFF3B82F6);
   }
+}
+
+// ── LRN display formatter ────────────────────────────────────────────────────
+// Formats a raw 12-digit LRN (e.g. "123456261234") → "123456 - 26 - 1234".
+// Returns the input unchanged if it is not exactly 12 digits.
+String formatLrn(String lrn) {
+  final d = lrn.replaceAll(RegExp(r'\D'), '');
+  if (d.length != 12) return lrn;
+  return '${d.substring(0, 6)} - ${d.substring(6, 8)} - ${d.substring(8)}';
 }

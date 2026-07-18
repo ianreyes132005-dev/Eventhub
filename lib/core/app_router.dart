@@ -13,8 +13,19 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void setupAuthStateListener() {
   if (kIsWeb) return;
 
+  // When Supabase restores a persisted session on startup it fires a signedIn
+  // event immediately after the listener subscribes. We must skip that event
+  // or the app navigates to the dashboard without the user entering a password.
+  // A genuine deep-link sign-in has no pre-existing session, so it is unaffected.
+  bool skipRestore = Supabase.instance.client.auth.currentSession != null;
+
   Supabase.instance.client.auth.onAuthStateChange.listen((event) async {
     if (event.event != AuthChangeEvent.signedIn) return;
+
+    if (skipRestore) {
+      skipRestore = false;
+      return;
+    }
 
     // _handleLogin() in auth_screen.dart owns this sign-in — it performs the
     // role gate and navigates itself. Skip here to avoid a race condition.
@@ -24,23 +35,12 @@ void setupAuthStateListener() {
     if (user == null) return;
 
     try {
-      final adminRow = await SupabaseService.client
-          .from('admins')
-          .select('admin_id')
+      final organizerRow = await SupabaseService.client
+          .from('organizers')
+          .select('organizer_id')
           .eq('user_id', user.id)
           .maybeSingle();
-
-      String route;
-      if (adminRow != null) {
-        route = '/admin';
-      } else {
-        final organizerRow = await SupabaseService.client
-            .from('organizers')
-            .select('organizer_id')
-            .eq('user_id', user.id)
-            .maybeSingle();
-        route = organizerRow != null ? '/organizer' : '/student';
-      }
+      final route = organizerRow != null ? '/organizer' : '/student';
 
       if (navigatorKey.currentContext != null) {
         navigatorKey.currentState?.pushNamedAndRemoveUntil(route, (r) => false);
@@ -61,23 +61,12 @@ void setupAppLinks() async {
       final user = SupabaseService.client.auth.currentUser;
       if (user == null) return;
       try {
-        final adminRow = await SupabaseService.client
-            .from('admins')
-            .select('admin_id')
+        final organizerRow = await SupabaseService.client
+            .from('organizers')
+            .select('organizer_id')
             .eq('user_id', user.id)
             .maybeSingle();
-
-        String route;
-        if (adminRow != null) {
-          route = '/admin';
-        } else {
-          final organizerRow = await SupabaseService.client
-              .from('organizers')
-              .select('organizer_id')
-              .eq('user_id', user.id)
-              .maybeSingle();
-          route = organizerRow != null ? '/organizer' : '/student';
-        }
+        final route = organizerRow != null ? '/organizer' : '/student';
         navigatorKey.currentState?.pushNamedAndRemoveUntil(route, (r) => false);
       } catch (_) {}
     }

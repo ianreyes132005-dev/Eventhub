@@ -112,6 +112,23 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
           title.contains(q) || location.contains(q) || type.contains(q);
       return matchFilter && matchSearch;
     }).toList();
+
+    int statusOrder(String label) {
+      if (label == 'Upcoming')  return 0;
+      if (label == 'Ongoing')   return 1;
+      if (label == 'Ended')     return 2;
+      if (label == 'Draft')     return 3;
+      return 4; // Cancelled
+    }
+
+    _filtered.sort((a, b) {
+      final po = statusOrder(_statusLabel(a)).compareTo(statusOrder(_statusLabel(b)));
+      if (po != 0) return po;
+      final da = a['event_date'] as String? ?? '';
+      final db = b['event_date'] as String? ?? '';
+      return da.compareTo(db);
+    });
+
     setState(() {});
   }
 
@@ -357,12 +374,6 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                     height: 1.1,
                   ),
                 ),
-                Text(
-                  '$_total event${_total == 1 ? '' : 's'} total',
-                  style: const TextStyle(
-                    fontFamily: 'Poppins', fontSize: 12, color: kSubText,
-                  ),
-                ),
               ],
             ),
           ),
@@ -430,44 +441,6 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                     gradient: kGoldGradient,
                     borderRadius: BorderRadius.circular(2),
                   ),
-                ),
-                const SizedBox(height: 10),
-
-                // Subtitle with icon
-                Row(
-                  children: [
-                    Icon(Icons.schedule_rounded,
-                        size: 13,
-                        color: kSubText.withValues(alpha: 0.8)),
-                    const SizedBox(width: 5),
-                    RichText(
-                      text: TextSpan(
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 13,
-                          color: kSubText,
-                        ),
-                        children: [
-                          TextSpan(
-                            text: '$_upcomingCount',
-                            style: const TextStyle(
-                              color: kGold,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const TextSpan(text: ' upcoming'),
-                          TextSpan(
-                            text: '  ·  $_total',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: kText,
-                            ),
-                          ),
-                          const TextSpan(text: ' total'),
-                        ],
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),

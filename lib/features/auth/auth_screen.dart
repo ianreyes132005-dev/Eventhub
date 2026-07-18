@@ -8,11 +8,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/supabase_service.dart';
 import '../../core/services/audit_service.dart';
+import '../../core/services/rate_limit_service.dart';
 import '../../shared/widgets/gradient_button.dart';
 import '../../shared/widgets/app_alert.dart';
 import '../organizer/mobile/dashboard/organizer_dashboard.dart';
 import '../student/dashboard/student_dashboard.dart';
-import '../admin/admin_dashboard.dart';
 import '../../core/app_colors.dart';
 
 // ── Enums ──────────────────────────────────────────────────────────────────────
@@ -105,10 +105,10 @@ class _AuthScreenState extends State<AuthScreen> {
   void _switchMode() {
     setState(() {
       _mode = _isOrganizer ? _LoginMode.student : _LoginMode.organizer;
-      // Clear fields on switch to avoid credential confusion
       _emailCtrl.clear();
       _lrnCtrl.clear();
       _passwordCtrl.clear();
+      _loginShowPassword = false;
       _loginFormKey.currentState?.reset();
     });
   }
@@ -189,33 +189,32 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _loadRateLimitState() async {
     try {
-      final prefs    = await SharedPreferences.getInstance();
-      final attempts = prefs.getInt(_kAttemptKey) ?? 0;
-      final lockedMs = prefs.getInt(_kLockedKey)  ?? 0;
-      final locked   = lockedMs > 0
+      final prefs      = await SharedPreferences.getInstance();
+      final attempts   = prefs.getInt(_kAttemptKey) ?? 0;
+      final lockedMs   = prefs.getInt(_kLockedKey)  ?? 0;
+      final locked     = lockedMs > 0
           ? DateTime.fromMillisecondsSinceEpoch(lockedMs)
           : null;
       if (!mounted) return;
+      final stillLocked = locked != null && locked.isAfter(DateTime.now());
       setState(() {
-        _failedAttempts = attempts;
-        _lockedUntil    = (locked != null && locked.isAfter(DateTime.now()))
-            ? locked
-            : null;
+        _failedAttempts = stillLocked ? attempts : 0;
+        _lockedUntil    = stillLocked ? locked : null;
       });
-      if (_isLocked) _startLockTimer();
+      if (stillLocked) {
+        _startLockTimer();
+      } else if (attempts > 0) {
+        prefs.setInt(_kAttemptKey, 0);
+        prefs.remove(_kLockedKey);
+      }
     } catch (_) {}
   }
 
   Future<void> _recordFailure() async {
     _failedAttempts++;
-    Duration lockDur = Duration.zero;
-    if (_failedAttempts >= 10) {
-      lockDur = const Duration(minutes: 15);
-    } else if (_failedAttempts >= 7) {
-      lockDur = const Duration(minutes: 2);
-    } else if (_failedAttempts >= 5) {
-      lockDur = const Duration(seconds: 30);
-    }
+    final lockDur = _failedAttempts >= 5
+        ? const Duration(seconds: 30)
+        : Duration.zero;
     _lockedUntil = lockDur > Duration.zero
         ? DateTime.now().add(lockDur)
         : null;
@@ -243,8 +242,15 @@ class _AuthScreenState extends State<AuthScreen> {
     _lockTimer?.cancel();
     _lockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) { _lockTimer?.cancel(); return; }
-      if (mounted) setState(() {});
-      if (!_isLocked) _lockTimer?.cancel();
+      if (!_isLocked) {
+        _lockTimer?.cancel();
+        _failedAttempts = 0;
+        SharedPreferences.getInstance().then((prefs) {
+          prefs.setInt(_kAttemptKey, 0);
+          prefs.remove(_kLockedKey);
+        }).catchError((_) {});
+      }
+      setState(() {});
     });
   }
 
@@ -540,6 +546,7 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
         const SizedBox(height: 16),
         TextFormField(
+          key: ValueKey('password-${_mode.name}'),
           controller: _passwordCtrl,
           obscureText: !_loginShowPassword,
           textInputAction: TextInputAction.done,
@@ -631,9 +638,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          _failedAttempts < 5
-                              ? '${5 - _failedAttempts} more failed attempt${5 - _failedAttempts == 1 ? '' : 's'} will trigger a temporary lockout.'
-                              : 'Repeated failures detected. Further failed attempts will extend your lockout.',
+                          '${5 - _failedAttempts} more failed attempt${5 - _failedAttempts == 1 ? '' : 's'} will trigger a 30-second lockout.',
                           style: const TextStyle(
                             fontFamily: 'Poppins',
                             fontSize: 11.5,
@@ -696,20 +701,6 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 glowColor: const Color(0xFFD6A742),
               ),
-        // ── Hard-lockout contact hint (10+ failures) ──────────────────────
-        if (_failedAttempts >= 10 && _isLocked) ...[
-          const SizedBox(height: 12),
-          Text(
-            'Too many failed attempts. Contact your school administrator to restore access.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 11.5,
-              color: Colors.grey.shade500,
-              height: 1.5,
-            ),
-          ),
-        ],
       ],
     );
   }
@@ -729,6 +720,7 @@ class _AuthScreenState extends State<AuthScreen> {
       validator: (value) {
         final username = value?.trim() ?? '';
         if (username.isEmpty) return 'Username is required';
+        if (username.length < 3) return 'Username must be at least 3 characters';
         if (username.contains('@') || username.contains(' ')) {
           return 'Enter your username only, without @gmail.com';
         }
@@ -770,29 +762,36 @@ class _AuthScreenState extends State<AuthScreen> {
     // Block setupAuthStateListener from racing us to the navigator.
     SupabaseService.handlingAppLogin = true;
     try {
+      // S-01: server-side rate limit check — enforced across all devices/sessions.
+      final rlStatus = await RateLimitService.check(email);
+      if (!rlStatus.allowed) {
+        if (mounted) setState(() => _lockedUntil = rlStatus.lockedUntil);
+        if (rlStatus.lockedUntil != null) _startLockTimer();
+        return;
+      }
+
       final response = await Supabase.instance.client.auth
           .signInWithPassword(email: email, password: pass);
       final user = response.user;
       if (user == null) return;
 
-      // ── Admin check — highest priority ────────────────────────────────────
+      // ── Admin check — blocked on mobile ──────────────────────────────────
       final adminData = await SupabaseService.client
           .from('admins')
-          .select('admin_id, full_name')
+          .select('admin_id')
           .eq('user_id', user.id)
           .maybeSingle();
 
       if (adminData != null) {
-        AuditService.logLogin(
-          userId: user.id, role: 'admin',
-          fullName:   adminData['full_name'] as String?,
-          identifier: email.split('@').first,
-        );
-        await _clearRateLimit();
-        await _saveCredential();
+        await Supabase.instance.client.auth.signOut();
         if (mounted) {
-          Navigator.of(context).pushReplacement(
-            _dashRoute(const AdminDashboard()),
+          setState(() => _loginLoading = false);
+          AppAlert.warning(
+            context,
+            title: 'Web Portal Only',
+            message: 'Admin accounts can only be accessed through the EventHub web portal. '
+                'Please use a browser to log in.',
+            buttonText: 'Got it',
           );
         }
         return;
@@ -843,6 +842,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
       // ── Persist credential if Remember Me is on ────────────────────────────
       await _clearRateLimit();
+      unawaited(RateLimitService.clear(email));
       await _saveCredential();
 
       // ── Audit log ───────────────────────────────────────────────────────────
@@ -870,6 +870,7 @@ class _AuthScreenState extends State<AuthScreen> {
     } catch (e, stack) {
       debugPrint('Login failed: $e\n$stack');
       await _recordFailure();
+      unawaited(RateLimitService.recordFailure(email));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

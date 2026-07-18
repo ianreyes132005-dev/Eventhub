@@ -27,7 +27,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
   bool   _hasError    = false;
 
   final TextEditingController _searchCtrl    = TextEditingController();
-  final List<String>          _filterOptions = ['All', 'Upcoming', 'Ongoing', 'Past'];
+  final List<String>          _filterOptions = ['All', 'Upcoming', 'Ongoing', 'Ended'];
 
   List<Map<String, dynamic>> _registrations = [];
 
@@ -123,16 +123,36 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
 
   // ── Filtering ─────────────────────────────────────────────────────────────
 
-  List<Map<String, dynamic>> get _filtered => _registrations.where((reg) {
-    final label = eventStatusLabel(reg['events'] as Map<String, dynamic>? ?? {});
-    final matchesFilter = _filter == 'All' || label == _filter;
-    final q    = _searchQuery.toLowerCase();
-    final title = (reg['event_title']               as String? ?? '').toLowerCase();
-    final ev    = reg['events'] as Map?;
-    final loc   = (ev?['location'] as String? ?? '').toLowerCase();
-    final matchesSearch = q.isEmpty || title.contains(q) || loc.contains(q);
-    return matchesFilter && matchesSearch;
-  }).toList();
+  List<Map<String, dynamic>> get _filtered {
+    final list = _registrations.where((reg) {
+      final label = eventStatusLabel(reg['events'] as Map<String, dynamic>? ?? {});
+      final matchesFilter = _filter == 'All' || label == _filter;
+      final q     = _searchQuery.toLowerCase();
+      final title = (reg['event_title']             as String? ?? '').toLowerCase();
+      final ev    = reg['events'] as Map?;
+      final loc   = (ev?['location'] as String? ?? '').toLowerCase();
+      final matchesSearch = q.isEmpty || title.contains(q) || loc.contains(q);
+      return matchesFilter && matchesSearch;
+    }).toList();
+
+    int statusOrder(String label) {
+      if (label == 'Upcoming') return 0;
+      if (label == 'Ongoing')  return 1;
+      return 2; // Past, Cancelled
+    }
+
+    list.sort((a, b) {
+      final la = eventStatusLabel(a['events'] as Map<String, dynamic>? ?? {});
+      final lb = eventStatusLabel(b['events'] as Map<String, dynamic>? ?? {});
+      final po = statusOrder(la).compareTo(statusOrder(lb));
+      if (po != 0) return po;
+      final da = (a['events'] as Map?)?['event_date'] as String? ?? '';
+      final db = (b['events'] as Map?)?['event_date'] as String? ?? '';
+      return da.compareTo(db);
+    });
+
+    return list;
+  }
 
   int _countFor(String f) {
     if (f == 'All') return _registrations.length;
@@ -163,7 +183,6 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
                       physics: const AlwaysScrollableScrollPhysics(),
                       slivers: [
                         SliverToBoxAdapter(child: _buildHeader(t)),
-                        SliverToBoxAdapter(child: _buildStatsCard(t)),
                         SliverToBoxAdapter(child: _buildSearchBar(t)),
                         SliverToBoxAdapter(child: _buildFilterRow(t)),
                         items.isEmpty
@@ -288,80 +307,10 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
               children: [
                 Text('My Registrations',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 24, fontWeight: FontWeight.w800, color: t.text, height: 1.15)),
-                const SizedBox(height: 2),
-                Text('Your event tickets & QR codes',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted)),
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  // ── Stats card ────────────────────────────────────────────────────────────
-
-  Widget _buildStatsCard(AppTk t) {
-    final total     = _registrations.length;
-    final checkedIn = _registrations.where(_isCheckedIn).length;
-    final upcoming  = _registrations.where((r) => eventStatusLabel(r['events'] as Map<String, dynamic>? ?? {}) == 'Upcoming').length;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-      child: Container(
-        decoration: BoxDecoration(
-          color: t.card,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: t.border),
-          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 14, offset: const Offset(0, 5))],
-        ),
-        child: IntrinsicHeight(
-          child: Row(
-            children: [
-              _statCell('$total',     'Total',      Icons.confirmation_num_rounded, kGold,                   t),
-              VerticalDivider(width: 1, thickness: 1, color: t.divider),
-              _statCell('$checkedIn', 'Checked In', Icons.check_circle_rounded,    const Color(0xFF10B981), t),
-              VerticalDivider(width: 1, thickness: 1, color: t.divider),
-              _statCell('$upcoming',  'Upcoming',   Icons.event_rounded,            const Color(0xFF3B82F6), t),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _statCell(String value, String label, IconData icon, Color color, AppTk t) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(value,
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 24, fontWeight: FontWeight.w800, color: t.text, height: 1.0)),
-                const Spacer(),
-                Container(
-                  width: 28, height: 28,
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(icon, color: color, size: 14),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(label,
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5, fontWeight: FontWeight.w600, color: t.muted)),
-            const SizedBox(height: 8),
-            Container(width: 20, height: 2.5,
-              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
-          ],
-        ),
       ),
     );
   }
@@ -549,6 +498,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     final hasImage    = imageUrl != null && imageUrl.isNotEmpty;
     final statusLabel = eventStatusLabel(reg['events'] as Map<String, dynamic>? ?? {});
     final checkedIn   = _isCheckedIn(reg);
+    final isPending   = (reg['status'] as String? ?? '') == 'pending';
     final location    = ev?['location'] as String? ?? '—';
     final sc          = eventStatusColor(statusLabel);
 
@@ -586,7 +536,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
                     ),
                   ),
                   Positioned(top: 12, left: 12, child: _StatusChip(label: statusLabel, color: sc)),
-                  Positioned(top: 12, right: 12, child: _CheckInBadge(checkedIn: checkedIn)),
+                  Positioned(top: 12, right: 12, child: _CheckInBadge(checkedIn: checkedIn, isPending: isPending)),
                   Positioned(
                     bottom: 10, right: 12,
                     child: Container(
@@ -633,25 +583,106 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
           // ── QR button ──────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => _showQR(reg),
-                icon: const Icon(Icons.qr_code_2_rounded, size: 18),
-                label: Text(
-                  checkedIn ? 'View QR Code  ·  Checked In âœ“' : 'View My QR Code',
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: checkedIn ? const Color(0xFF16A34A) : kGold,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shadowColor: Colors.transparent,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-            ),
+            child: isPending
+                ? Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(13),
+                      border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.35)),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.cancel_rounded, size: 16, color: Color(0xFFEF4444)),
+                        SizedBox(width: 8),
+                        Text(
+                          'Failed to Register for this event',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFEF4444),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (checkedIn ? const Color(0xFF16A34A) : kGold)
+                              .withValues(alpha: 0.34),
+                          blurRadius: 14,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: Ink(
+                          height: 54,
+                          decoration: BoxDecoration(
+                            gradient: checkedIn
+                                ? const LinearGradient(
+                                    colors: [Color(0xFF15803D), Color(0xFF22C55E)],
+                                    begin: Alignment.centerLeft,
+                                    end: Alignment.centerRight,
+                                  )
+                                : kGoldGradient,
+                          ),
+                          child: InkWell(
+                            onTap: () {
+                              HapticFeedback.lightImpact();
+                              _showQR(reg);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 18),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 34, height: 34,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.18),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(
+                                      Icons.qr_code_2_rounded,
+                                      color: Colors.white,
+                                      size: 18,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 13),
+                                  const Expanded(
+                                    child: Text(
+                                      'View My QR Code',
+                                      style: TextStyle(
+                                        fontFamily: 'Poppins',
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white,
+                                        letterSpacing: 0.1,
+                                      ),
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.arrow_forward_ios_rounded,
+                                    color: Colors.white.withValues(alpha: 0.65),
+                                    size: 14,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
           ),
         ],
       ),
@@ -749,11 +780,16 @@ class _StatusChipState extends State<_StatusChip>
 
 class _CheckInBadge extends StatelessWidget {
   final bool checkedIn;
-  const _CheckInBadge({required this.checkedIn});
+  final bool isPending;
+  const _CheckInBadge({required this.checkedIn, this.isPending = false});
 
   @override
   Widget build(BuildContext context) {
-    final color = checkedIn ? const Color(0xFF16A34A) : const Color(0xFFF59E0B);
+    final color = checkedIn
+        ? const Color(0xFF16A34A)
+        : isPending
+            ? const Color(0xFFEF4444)
+            : const Color(0xFFF59E0B);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
@@ -765,7 +801,7 @@ class _CheckInBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            checkedIn ? Icons.check_circle_rounded : Icons.schedule_rounded,
+            checkedIn ? Icons.check_circle_rounded : isPending ? Icons.error_rounded : Icons.schedule_rounded,
             color: Colors.white, size: 10,
           ),
           const SizedBox(width: 4),

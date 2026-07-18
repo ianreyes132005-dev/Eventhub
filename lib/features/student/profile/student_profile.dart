@@ -21,18 +21,17 @@ class ProfileBody extends StatefulWidget {
 }
 
 class _ProfileBodyState extends State<ProfileBody> {
-  bool   _loading        = true;
-  bool   _uploadingPhoto = false;
-  String fullName        = '';
-  String username        = '';
-  String studentId       = '';
-  String gradeSection    = '';
-  String role            = 'Student';
-  String email           = '';
-  String memberSince     = '';
+  bool    _loading        = true;
+  bool    _uploadingPhoto = false;
+  String  fullName        = '';
+  String  studentId       = '';
+  String  gradeSection    = '';
+  String  role            = 'Student';
+  String  email           = '';
+  String  memberSince     = '';
   String? profilePhotoUrl;
-  int    registeredEvents = 0;
-  int    checkedIn        = 0;
+  int     registeredEvents = 0;
+  int     checkedIn        = 0;
 
   @override
   void initState() {
@@ -53,24 +52,19 @@ class _ProfileBodyState extends State<ProfileBody> {
           .eq('student_user_id', user.id);
 
       if (!mounted) return;
-      final fn    = studentRow?['full_name'] as String? ?? '';
-      final parts = fn.toLowerCase().split(' ');
-      final uname = parts.length >= 2
-          ? '${parts.first}_${parts.last}'
-          : (parts.isNotEmpty ? parts.first : 'student');
-
+      final fn      = studentRow?['full_name'] as String? ?? '';
       final yr      = studentRow?['year_level'] as int?;
       final created = studentRow?['created_at'] as String?;
+      final dt      = created != null ? DateTime.tryParse(created) : null;
+      const mos     = ['Jan','Feb','Mar','Apr','May','Jun',
+                       'Jul','Aug','Sep','Oct','Nov','Dec'];
 
       setState(() {
         fullName         = fn.isNotEmpty ? fn : 'Student';
-        username         = uname;
         studentId        = studentRow?['lrn'] as String? ?? '—';
-        gradeSection     = yr != null ? 'Year Level $yr' : '—';
+        gradeSection     = yr != null ? 'Grade $yr' : '—';
         email            = user.email ?? '—';
-        memberSince      = created != null
-            ? DateTime.tryParse(created)?.year.toString() ?? '—'
-            : '—';
+        memberSince      = dt != null ? '${mos[dt.month - 1]} ${dt.year}' : '—';
         profilePhotoUrl  = studentRow?['profile_image_url'] as String?;
         registeredEvents = regs.length;
         checkedIn        = (regs as List)
@@ -100,20 +94,25 @@ class _ProfileBodyState extends State<ProfileBody> {
         child: CustomScrollView(
           slivers: [
             SliverToBoxAdapter(child: _buildBanner(t)),
-            const SliverToBoxAdapter(child: SizedBox(height: 8)),
             SliverPadding(
-              padding: const EdgeInsets.only(bottom: 36),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-                  _buildNameSection(t),
+                  _buildIdentitySection(t),
                   const SizedBox(height: 20),
-                  _buildEditButton(t),
-                  const SizedBox(height: 16),
+                  _buildStatsCard(t),
+                  const SizedBox(height: 28),
+                  _buildSectionHeader('Account', t),
+                  const SizedBox(height: 10),
                   _buildAccountCard(t),
-                  const SizedBox(height: 12),
-                  _buildSecurityCard(t),
-                  const SizedBox(height: 12),
-                  _buildLogoutTile(t),
+                  const SizedBox(height: 28),
+                  _buildSectionHeader('App', t),
+                  const SizedBox(height: 10),
+                  _buildAboutTile(t),
+                  const SizedBox(height: 28),
+                  _buildSectionHeader('Session', t),
+                  const SizedBox(height: 10),
+                  _buildLogoutButton(t),
                 ]),
               ),
             ),
@@ -189,9 +188,9 @@ class _ProfileBodyState extends State<ProfileBody> {
                 ),
               ),
               child: Stack(children: [
-                Positioned(top: -38, right: -30,   child: _circle(150, Colors.white.withValues(alpha: 0.10))),
-                Positioned(bottom: -24, left: -32,  child: _circle(110, Colors.white.withValues(alpha: 0.07))),
-                Positioned(top: 24, left: 70,       child: _circle(56,  Colors.white.withValues(alpha: 0.06))),
+                Positioned(top: -38, right: -30,  child: _circle(150, Colors.white.withValues(alpha: 0.10))),
+                Positioned(bottom: -24, left: -32, child: _circle(110, Colors.white.withValues(alpha: 0.07))),
+                Positioned(top: 24, left: 70,      child: _circle(56,  Colors.white.withValues(alpha: 0.06))),
               ]),
             ),
           ),
@@ -218,7 +217,11 @@ class _ProfileBodyState extends State<ProfileBody> {
                     child: _uploadingPhoto
                         ? const Center(child: CircularProgressIndicator(color: kGold, strokeWidth: 2.5))
                         : (profilePhotoUrl != null && profilePhotoUrl!.isNotEmpty
-                            ? Image.network(profilePhotoUrl!, fit: BoxFit.cover,
+                            ? Image.network(
+                                profilePhotoUrl!, fit: BoxFit.cover,
+                                loadingBuilder: (_, child, progress) => progress == null
+                                    ? child
+                                    : const Center(child: CircularProgressIndicator(color: kGold, strokeWidth: 2)),
                                 errorBuilder: (_, _, _) => const Icon(Icons.person_rounded, size: 44, color: kGold))
                             : const Icon(Icons.person_rounded, size: 44, color: kGold)),
                   ),
@@ -247,78 +250,124 @@ class _ProfileBodyState extends State<ProfileBody> {
     decoration: BoxDecoration(shape: BoxShape.circle, color: color),
   );
 
-  // ── Name + badges ─────────────────────────────────────────────────────────
+  // ── Identity section ──────────────────────────────────────────────────────
 
-  Widget _buildNameSection(AppTk t) {
+  Widget _buildIdentitySection(AppTk t) {
     return Column(
       children: [
         Text(fullName,
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: t.text)),
-        const SizedBox(height: 3),
-        Text('@$username',
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub)),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 6, runSpacing: 4, alignment: WrapAlignment.center,
-          children: [
-            _pill(role, kGold.withValues(alpha: 0.12), kGold),
-            _pill(gradeSection, const Color(0xFF3B82F6).withValues(alpha: 0.10), const Color(0xFF3B82F6)),
-          ],
-        ),
-        const SizedBox(height: 6),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'Poppins', fontSize: 22,
+            fontWeight: FontWeight.w800, color: t.text, height: 1.2)),
+        const SizedBox(height: 8),
         Text('Member since $memberSince',
+          textAlign: TextAlign.center,
           style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
       ],
     );
   }
 
-  Widget _pill(String label, Color bg, Color fg) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(
-      color: bg,
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: fg.withValues(alpha: 0.25)),
-    ),
-    child: Text(label,
-      style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
-  );
+  // ── Stats card ────────────────────────────────────────────────────────────
 
-  // ── Edit button ───────────────────────────────────────────────────────────
-
-  Widget _buildEditButton(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: DecoratedBox(
+  Widget _buildStatsCard(AppTk t) {
+    if (registeredEvents == 0) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
         decoration: BoxDecoration(
-          gradient: kGoldGradient,
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [BoxShadow(color: kGold.withValues(alpha: 0.38), blurRadius: 14, offset: const Offset(0, 5))],
+          color: t.card,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: t.border),
+          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 12, offset: const Offset(0, 4))],
         ),
-        child: SizedBox(
-          width: double.infinity, height: 48,
-          child: ElevatedButton.icon(
-            onPressed: () async {
-              final result = await Navigator.of(context).push<bool?>(
-                MaterialPageRoute(
-                  builder: (_) => EditProfileInfoScreen(
-                    fullName: fullName, gradeSection: gradeSection,
-                    studentId: studentId, email: email,
-                  ),
-                ),
-              );
-              if (result == true) _loadProfile();
-            },
-            icon: const Icon(Icons.edit_rounded, size: 17),
-            label: const Text('Edit Profile',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.transparent, foregroundColor: Colors.white,
-              elevation: 0, shadowColor: Colors.transparent,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 52, height: 52,
+              decoration: BoxDecoration(
+                color: t.border,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.event_busy_rounded, size: 24, color: t.muted),
             ),
-          ),
+            const SizedBox(height: 14),
+            Text('No events yet',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
+                  fontWeight: FontWeight.w700, color: t.text)),
+            const SizedBox(height: 4),
+            Text('Register for an event to start\ntracking your activity',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                  color: t.muted, height: 1.55)),
+          ],
+        ),
+      );
+    }
+
+    final attendancePct = (checkedIn / registeredEvents * 100).round();
+    return Container(
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: t.border),
+        boxShadow: [BoxShadow(color: t.shadow, blurRadius: 12, offset: const Offset(0, 4))],
+      ),
+      child: Row(
+        children: [
+          _statTile(Icons.event_rounded,        registeredEvents.toString(), 'Registered', kGold,                    t),
+          _vertDivider(t),
+          _statTile(Icons.check_circle_rounded, checkedIn.toString(),        'Attended',   const Color(0xFF10B981), t),
+          _vertDivider(t),
+          _statTile(Icons.insights_rounded,     '$attendancePct%',           'Attendance', const Color(0xFF3B82F6), t),
+        ],
+      ),
+    );
+  }
+
+  Widget _vertDivider(AppTk t) => Container(width: 1, height: 60, color: t.divider);
+
+  Widget _statTile(IconData icon, String value, String label, Color color, AppTk t) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 34, height: 34,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 16, color: color),
+            ),
+            const SizedBox(height: 9),
+            Text(value,
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 20,
+                  fontWeight: FontWeight.w800, color: t.text)),
+            const SizedBox(height: 2),
+            Text(label,
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5,
+                  fontWeight: FontWeight.w500, color: t.muted, letterSpacing: 0.2)),
+          ],
         ),
       ),
+    );
+  }
+
+  // ── Section header ────────────────────────────────────────────────────────
+
+  Widget _buildSectionHeader(String title, AppTk t) {
+    return Row(
+      children: [
+        Text(title.toUpperCase(),
+          style: TextStyle(
+            fontFamily: 'Poppins', fontSize: 10.5,
+            fontWeight: FontWeight.w700, letterSpacing: 1.2, color: t.muted)),
+        const SizedBox(width: 10),
+        Expanded(child: Divider(height: 1, thickness: 0.8, color: t.divider)),
+      ],
     );
   }
 
@@ -327,31 +376,42 @@ class _ProfileBodyState extends State<ProfileBody> {
   Widget _buildAccountCard(AppTk t) {
     return _card(
       t: t,
-      margin: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _sectionLabel('Account Information', t),
-          _infoTile(Icons.person_rounded,          'Full Name',        fullName,     t: t),
+          _infoTile(Icons.email_outlined, 'Email Address',    email,        t: t),
           _divider(t),
-          _infoTile(Icons.email_outlined,          'Email Address',    email,        t: t),
+          _infoTile(Icons.badge_rounded,  'Student ID (LRN)', formatLrn(studentId), t: t, isId: true, onTap: _copyLrn),
           _divider(t),
-          _infoTile(Icons.badge_rounded,           'Student ID (LRN)', studentId,    t: t, isId: true),
-          _divider(t),
-          _infoTile(Icons.school_rounded,          'Grade / Section',  gradeSection, t: t),
-          _divider(t),
-          _infoTile(Icons.manage_accounts_rounded, 'Role',             role,         t: t),
-          const SizedBox(height: 4),
+          _infoTile(Icons.school_rounded, 'Grade Level',      gradeSection, t: t),
         ],
       ),
     );
   }
 
+  void _copyLrn() {
+    Clipboard.setData(ClipboardData(text: studentId));
+    HapticFeedback.lightImpact();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: const Row(children: [
+        Icon(Icons.check_circle_rounded, color: Colors.white, size: 16),
+        SizedBox(width: 8),
+        Text('LRN copied to clipboard',
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 13)),
+      ]),
+      backgroundColor: const Color(0xFF16A34A),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      duration: const Duration(seconds: 2),
+    ));
+  }
+
   Widget _infoTile(IconData icon, String label, String value, {
-    required AppTk t, bool isId = false,
+    required AppTk t, bool isId = false, VoidCallback? onTap,
   }) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
+    Widget tile = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Row(
         children: [
           Container(
@@ -370,123 +430,90 @@ class _ProfileBodyState extends State<ProfileBody> {
                 Text(label,
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted)),
                 const SizedBox(height: 3),
-                isId
-                    ? Container(
+                if (isId)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
                           color: kGold.withValues(alpha: 0.10),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(value,
-                          style: const TextStyle(fontFamily: 'Courier', fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFB8861C))),
-                      )
-                    : Text(value,
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text),
-                        overflow: TextOverflow.ellipsis),
+                          style: const TextStyle(
+                            fontFamily: 'Courier', fontSize: 12,
+                            fontWeight: FontWeight.w700, color: Color(0xFFB8861C))),
+                      ),
+                      if (onTap != null) ...[
+                        const SizedBox(width: 7),
+                        Icon(Icons.copy_rounded, size: 12, color: t.muted),
+                      ],
+                    ],
+                  )
+                else
+                  Text(value,
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                        fontWeight: FontWeight.w600, color: t.text),
+                    overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
         ],
       ),
     );
-  }
 
-  // ── Security card ─────────────────────────────────────────────────────────
-
-  Widget _buildSecurityCard(AppTk t) {
-    return _card(
-      t: t,
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionLabel('Security', t),
-          _actionTile(
-            icon: Icons.lock_rounded,
-            title: 'Change Password',
-            subtitle: 'Update your account password',
-            onTap: _showChangePasswordDialog,
-            t: t,
-          ),
-          const SizedBox(height: 4),
-        ],
-      ),
-    );
-  }
-
-  Widget _actionTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    required AppTk t,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: const BorderRadius.only(
-        bottomLeft: Radius.circular(20), bottomRight: Radius.circular(20),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
-        child: Row(
-          children: [
-            Container(
-              width: 36, height: 36,
-              decoration: BoxDecoration(
-                color: kGold.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: kGold, size: 17),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
-                  const SizedBox(height: 2),
-                  Text(subtitle,
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right_rounded, color: t.muted, size: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Logout ────────────────────────────────────────────────────────────────
-
-  Widget _buildLogoutTile(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-      child: Material(
+    if (onTap != null) {
+      return Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: _showLogoutDialog,
-          borderRadius: BorderRadius.circular(16),
-          child: Ink(
-            decoration: BoxDecoration(
-              color: const Color(0xFFEF4444).withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: const Color(0xFFEF4444).withValues(alpha: 0.25), width: 1.5,
-              ),
-            ),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 14),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.logout_rounded, color: Color(0xFFEF4444), size: 18),
-                  SizedBox(width: 8),
-                  Text('Log Out',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFFEF4444))),
-                ],
-              ),
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(4),
+          child: tile,
+        ),
+      );
+    }
+    return tile;
+  }
+
+  // ── About tile ────────────────────────────────────────────────────────────
+
+  Widget _buildAboutTile(AppTk t) {
+    return _card(
+      t: t,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          onTap: _showAboutDialog,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: kGold.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.info_rounded, color: kGold, size: 18),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('About EventHub',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                            fontWeight: FontWeight.w600, color: t.text)),
+                      Text('Version 1.0.0 · J-Jireh Learning Center',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: t.muted, size: 20),
+              ],
             ),
           ),
         ),
@@ -494,11 +521,44 @@ class _ProfileBodyState extends State<ProfileBody> {
     );
   }
 
-  // ── Shared card helpers ───────────────────────────────────────────────────
+  // ── Logout button ─────────────────────────────────────────────────────────
 
-  Widget _card({required Widget child, required AppTk t, EdgeInsets? margin}) {
+  Widget _buildLogoutButton(AppTk t) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: _showLogoutDialog,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: const Color(0xFFEF4444).withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: const Color(0xFFEF4444).withValues(alpha: 0.25), width: 1.5),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(vertical: 15),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.logout_rounded, color: Color(0xFFEF4444), size: 17),
+                SizedBox(width: 8),
+                Text('Log Out',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
+                      fontWeight: FontWeight.w700, color: Color(0xFFEF4444))),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Shared card helper ────────────────────────────────────────────────────
+
+  Widget _card({required Widget child, required AppTk t}) {
     return Container(
-      margin: margin,
       decoration: BoxDecoration(
         color: t.card,
         borderRadius: BorderRadius.circular(20),
@@ -509,32 +569,92 @@ class _ProfileBodyState extends State<ProfileBody> {
     );
   }
 
-  Widget _sectionLabel(String title, AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-      child: Row(
-        children: [
-          Container(
-            width: 3, height: 14,
-            decoration: BoxDecoration(
-              color: kGold, borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(title,
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w700, color: t.text, letterSpacing: 0.2)),
-        ],
-      ),
-    );
-  }
-
   Widget _divider(AppTk t) => Divider(
-    height: 1, thickness: 0.8,
-    indent: 66, endIndent: 16,
-    color: t.divider,
+    height: 1, thickness: 0.8, indent: 66, endIndent: 16, color: t.divider,
   );
 
   // ── Dialogs ───────────────────────────────────────────────────────────────
+
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final t = AppTk(Theme.of(ctx).brightness == Brightness.dark);
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 72, height: 72,
+                  decoration: BoxDecoration(
+                    gradient: kGoldGradient,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [BoxShadow(color: kGold.withValues(alpha: 0.40), blurRadius: 16, offset: const Offset(0, 6))],
+                  ),
+                  child: const Icon(Icons.event_rounded, color: Colors.white, size: 36),
+                ),
+                const SizedBox(height: 16),
+                Text('EventHub',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: t.text)),
+                const SizedBox(height: 4),
+                const Text('Version 1.0.0',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kGold, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
+                Text(
+                  'J-Jireh Learning Center\'s official event management platform. Browse and register for school events, track your attendance, and scan in with your personal QR code — all in one place.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, height: 1.6, color: t.muted),
+                ),
+                const SizedBox(height: 16),
+                Divider(color: t.divider),
+                const SizedBox(height: 12),
+                _aboutInfoRow(Icons.school_rounded,         'School',   'J-Jireh Learning Center', t),
+                const SizedBox(height: 10),
+                _aboutInfoRow(Icons.build_rounded,          'Build',    'Flutter · Supabase',       t),
+                const SizedBox(height: 10),
+                _aboutInfoRow(Icons.devices_rounded,        'Platform', 'Android',                  t),
+                const SizedBox(height: 10),
+                _aboutInfoRow(Icons.support_agent_rounded,  'Contact',  'See school admin',         t),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Close',
+                      style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 14, color: kGold)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _aboutInfoRow(IconData icon, String label, String value, AppTk t) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 2),
+    child: Row(
+      children: [
+        Container(
+          width: 28, height: 28,
+          decoration: BoxDecoration(
+            color: kGold.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 14, color: kGold),
+        ),
+        const SizedBox(width: 12),
+        Text('$label  ',
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w600, color: t.text)),
+        Text(value,
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted)),
+      ],
+    ),
+  );
 
   void _showLogoutDialog() {
     showDialog(
@@ -564,96 +684,11 @@ class _ProfileBodyState extends State<ProfileBody> {
               }
             },
             child: const Text('Log Out',
-              style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, color: Color(0xFFEF4444))),
+              style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700,
+                  color: Color(0xFFEF4444))),
           ),
         ],
       ),
-    );
-  }
-
-  void _showChangePasswordDialog() {
-    final newCtrl     = TextEditingController();
-    final confirmCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        bool saving = false;
-        return StatefulBuilder(
-          builder: (ctx, setDialog) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: const Text('Change Password',
-              style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
-            content: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                _pwField(newCtrl, 'New Password'),
-                const SizedBox(height: 12),
-                _pwField(confirmCtrl, 'Confirm New Password'),
-              ]),
-            ),
-            actions: [
-              TextButton(
-                onPressed: saving ? null : () => Navigator.pop(ctx),
-                child: const Text('Cancel', style: TextStyle(fontFamily: 'Poppins')),
-              ),
-              ElevatedButton(
-                onPressed: saving ? null : () async {
-                  final nw = newCtrl.text.trim();
-                  final cf = confirmCtrl.text.trim();
-                  if (nw.isEmpty || cf.isEmpty) { _snack('Please fill in all fields', const Color(0xFFEF4444)); return; }
-                  if (nw != cf) { _snack('Passwords do not match', const Color(0xFFEF4444)); return; }
-                  if (nw.length < 6) { _snack('Password must be at least 6 characters', const Color(0xFFEF4444)); return; }
-                  setDialog(() => saving = true);
-                  try {
-                    await SupabaseService.client.auth.updateUser(UserAttributes(password: nw));
-                    if (ctx.mounted) Navigator.pop(ctx);
-                    _snack('Password updated successfully', const Color(0xFF16A34A));
-                  } catch (e) {
-                    setDialog(() => saving = false);
-                    _snack('Update failed: ${e.toString()}', const Color(0xFFEF4444));
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: kGold, foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                child: saving
-                    ? const SizedBox(width: 18, height: 18,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text('Update', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600)),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _pwField(TextEditingController ctrl, String label) => TextField(
-    controller: ctrl,
-    obscureText: true,
-    style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-    decoration: InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-      filled: true,
-      fillColor: kGold.withValues(alpha: 0.04),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: kGold.withValues(alpha: 0.30), width: 1.2),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: kGold, width: 1.8),
-      ),
-    ),
-  );
-
-  void _snack(String msg, Color color) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: color),
     );
   }
 }
@@ -803,9 +838,11 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Row(children: [
-        Icon(isError ? Icons.error_rounded : Icons.check_circle_rounded, color: Colors.white, size: 18),
+        Icon(isError ? Icons.error_rounded : Icons.check_circle_rounded,
+            color: Colors.white, size: 18),
         const SizedBox(width: 10),
-        Expanded(child: Text(msg, style: const TextStyle(fontFamily: 'Poppins', fontSize: 13))),
+        Expanded(child: Text(msg,
+            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13))),
       ]),
       backgroundColor: isError ? const Color(0xFFEF4444) : const Color(0xFF16A34A),
       behavior: SnackBarBehavior.floating,
@@ -868,7 +905,8 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
                 ]),
                 const SizedBox(height: 18),
                 const Text('Edit Profile',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, height: 1.1)),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
+                      fontWeight: FontWeight.w800, color: Colors.white, height: 1.1)),
                 const SizedBox(height: 4),
                 const Text('Update your personal information',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Colors.white60)),
@@ -897,7 +935,8 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
       boxShadow: [BoxShadow(color: kGold.withValues(alpha: 0.45), blurRadius: 22, offset: const Offset(0, 8))],
     ),
     child: Center(child: Text(initials,
-      style: const TextStyle(fontFamily: 'Poppins', fontSize: 34, fontWeight: FontWeight.w800, color: Colors.white))),
+      style: const TextStyle(fontFamily: 'Poppins', fontSize: 34,
+          fontWeight: FontWeight.w800, color: Colors.white))),
   );
 
   Widget _buildBody(AppTk t) {
@@ -931,11 +970,14 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
           ]),
         ),
         _formCard(t: t, children: [
-          _lockedField(label: 'Grade / Section', value: widget.gradeSection ?? '—', icon: Icons.school_outlined, isFirst: true, t: t),
+          _lockedField(label: 'Grade / Section', value: widget.gradeSection ?? '—',
+              icon: Icons.school_outlined, isFirst: true, t: t),
           _cardDivider(t),
-          _lockedField(label: 'Email Address',   value: widget.email ?? '—',         icon: Icons.email_outlined, t: t),
+          _lockedField(label: 'Email Address', value: widget.email ?? '—',
+              icon: Icons.email_outlined, t: t),
           _cardDivider(t),
-          _lockedField(label: 'Student ID (LRN)', value: widget.studentId ?? '—',    icon: Icons.badge_outlined, isId: true, isLast: true, t: t),
+          _lockedField(label: 'Student ID (LRN)', value: formatLrn(widget.studentId ?? '—'),
+              icon: Icons.badge_outlined, isId: true, isLast: true, t: t),
         ]),
         const SizedBox(height: 24),
       ]),
@@ -955,7 +997,8 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
           duration: const Duration(milliseconds: 200),
           transitionBuilder: (child, anim) => FadeTransition(
             opacity: anim,
-            child: ScaleTransition(scale: Tween<double>(begin: 0.97, end: 1.0).animate(anim), child: child),
+            child: ScaleTransition(
+                scale: Tween<double>(begin: 0.97, end: 1.0).animate(anim), child: child),
           ),
           child: _hasChanges
               ? _saveBtn(key: const ValueKey('save'))
@@ -976,7 +1019,8 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
       child: ElevatedButton.icon(
         onPressed: _saving ? null : _save,
         icon: _saving
-            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0))
+            ? const SizedBox(width: 18, height: 18,
+                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0))
             : const Icon(Icons.check_rounded, size: 20),
         label: Text(_saving ? 'Saving…' : 'Save Changes',
           style: const TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700)),
@@ -1021,7 +1065,8 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
       padding: EdgeInsets.fromLTRB(14, isFirst ? 14 : 6, 14, isLast ? 14 : 6),
       child: TextFormField(
         controller: ctrl, keyboardType: keyboard, maxLength: maxLength,
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: t.text, fontWeight: FontWeight.w500),
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
+            color: t.text, fontWeight: FontWeight.w500),
         decoration: InputDecoration(
           labelText: label, hintText: hint,
           labelStyle: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub),
@@ -1045,7 +1090,8 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
   }
 
   Widget _lockedField({
-    required String label, required String value, required IconData icon, required AppTk t,
+    required String label, required String value,
+    required IconData icon, required AppTk t,
     bool isId = false, bool isFirst = false, bool isLast = false,
   }) {
     return Padding(
@@ -1064,11 +1110,16 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
               ? Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: kGold.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(6),
+                    color: kGold.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Text(value, style: const TextStyle(fontFamily: 'Courier', fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFB8861C))),
+                  child: Text(value,
+                    style: const TextStyle(fontFamily: 'Courier', fontSize: 12,
+                        fontWeight: FontWeight.w700, color: Color(0xFFB8861C))),
                 )
-              : Text(value, style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w500, color: t.sub)),
+              : Text(value,
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                      fontWeight: FontWeight.w500, color: t.sub)),
         ])),
         Icon(Icons.lock_rounded, size: 13, color: t.border),
       ]),
@@ -1091,12 +1142,14 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
   Widget _sectionLabel(String title, IconData icon, Color color, AppTk t) => Row(children: [
     Container(
       width: 26, height: 26,
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(7)),
+      decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(7)),
       child: Icon(icon, size: 13, color: color),
     ),
     const SizedBox(width: 8),
     Text(title.toUpperCase(),
-      style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.0, color: color)),
+      style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700,
+          letterSpacing: 1.0, color: color)),
     const SizedBox(width: 8),
     Expanded(child: Divider(height: 1, color: color.withValues(alpha: 0.15))),
   ]);
@@ -1127,7 +1180,8 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
       Icon(Icons.edit_rounded, size: 10, color: kGold),
       SizedBox(width: 5),
       Text('Unsaved changes',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w600, color: kGold)),
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
+            fontWeight: FontWeight.w600, color: kGold)),
     ]),
   );
 

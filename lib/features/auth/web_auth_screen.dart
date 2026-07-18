@@ -5,7 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/supabase_service.dart';
 import '../../core/services/audit_service.dart';
+import '../../core/services/rate_limit_service.dart';
 import '../../core/app_colors.dart';
+import '../../shared/widgets/app_alert.dart';
 import '../organizer/web/web_shell.dart';
 import '../admin/admin_web_dashboard.dart';
 
@@ -92,8 +94,10 @@ class _WebAuthScreenState extends State<WebAuthScreen>
   DateTime? _lockedUntil;
   Timer?    _lockTimer;
 
-  static const String _kAttemptKey = 'web_rl_login_attempts';
-  static const String _kLockedKey  = 'web_rl_login_locked_until';
+  static const String _kAttemptKey  = 'web_rl_login_attempts';
+  static const String _kLockedKey   = 'web_rl_login_locked_until';
+  static const String _kRememberKey = 'web_remember_me';
+  static const String _kUsernameKey = 'web_saved_username';
 
   bool get _isLocked =>
       _lockedUntil != null && DateTime.now().isBefore(_lockedUntil!);
@@ -128,6 +132,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
             parent: _anim,
             curve: const Interval(0.0, 0.75, curve: Curves.easeOutCubic)));
     _loadRateLimitState();
+    _loadSavedUsername();
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkSession());
   }
 
@@ -188,33 +193,32 @@ class _WebAuthScreenState extends State<WebAuthScreen>
 
   Future<void> _loadRateLimitState() async {
     try {
-      final prefs    = await SharedPreferences.getInstance();
-      final attempts = prefs.getInt(_kAttemptKey) ?? 0;
-      final lockedMs = prefs.getInt(_kLockedKey)  ?? 0;
-      final locked   = lockedMs > 0
+      final prefs      = await SharedPreferences.getInstance();
+      final attempts   = prefs.getInt(_kAttemptKey) ?? 0;
+      final lockedMs   = prefs.getInt(_kLockedKey)  ?? 0;
+      final locked     = lockedMs > 0
           ? DateTime.fromMillisecondsSinceEpoch(lockedMs)
           : null;
       if (!mounted) return;
+      final stillLocked = locked != null && locked.isAfter(DateTime.now());
       setState(() {
-        _failedAttempts = attempts;
-        _lockedUntil    = (locked != null && locked.isAfter(DateTime.now()))
-            ? locked
-            : null;
+        _failedAttempts = stillLocked ? attempts : 0;
+        _lockedUntil    = stillLocked ? locked : null;
       });
-      if (_isLocked) _startLockTimer();
+      if (stillLocked) {
+        _startLockTimer();
+      } else if (attempts > 0) {
+        prefs.setInt(_kAttemptKey, 0);
+        prefs.remove(_kLockedKey);
+      }
     } catch (_) {}
   }
 
   Future<void> _recordFailure() async {
     _failedAttempts++;
-    Duration lockDur = Duration.zero;
-    if (_failedAttempts >= 10) {
-      lockDur = const Duration(minutes: 15);
-    } else if (_failedAttempts >= 7) {
-      lockDur = const Duration(minutes: 2);
-    } else if (_failedAttempts >= 5) {
-      lockDur = const Duration(seconds: 30);
-    }
+    final lockDur = _failedAttempts >= 5
+        ? const Duration(seconds: 30)
+        : Duration.zero;
     _lockedUntil = lockDur > Duration.zero
         ? DateTime.now().add(lockDur)
         : null;
@@ -242,9 +246,45 @@ class _WebAuthScreenState extends State<WebAuthScreen>
     _lockTimer?.cancel();
     _lockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) { _lockTimer?.cancel(); return; }
-      if (mounted) setState(() {});
-      if (!_isLocked) _lockTimer?.cancel();
+      if (!_isLocked) {
+        _lockTimer?.cancel();
+        _failedAttempts = 0;
+        SharedPreferences.getInstance().then((prefs) {
+          prefs.setInt(_kAttemptKey, 0);
+          prefs.remove(_kLockedKey);
+        }).catchError((_) {});
+      }
+      setState(() {});
     });
+  }
+
+  // ── Remember Me ────────────────────────────────────────────────────────────
+
+  Future<void> _loadSavedUsername() async {
+    try {
+      final prefs   = await SharedPreferences.getInstance();
+      final remember = prefs.getBool(_kRememberKey) ?? false;
+      if (!remember) return;
+      final username = prefs.getString(_kUsernameKey);
+      if (!mounted) return;
+      setState(() {
+        _rememberMe = true;
+        if (username != null) _emailCtrl.text = username;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _saveUsername(String username) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_rememberMe) {
+        await prefs.setBool(_kRememberKey, true);
+        await prefs.setString(_kUsernameKey, username);
+      } else {
+        await prefs.remove(_kRememberKey);
+        await prefs.remove(_kUsernameKey);
+      }
+    } catch (_) {}
   }
 
   // Used by _checkSession (auto-login on reload) — no branded splash needed.
@@ -295,8 +335,9 @@ class _WebAuthScreenState extends State<WebAuthScreen>
   Future<void> _login() async {
     if (_isLocked) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    final email = '${_emailCtrl.text.trim().toLowerCase()}@gmail.com';
-    final pw    = _pwCtrl.text;
+    final username = _emailCtrl.text.trim().toLowerCase();
+    final email    = '$username@gmail.com';
+    final pw       = _pwCtrl.text;
 
     setState(() {
       _loading = true;
@@ -305,6 +346,21 @@ class _WebAuthScreenState extends State<WebAuthScreen>
     SupabaseService.handlingAppLogin = true;
 
     try {
+      // ── S-01: server-side rate limit check ────────────────────────────────
+      // Enforced independently of client state — cannot be bypassed by clearing
+      // app data or switching devices.
+      final rlStatus = await RateLimitService.check(email);
+      if (!rlStatus.allowed) {
+        if (mounted) {
+          setState(() {
+            _lockedUntil = rlStatus.lockedUntil;
+            _loading     = false;
+          });
+        }
+        if (rlStatus.lockedUntil != null) _startLockTimer();
+        return;
+      }
+
       await SupabaseService.client.auth
           .signInWithPassword(email: email, password: pw);
 
@@ -322,9 +378,11 @@ class _WebAuthScreenState extends State<WebAuthScreen>
         AuditService.logLogin(
           userId: user.id, role: 'admin',
           fullName:   adminRow['full_name'] as String?,
-          identifier: _emailCtrl.text.trim().toLowerCase(),
+          identifier: username,
         );
         await _clearRateLimit();
+        unawaited(RateLimitService.clear(email));
+        await _saveUsername(username);                    // BUG-01
         if (mounted) Navigator.of(context).pushReplacement(_adminRoute());
         return;
       }
@@ -338,11 +396,15 @@ class _WebAuthScreenState extends State<WebAuthScreen>
       if (row == null) {
         await SupabaseService.client.auth.signOut();
         if (mounted) {
-          setState(() {
-            _error   = 'This portal is for organizers only.\n'
-                'Students should use the EventHub mobile app.';
-            _loading = false;
-          });
+          setState(() => _loading = false);
+          AppAlert.warning(
+            context,
+            title: 'Wrong Portal',
+            message: 'This portal is for organizers and admins only.\n'
+                'Please use the EventHub mobile app to log in as a student.',
+            buttonText: 'Got it',
+            compact: true,
+          );
         }
         return;
       }
@@ -353,9 +415,12 @@ class _WebAuthScreenState extends State<WebAuthScreen>
         identifier: (row['organizer_id'] as String? ?? '').toLowerCase(),
       );
       await _clearRateLimit();
+      unawaited(RateLimitService.clear(email));
+      await _saveUsername(username);                      // BUG-01
       if (mounted) Navigator.of(context).pushReplacement(_transitionRoute());
     } on AuthException catch (e) {
       await _recordFailure();
+      unawaited(RateLimitService.recordFailure(email));
       setState(() {
         _error = e.message.contains('Invalid')
             ? 'Incorrect username or password. Please try again.'
@@ -363,10 +428,17 @@ class _WebAuthScreenState extends State<WebAuthScreen>
         _loading = false;
       });
     } catch (_) {
-      await _recordFailure();
+      // BUG-02: auth may have succeeded before a role-lookup DB error.
+      // If a session exists, sign it out so it doesn't dangle invisibly.
+      if (SupabaseService.currentUser != null) {
+        try { await SupabaseService.client.auth.signOut(); } catch (_) {}
+      } else {
+        // Auth itself failed — count it against the rate limit.
+        await _recordFailure();
+        unawaited(RateLimitService.recordFailure(email));
+      }
       setState(() {
-        _error =
-            'Something went wrong. Please check your connection and try again.';
+        _error = 'Something went wrong. Please check your connection and try again.';
         _loading = false;
       });
     } finally {
@@ -782,9 +854,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            _failedAttempts < 5
-                                ? '${5 - _failedAttempts} more failed attempt${5 - _failedAttempts == 1 ? '' : 's'} will trigger a temporary lockout.'
-                                : 'Repeated failures detected. Further failed attempts will extend your lockout.',
+                            '${5 - _failedAttempts} more failed attempt${5 - _failedAttempts == 1 ? '' : 's'} will trigger a 30-second lockout.',
                             style: const TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 12,
@@ -807,20 +877,6 @@ class _WebAuthScreenState extends State<WebAuthScreen>
             onTap: (_loading || _isLocked) ? null : _login,
           ),
 
-          // Hard-lockout contact hint (10+ failures)
-          if (_failedAttempts >= 10 && _isLocked) ...[
-            const SizedBox(height: 12),
-            Text(
-              'Too many failed attempts. Contact your school administrator to restore access.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 11.5,
-                color: Colors.grey[500],
-                height: 1.5,
-              ),
-            ),
-          ],
           const SizedBox(height: 24),
 
           // Students note — icon card

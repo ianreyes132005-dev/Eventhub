@@ -1740,7 +1740,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                       ],
                     ),
                     child: const Icon(
-                      Icons.camera_alt_rounded,
+                      Icons.qr_code_scanner_rounded,
                       color: Colors.white,
                       size: 24,
                     ),

@@ -401,11 +401,6 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                     height: 1.1,
                   ),
                 ),
-                Text(
-                  '$_total registration${_total == 1 ? '' : 's'} total',
-                  style: const TextStyle(
-                      fontFamily: 'Poppins', fontSize: 12, color: kSubText),
-                ),
               ],
             ),
           ),
@@ -473,44 +468,6 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                     gradient: kGoldGradient,
                     borderRadius: BorderRadius.circular(2),
                   ),
-                ),
-                const SizedBox(height: 10),
-
-                // Subtitle with icon
-                Row(
-                  children: [
-                    Icon(Icons.how_to_reg_rounded,
-                        size: 13,
-                        color: kSubText.withValues(alpha: 0.8)),
-                    const SizedBox(width: 5),
-                    RichText(
-                      text: TextSpan(
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 13,
-                          color: kSubText,
-                        ),
-                        children: [
-                          TextSpan(
-                            text: '$_checkedInCount',
-                            style: const TextStyle(
-                              color: kGold,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const TextSpan(text: ' checked in'),
-                          TextSpan(
-                            text: '  ·  $_total',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: kText,
-                            ),
-                          ),
-                          const TextSpan(text: ' total'),
-                        ],
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),

@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS public.registrations (
   student_name      TEXT        NOT NULL,
   student_school_id TEXT        NOT NULL, -- copy of students.lrn at registration time
   qr_code           TEXT        UNIQUE NOT NULL,
-  status            TEXT        NOT NULL DEFAULT 'pending'
+  status            TEXT        NOT NULL DEFAULT 'Pending'
     CHECK (status IN (
       'pending',        -- student registered, not yet scanned
       'qr_scanned',     -- organizer scanned QR, appears in registrations tab
@@ -107,7 +107,7 @@ CREATE POLICY "admin_read_selfies" ON storage.objects
     AND EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
   );
 
--- 5. ATOMIC PARTICIPANT COUNTER RPCs
+-- 5. ATOMIC PARTICIPANT COUNTER UPDATE FUNCTIONS
 -- ============================================================
 -- Doing UPDATE events SET current_participants = current_participants + 1
 -- atomically in the database avoids the race condition that occurs when the
@@ -166,4 +166,42 @@ CREATE POLICY "organizer_delete_event_banner" ON storage.objects
   FOR DELETE USING (
     bucket_id = 'event-banners'
     AND EXISTS (SELECT 1 FROM public.organizers WHERE user_id = auth.uid())
+  );
+
+-- 7. SERVER-SIDE LOGIN RATE LIMITING
+-- ============================================================
+-- Tracks failed login attempts per identifier (full login email).
+-- Accessed exclusively via the login-rate-limit Edge Function using the
+-- service role key. No client-facing RLS policies — direct client access
+-- is intentionally blocked.
+
+CREATE TABLE IF NOT EXISTS public.login_rate_limits (
+  identifier   TEXT        NOT NULL,
+  attempted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_login_rl_lookup
+  ON public.login_rate_limits (identifier, attempted_at DESC);
+
+ALTER TABLE public.login_rate_limits ENABLE ROW LEVEL SECURITY;
+-- No policies defined: anon/authenticated roles cannot read or write this table.
+
+-- 8. ANNOUNCEMENTS ROW LEVEL SECURITY
+-- ============================================================
+ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
+
+-- Any authenticated user (students, organizers) can read announcements
+CREATE POLICY "authenticated_read_announcements" ON public.announcements
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+-- Only organizers can create announcements
+CREATE POLICY "organizer_insert_announcements" ON public.announcements
+  FOR INSERT WITH CHECK (
+    EXISTS (SELECT 1 FROM public.organizers WHERE user_id = auth.uid())
+  );
+
+-- Only organizers can delete announcements
+CREATE POLICY "organizer_delete_announcements" ON public.announcements
+  FOR DELETE USING (
+    EXISTS (SELECT 1 FROM public.organizers WHERE user_id = auth.uid())
   );

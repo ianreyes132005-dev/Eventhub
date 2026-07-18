@@ -155,12 +155,13 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
         final status = e['event_status'] as String? ?? '';
         final title  = (e['title'] as String? ?? '').toLowerCase();
         final loc    = (e['location'] as String? ?? '').toLowerCase();
+        final type   = (e['event_type'] as String? ?? '').toLowerCase();
         final matchFilter = _filter == 'All' ||
             (_filter == 'Ended'
                 ? (_resolveDisplayStatus(e) == 'ended')
                 : status == _filter.toLowerCase());
         final matchSearch = q.isEmpty ||
-            title.contains(q) || loc.contains(q);
+            title.contains(q) || loc.contains(q) || type.contains(q);
         return matchFilter && matchSearch;
       }).toList();
     });
@@ -806,6 +807,10 @@ class _EventDialogState extends State<_EventDialog> {
       setState(() => _error = 'Please select an event date.');
       return;
     }
+    if (_locationCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Location is required.');
+      return;
+    }
     // Only validate "time in the past" when creating — editors must be able
     // to update details of events that are already in progress or completed.
     if (!_isEdit) {
@@ -1299,7 +1304,7 @@ class _EventDialogState extends State<_EventDialog> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _saving ? null : _save,
+                    onPressed: (_saving || _titleCtrl.text.trim().isEmpty || _date == null) ? null : _save,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: kGold,
                       foregroundColor: Colors.white,

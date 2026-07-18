@@ -37,7 +37,7 @@ const _kSecondary = [
 // Settings page
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum _Tab { profile, theme }
+enum _Tab { profile, theme, about }
 
 class WebSettingsPage extends StatefulWidget {
   final String?  orgId;
@@ -154,6 +154,7 @@ class _WebSettingsPageState extends State<WebSettingsPage> {
           Row(children: [
             _tabItem(_Tab.profile, 'Profile', Icons.person_outline_rounded),
             _tabItem(_Tab.theme,   'Theme',   Icons.palette_outlined),
+            _tabItem(_Tab.about,   'About',   Icons.info_outline_rounded),
           ]),
           const SizedBox(height: 2),
           const Divider(color: kCardBorder),
@@ -168,11 +169,13 @@ class _WebSettingsPageState extends State<WebSettingsPage> {
               organization: widget.organization,
               onProfileUpdated: widget.onProfileUpdated,
             )
-          else
+          else if (_tab == _Tab.theme)
             _ThemeTab(
               theme:     widget.theme,
               onChanged: widget.onThemeChanged,
-            ),
+            )
+          else
+            _AboutTab(theme: widget.theme),
         ],
       ),
     );
@@ -329,6 +332,138 @@ class _ThemeTab extends StatelessWidget {
         ],
       );
     });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// About tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _AboutTab extends StatelessWidget {
+  final AppTheme theme;
+  const _AboutTab({required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        WebCard(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _CardHeader(
+                icon:     Icons.info_outline_rounded,
+                title:    'About EventHub',
+                subtitle: 'Application details and version information',
+                color:    theme.primaryColor,
+              ),
+              const SizedBox(height: 20),
+              const Divider(color: kCardBorder),
+              const SizedBox(height: 20),
+
+              // App identity row
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 72, height: 72,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [theme.primaryColor, Color.lerp(theme.primaryColor, Colors.orange, 0.4)!],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [BoxShadow(color: theme.primaryColor.withValues(alpha: 0.35), blurRadius: 14, offset: const Offset(0, 5))],
+                    ),
+                    child: const Icon(Icons.event_rounded, color: Colors.white, size: 36),
+                  ),
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('EventHub',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: kText)),
+                        const SizedBox(height: 3),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD6A742).withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFD6A742).withValues(alpha: 0.30)),
+                          ),
+                          child: const Text('Version 1.0.0',
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFB8861C))),
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'J-Jireh Learning Center\'s official event management platform. Browse and register for school events, track your attendance, and scan in with your personal QR code — all in one place.',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, height: 1.65, color: kSubText),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+              const Divider(color: kCardBorder),
+              const SizedBox(height: 20),
+
+              // Info grid
+              Wrap(
+                spacing: 16, runSpacing: 16,
+                children: [
+                  _infoChip(Icons.school_rounded,        'School',    'J-Jireh Learning Center', theme.primaryColor),
+                  _infoChip(Icons.build_rounded,         'Built with','Flutter · Supabase',       theme.primaryColor),
+                  _infoChip(Icons.devices_rounded,       'Platform',  'Android',                  theme.primaryColor),
+                  _infoChip(Icons.people_alt_rounded,    'For',       'Students & Organizers',    theme.primaryColor),
+                  _infoChip(Icons.calendar_month_rounded,'Released',  '2026',                     theme.primaryColor),
+                  _infoChip(Icons.support_agent_rounded, 'Contact',   'See school admin',         theme.primaryColor),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _infoChip(IconData icon, String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 15, color: color),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kSubText, fontWeight: FontWeight.w500)),
+              Text(value,
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kText, fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 

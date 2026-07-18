@@ -32,7 +32,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   bool   _hasError    = false;
 
   final TextEditingController _searchCtrl     = TextEditingController();
-  final List<String>          _filterOptions  = ['All', 'Upcoming', 'Ongoing', 'Past'];
+  final List<String>          _filterOptions  = ['All', 'Upcoming', 'Ongoing', 'Ended'];
 
   List<Map<String, dynamic>>          _events       = [];
   final Map<String, Map<String, dynamic>> _regByEventId = {};
@@ -121,7 +121,11 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
       if (!mounted) return;
       HapticFeedback.mediumImpact();
       setState(() { _regByEventId[eventId] = row; _registeringId = null; });
-      _showQR(event);
+      RegistrationSuccessPopup.show(
+        context,
+        eventTitle: eventTitle,
+        onComplete: () => _showQR(event),
+      );
     } catch (e) {
       if (mounted) {
         setState(() => _registeringId = null);
@@ -164,16 +168,37 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
 
   // ── Filter logic ──────────────────────────────────────────────────────────
 
-  List<Map<String, dynamic>> get _filtered => _events.where((e) {
-    final label = eventStatusLabel(e);
-    final matchesFilter = _filter == 'All' || label == _filter;
-    final q     = _searchQuery.toLowerCase();
-    final matchesSearch = q.isEmpty ||
-        (e['title']      as String? ?? '').toLowerCase().contains(q) ||
-        (e['location']   as String? ?? '').toLowerCase().contains(q) ||
-        (e['event_type'] as String? ?? '').toLowerCase().contains(q);
-    return matchesFilter && matchesSearch;
-  }).toList();
+  List<Map<String, dynamic>> get _filtered {
+    final list = _events.where((e) {
+      final label = eventStatusLabel(e);
+      final matchesFilter = _filter == 'All' ||
+          label == _filter ||
+          (_filter == 'Ended' && label == 'Cancelled');
+      final q     = _searchQuery.toLowerCase();
+      final matchesSearch = q.isEmpty ||
+          (e['title']      as String? ?? '').toLowerCase().contains(q) ||
+          (e['location']   as String? ?? '').toLowerCase().contains(q) ||
+          (e['event_type'] as String? ?? '').toLowerCase().contains(q);
+      return matchesFilter && matchesSearch;
+    }).toList();
+
+    int statusOrder(String label) {
+      if (label == 'Upcoming') return 0;
+      if (label == 'Ongoing')  return 1;
+      return 2; // Past, Cancelled
+    }
+
+    list.sort((a, b) {
+      final po = statusOrder(eventStatusLabel(a))
+          .compareTo(statusOrder(eventStatusLabel(b)));
+      if (po != 0) return po;
+      final da = a['event_date'] as String? ?? '';
+      final db = b['event_date'] as String? ?? '';
+      return da.compareTo(db);
+    });
+
+    return list;
+  }
 
   int _countFor(String filter) {
     if (filter == 'All') return _events.length;
@@ -339,16 +364,13 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   // ── Header ────────────────────────────────────────────────────────────────
 
   Widget _buildHeader(AppTk t) {
-    final upcoming = _events.where((e) => eventStatusLabel(e) == 'Upcoming').length;
-    final ongoing  = _events.where((e) => eventStatusLabel(e) == 'Ongoing').length;
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
-            width: 3, height: 46,
+            width: 3, height: 36,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [Color(0xFFC49230), kGold, Color(0xFFEAB866)],
@@ -359,24 +381,8 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
             ),
           ),
           const SizedBox(width: 14),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Events',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 26, fontWeight: FontWeight.w800, color: t.text, height: 1.15)),
-              const SizedBox(height: 3),
-              Row(
-                children: [
-                  if (ongoing > 0) ...[
-                    _HeaderPill(label: '$ongoing Live', color: const Color(0xFF10B981), dot: true),
-                    const SizedBox(width: 6),
-                  ],
-                  _HeaderPill(label: '$upcoming upcoming', color: kGold, dot: false),
-                ],
-              ),
-            ],
-          ),
+          Text('Events',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 26, fontWeight: FontWeight.w800, color: t.text, height: 1.15)),
         ],
       ),
     );
@@ -634,7 +640,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     final eventType    = event['event_type'] as String?;
     final sc           = eventStatusColor(statusLabel);
     final fill         = _fill(event);
-    final isPast       = statusLabel == 'Past' || statusLabel == 'Cancelled';
+    final isPast       = statusLabel == 'Ended' || statusLabel == 'Cancelled';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -721,6 +727,11 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                             icon:  Icons.qr_code_2_rounded,
                             color: const Color(0xFF16A34A),
                             onTap: () => _showQR(event),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF15803D), Color(0xFF22C55E)],
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                            ),
                           )
                         else if (full)
                           _PrimaryBtn(
@@ -1041,36 +1052,42 @@ class _CapacityBar extends StatelessWidget {
 // ── Primary action button ─────────────────────────────────────────────────────
 
 class _PrimaryBtn extends StatelessWidget {
-  final String       label;
-  final IconData?    icon;
-  final Color        color;
+  final String        label;
+  final IconData?     icon;
+  final Color         color;
   final VoidCallback? onTap;
-  final bool         ghost;
-  final bool         loading;
+  final bool          ghost;
+  final bool          loading;
+  final Gradient?     gradient;
 
   const _PrimaryBtn({
     required this.label,
     required this.icon,
     required this.color,
     required this.onTap,
-    this.ghost   = false,
-    this.loading = false,
+    this.ghost    = false,
+    this.loading  = false,
+    this.gradient,
   });
 
   @override
   Widget build(BuildContext context) {
-    final disabled = onTap == null && !loading;
+    final disabled     = onTap == null && !loading;
+    final useGradient  = gradient != null && !ghost && !disabled;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
         decoration: BoxDecoration(
-          color: ghost
-              ? Colors.transparent
-              : disabled
-                  ? color.withValues(alpha: 0.45)
-                  : color,
+          gradient: useGradient ? gradient : null,
+          color: useGradient
+              ? null
+              : ghost
+                  ? Colors.transparent
+                  : disabled
+                      ? color.withValues(alpha: 0.45)
+                      : color,
           borderRadius: BorderRadius.circular(12),
           border: ghost ? Border.all(color: color, width: 1.5) : null,
           boxShadow: ghost || disabled
@@ -1094,38 +1111,6 @@ class _PrimaryBtn extends StatelessWidget {
                         color: ghost ? color : Colors.white)),
                 ],
               ),
-      ),
-    );
-  }
-}
-
-// ── Header pill ───────────────────────────────────────────────────────────────
-
-class _HeaderPill extends StatelessWidget {
-  final String label;
-  final Color  color;
-  final bool   dot;
-  const _HeaderPill({required this.label, required this.color, required this.dot});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (dot) ...[
-            Container(width: 5, height: 5, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-            const SizedBox(width: 4),
-          ],
-          Text(label,
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5, fontWeight: FontWeight.w700, color: color)),
-        ],
       ),
     );
   }

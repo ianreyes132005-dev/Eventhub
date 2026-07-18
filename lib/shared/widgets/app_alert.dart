@@ -55,6 +55,7 @@ class AppAlert {
     VoidCallback? onDismiss,
     String? actionText,
     VoidCallback? onAction,
+    bool compact = false,
   }) =>
       _show(
         context,
@@ -65,6 +66,7 @@ class AppAlert {
         onConfirm: onDismiss,
         actionText: actionText,
         onAction: onAction,
+        compact: compact,
       );
 
   static Future<void> info(
@@ -126,6 +128,7 @@ class AppAlert {
     VoidCallback?        onAction,
     IconData?            iconOverride,
     Color?               iconColorOverride,
+    bool                 compact = false,
   }) =>
       showDialog<void>(
         context: context,
@@ -142,6 +145,7 @@ class AppAlert {
           onAction:          onAction,
           iconOverride:      iconOverride,
           iconColorOverride: iconColorOverride,
+          compact:           compact,
         ),
       );
 }
@@ -161,6 +165,7 @@ class _AppAlertDialog extends StatefulWidget {
     this.onAction,
     this.iconOverride,
     this.iconColorOverride,
+    this.compact = false,
   });
 
   final AlertType     type;
@@ -174,6 +179,7 @@ class _AppAlertDialog extends StatefulWidget {
   final VoidCallback? onAction;
   final IconData?     iconOverride;
   final Color?        iconColorOverride;
+  final bool          compact;
 
   @override
   State<_AppAlertDialog> createState() => _AppAlertDialogState();
@@ -266,6 +272,7 @@ class _AppAlertDialogState extends State<_AppAlertDialog>
   @override
   Widget build(BuildContext context) {
     final hasCancel = widget.cancelText != null;
+    final c = widget.compact;
 
     return FadeTransition(
       opacity: _fade,
@@ -273,158 +280,171 @@ class _AppAlertDialogState extends State<_AppAlertDialog>
         scale: _scale,
         child: Dialog(
           backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-          insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(28, 32, 28, 26),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // ── Icon badge ──────────────────────────────────────────────
-                Container(
-                  width: 82, height: 82,
-                  decoration: BoxDecoration(
-                    color: _iconBg,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: _ringColor.withValues(alpha: 0.22),
-                      width: 2,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(c ? 20 : 28)),
+          insetPadding: c
+              ? const EdgeInsets.symmetric(horizontal: 24, vertical: 24)
+              : const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: c ? 340 : double.infinity),
+            child: Padding(
+              padding: c
+                  ? const EdgeInsets.fromLTRB(22, 24, 22, 20)
+                  : const EdgeInsets.fromLTRB(28, 32, 28, 26),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // ── Icon badge ────────────────────────────────────────────
+                  Container(
+                    width:  c ? 56 : 82,
+                    height: c ? 56 : 82,
+                    decoration: BoxDecoration(
+                      color: _iconBg,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: _ringColor.withValues(alpha: 0.22),
+                        width: 2,
+                      ),
+                    ),
+                    child: Icon(_icon, size: c ? 28 : 42, color: _iconColor),
+                  ),
+                  SizedBox(height: c ? 14 : 20),
+                  // ── Title ─────────────────────────────────────────────────
+                  Text(
+                    widget.title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: c ? 15 : 18,
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF1A1A1A),
+                      height: 1.25,
                     ),
                   ),
-                  child: Icon(_icon, size: 42, color: _iconColor),
-                ),
-                const SizedBox(height: 20),
-                // ── Title ───────────────────────────────────────────────────
-                Text(
-                  widget.title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF1A1A1A),
-                    height: 1.25,
+                  SizedBox(height: c ? 7 : 10),
+                  // ── Message ───────────────────────────────────────────────
+                  Text(
+                    widget.message,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: c ? 12 : 13,
+                      color: Colors.grey.shade600,
+                      height: 1.55,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                // ── Message ─────────────────────────────────────────────────
-                Text(
-                  widget.message,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 13,
-                    color: Colors.grey.shade600,
-                    height: 1.65,
-                  ),
-                ),
-                const SizedBox(height: 28),
-                // ── Buttons ─────────────────────────────────────────────────
-                if (hasCancel)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(context),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.grey.shade600,
-                            side: BorderSide(color: Colors.grey.shade200),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
+                  SizedBox(height: c ? 20 : 28),
+                  // ── Buttons ───────────────────────────────────────────────
+                  if (hasCancel)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.grey.shade600,
+                              side: BorderSide(color: Colors.grey.shade200),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(c ? 11 : 14),
+                              ),
+                              padding: EdgeInsets.symmetric(
+                                  vertical: c ? 11 : 14),
                             ),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                          child: Text(
-                            widget.cancelText!,
-                            style: const TextStyle(
-                              fontFamily: 'Poppins',
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
+                            child: Text(
+                              widget.cancelText!,
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontWeight: FontWeight.w600,
+                                fontSize: c ? 13 : 14,
+                              ),
                             ),
                           ),
                         ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              widget.onConfirm?.call();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _confirmBtnColor,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius:
+                                    BorderRadius.circular(c ? 11 : 14),
+                              ),
+                              padding: EdgeInsets.symmetric(
+                                  vertical: c ? 11 : 14),
+                            ),
+                            child: Text(
+                              widget.confirmText,
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontWeight: FontWeight.w700,
+                                fontSize: c ? 13 : 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  else ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          widget.onConfirm?.call();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _confirmBtnColor,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(c ? 11 : 14),
+                          ),
+                          padding: EdgeInsets.symmetric(
+                              vertical: c ? 12 : 15),
+                        ),
+                        child: Text(
+                          widget.confirmText,
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontWeight: FontWeight.w700,
+                            fontSize: c ? 13 : 15,
+                          ),
+                        ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton(
+                    ),
+                    if (widget.actionText != null) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton(
                           onPressed: () {
                             Navigator.pop(context);
-                            widget.onConfirm?.call();
+                            widget.onAction?.call();
                           },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _confirmBtnColor,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.grey.shade500,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
                           ),
                           child: Text(
-                            widget.confirmText,
+                            widget.actionText!,
                             style: const TextStyle(
                               fontFamily: 'Poppins',
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
                             ),
                           ),
                         ),
                       ),
                     ],
-                  )
-                else ...[
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        widget.onConfirm?.call();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _confirmBtnColor,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                      ),
-                      child: Text(
-                        widget.confirmText,
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (widget.actionText != null) ...[
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          widget.onAction?.call();
-                        },
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.grey.shade500,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        child: Text(
-                          widget.actionText!,
-                          style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            fontWeight: FontWeight.w500,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ),
                   ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
