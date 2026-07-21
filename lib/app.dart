@@ -5,6 +5,7 @@ import 'features/organizer/mobile/dashboard/organizer_dashboard.dart';
 import 'features/organizer/web/web_shell.dart';
 import 'features/auth/web_auth_screen.dart';
 import 'core/app_theme.dart';
+import 'core/theme_store.dart';
 import 'core/app_router.dart';
 
 const String kSupabaseSignupRedirect = 'eventhub://auth-callback';
@@ -14,17 +15,25 @@ class JirehEventHubApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'J-Jireh EventHub',
-      debugShowCheckedModeBanner: false,
-      navigatorKey: navigatorKey,
-      theme: AppTheme.lightTheme,
-      initialRoute: '/',
-      routes: {
-        '/': (context) => const AuthScreen(),
-        '/student': (context) => const StudentDashboard(),
-        '/organizer': (context) => const OrganizerDashboardScreen(),
-      },
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: ThemeStore.notifier,
+      builder: (_, mode, _) => MaterialApp(
+        title: 'J-Jireh EventHub',
+        debugShowCheckedModeBanner: false,
+        navigatorKey: navigatorKey,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: mode,
+        initialRoute: '/',
+        routes: {
+          '/': (context) => Theme(
+            data: AppTheme.lightTheme,
+            child: const AuthScreen(),
+          ),
+          '/student': (context) => const StudentDashboard(),
+          '/organizer': (context) => const OrganizerDashboardScreen(),
+        },
+      ),
     );
   }
 }
@@ -34,16 +43,21 @@ class JirehEventHubWebApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'J-Jireh EventHub — Organizer',
-      debugShowCheckedModeBanner: false,
-      navigatorKey: navigatorKey,
-      theme: AppTheme.lightTheme,
-      initialRoute: '/',
-      routes: {
-        '/': (context) => const WebAuthScreen(),
-        '/organizer': (context) => const OrganizerWebDashboard(),
-      },
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: ThemeStore.notifier,
+      builder: (_, mode, _) => MaterialApp(
+        title: 'J-Jireh EventHub — Organizer',
+        debugShowCheckedModeBanner: false,
+        navigatorKey: navigatorKey,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: mode,
+        initialRoute: '/',
+        routes: {
+          '/': (context) => const WebAuthScreen(),
+          '/organizer': (context) => const OrganizerWebDashboard(),
+        },
+      ),
     );
   }
 }

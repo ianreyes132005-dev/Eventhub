@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/services/supabase_service.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
@@ -33,25 +35,43 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
   bool   _loading = true;
   String _search  = '';
   final  _searchCtrl = TextEditingController();
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
 
   @override
   void initState() {
     super.initState();
     _load();
-    SupabaseService.announcementsVersion.addListener(_load);
+    _subscribeRealtime();
+  }
+
+  void _subscribeRealtime() {
+    _channel = SupabaseService.client.channel('org-mobile-announcements');
+    _channel!.on(
+      RealtimeListenTypes.postgresChanges,
+      ChannelFilter(event: '*', schema: 'public', table: 'announcements'),
+      (_, [_]) {
+        _debounce?.cancel();
+        _debounce = Timer(const Duration(milliseconds: 600), () {
+          if (mounted) _load(silent: true);
+        });
+      },
+    );
+    _channel!.subscribe();
   }
 
   @override
   void dispose() {
-    SupabaseService.announcementsVersion.removeListener(_load);
+    _debounce?.cancel();
+    if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
     _searchCtrl.dispose();
     super.dispose();
   }
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
-  Future<void> _load() async {
-    if (mounted) setState(() => _loading = true);
+  Future<void> _load({bool silent = false}) async {
+    if (mounted && !silent) setState(() => _loading = true);
     try {
       final rows = await SupabaseService.getAnnouncements();
       if (!mounted) return;
@@ -125,21 +145,22 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return Scaffold(
-      backgroundColor: kBackground,
+      backgroundColor: t.bg,
       body: SafeArea(
         child: Column(
           children: [
-            _buildHeader(),
+            _buildHeader(t),
             _buildStatsStrip(),
-            _buildSearchBar(),
+            _buildSearchBar(t),
             Expanded(
               child: _loading
                   ? const AppShimmerList(itemCount: 5, hasAvatar: false)
                   : RefreshIndicator(
                       color: kGold,
                       onRefresh: _load,
-                      child: _filtered.isEmpty ? _buildEmptyState() : _buildList(),
+                      child: _filtered.isEmpty ? _buildEmptyState(t) : _buildList(t),
                     ),
             ),
           ],
@@ -149,7 +170,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
         onPressed: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const NewAnnouncementScreen()),
-        ).then((_) => _load()),
+        ),
         backgroundColor: kGold,
         foregroundColor: Colors.white,
         elevation: 4,
@@ -165,7 +186,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
 
   // ── Header ────────────────────────────────────────────────────────────────
 
-  Widget _buildHeader() {
+  Widget _buildHeader(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
       child: Row(
@@ -175,11 +196,11 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
             child: Container(
               width: 44, height: 44,
               decoration: BoxDecoration(
-                color: kCard,
+                color: t.card,
                 borderRadius: BorderRadius.circular(14),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 10, offset: const Offset(0, 3))],
+                boxShadow: [BoxShadow(color: t.shadow, blurRadius: 10, offset: const Offset(0, 3))],
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: kText),
+              child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: t.text),
             ),
           ),
           const SizedBox(width: 14),
@@ -187,16 +208,16 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Announcements',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: kText, height: 1.1),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: t.text, height: 1.1),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   _loading
                       ? 'Loading…'
                       : '${_all.length} announcement${_all.length == 1 ? '' : 's'}',
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub),
                 ),
               ],
             ),
@@ -265,26 +286,26 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
 
   // ── Search bar ────────────────────────────────────────────────────────────
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
       child: Container(
         decoration: BoxDecoration(
-          color: kCard,
+          color: t.card,
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: kText.withValues(alpha: 0.06), blurRadius: 14, offset: const Offset(0, 4))],
+          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 14, offset: const Offset(0, 4))],
         ),
         child: TextField(
           controller: _searchCtrl,
           onChanged: (v) => setState(() { _search = v; _applyFilter(); }),
-          style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: kText),
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: t.text),
           decoration: InputDecoration(
             hintText: 'Search announcements…',
-            hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kSubText.withValues(alpha: 0.55)),
+            hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub.withValues(alpha: 0.55)),
             prefixIcon: const Icon(Icons.search_rounded, color: kGold, size: 22),
             suffixIcon: _search.isNotEmpty
                 ? IconButton(
-                    icon: Icon(Icons.cancel_rounded, color: kSubText.withValues(alpha: 0.45), size: 20),
+                    icon: Icon(Icons.cancel_rounded, color: t.sub.withValues(alpha: 0.45), size: 20),
                     onPressed: () {
                       _searchCtrl.clear();
                       setState(() { _search = ''; _applyFilter(); });
@@ -304,7 +325,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
 
   // ── List ──────────────────────────────────────────────────────────────────
 
-  Widget _buildList() {
+  Widget _buildList(AppTk t) {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
       itemCount: _filtered.length,
@@ -337,7 +358,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
           ),
           child: Padding(
             padding: const EdgeInsets.only(bottom: 14),
-            child: _buildCard(ann),
+            child: _buildCard(ann, t),
           ),
         );
       },
@@ -346,7 +367,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
 
   // ── Announcement card ─────────────────────────────────────────────────────
 
-  Widget _buildCard(Map<String, dynamic> ann) {
+  Widget _buildCard(Map<String, dynamic> ann, AppTk t) {
     final title     = ann['title']      as String? ?? '—';
     final message   = ann['message']    as String? ?? '';
     final createdAt = ann['created_at'] as String?;
@@ -366,10 +387,10 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
       ),
       child: Container(
         decoration: BoxDecoration(
-          color: kCard,
+          color: t.card,
           borderRadius: BorderRadius.circular(18),
-          boxShadow: [BoxShadow(color: kText.withValues(alpha: 0.05), blurRadius: 12, offset: const Offset(0, 4))],
-          border: Border.all(color: Colors.grey.withValues(alpha: 0.08)),
+          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 12, offset: const Offset(0, 4))],
+          border: Border.all(color: t.border),
         ),
         clipBehavior: Clip.antiAlias,
         child: IntrinsicHeight(
@@ -408,18 +429,18 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                               children: [
                                 Text(
                                   title,
-                                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: kText),
+                                  style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: t.text),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 3),
                                 Row(
                                   children: [
-                                    const Icon(Icons.access_time_rounded, size: 11, color: kMuted),
+                                    Icon(Icons.access_time_rounded, size: 11, color: t.muted),
                                     const SizedBox(width: 3),
                                     Text(
                                       _timeAgo(createdAt),
-                                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted),
+                                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted),
                                     ),
                                   ],
                                 ),
@@ -447,7 +468,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                         const SizedBox(height: 10),
                         Text(
                           preview,
-                          style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kSubText, height: 1.5),
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub, height: 1.5),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -490,7 +511,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                             ),
                           ),
                           const Spacer(),
-                          const Icon(Icons.chevron_right_rounded, size: 18, color: kMuted),
+                          Icon(Icons.chevron_right_rounded, size: 18, color: t.muted),
                         ],
                       ),
                     ],
@@ -506,7 +527,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
 
   // ── Empty state ───────────────────────────────────────────────────────────
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(AppTk t) {
     final isSearch = _search.isNotEmpty;
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -528,7 +549,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
               const SizedBox(height: 24),
               Text(
                 isSearch ? 'No results found' : 'No announcements yet',
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w700, color: kText),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w700, color: t.text),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
@@ -537,7 +558,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                     ? 'Try a different search term'
                     : 'Tap + New to post your first announcement to all students.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kSubText, height: 1.6),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub, height: 1.6),
               ),
               if (isSearch) ...[
                 const SizedBox(height: 28),

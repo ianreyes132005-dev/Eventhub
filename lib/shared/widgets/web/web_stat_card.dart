@@ -25,7 +25,8 @@ class _WebStatCardState extends State<WebStatCard> {
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.color;
+    final c    = widget.color;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return MouseRegion(
       cursor:  SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -39,7 +40,9 @@ class _WebStatCardState extends State<WebStatCard> {
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-              color:      _hovered ? c.withValues(alpha: 0.14) : Colors.black.withValues(alpha: 0.04),
+              color: _hovered
+                  ? c.withValues(alpha: 0.14)
+                  : Colors.black.withValues(alpha: dark ? 0.45 : 0.04),
               blurRadius: _hovered ? 24 : 10,
               offset:     Offset(0, _hovered ? 10 : 2),
             ),
@@ -56,11 +59,11 @@ class _WebStatCardState extends State<WebStatCard> {
                   child: Container(
                     padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: dark ? const Color(0xFF12151B) : Colors.white,
                       border: Border(
-                        top:    BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : kCardBorder),
-                        right:  BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : kCardBorder),
-                        bottom: BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : kCardBorder),
+                        top:    BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : (dark ? const Color(0xFF232833) : kCardBorder)),
+                        right:  BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : (dark ? const Color(0xFF232833) : kCardBorder)),
+                        bottom: BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : (dark ? const Color(0xFF232833) : kCardBorder)),
                       ),
                     ),
                     child: Row(
@@ -73,12 +76,13 @@ class _WebStatCardState extends State<WebStatCard> {
                               Text(widget.value,
                                 style: TextStyle(
                                   fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800,
-                                  color: _hovered ? c : kText, height: 1.0,
+                                  color: _hovered ? c : (dark ? const Color(0xFFE7EAEE) : kText), height: 1.0,
                                 )),
                               const SizedBox(height: 3),
                               Text(widget.label,
-                                style: const TextStyle(
-                                  fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w500, color: kSubText,
+                                style: TextStyle(
+                                  fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w500,
+                                  color: dark ? const Color(0xFF9AA3B2) : kSubText,
                                 )),
                             ],
                           ),

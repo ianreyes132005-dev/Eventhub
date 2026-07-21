@@ -182,7 +182,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
-        backgroundColor: kBackground,
+        backgroundColor: AppTk(Theme.of(context).brightness == Brightness.dark).bg,
         extendBodyBehindAppBar: true,
         body: Stack(
           children: [
@@ -327,9 +327,9 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
 
   Widget _buildBody() {
     return Container(
-      decoration: const BoxDecoration(
-        color: kBackground,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      decoration: BoxDecoration(
+        color: AppTk(Theme.of(context).brightness == Brightness.dark).bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -578,11 +578,12 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     required String value,
     required Color color,
   }) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
         decoration: BoxDecoration(
-          color: kCard,
+          color: t.card,
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
@@ -771,9 +772,10 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   // ── Sticky bottom action bar ───────────────────────────────────────────────
 
   Widget _buildBottomBar() {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return Container(
       decoration: BoxDecoration(
-        color: kCard,
+        color: t.card,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),

@@ -11,7 +11,7 @@ class AppTheme {
 
   const AppTheme({
     this.primaryColor   = kWebLightGold,
-    this.secondaryColor = const Color(0xFFF1F5F9),
+    this.secondaryColor = const Color(0xFFFFFFFF),
     this.variant        = SidebarVariant.inset,
   });
 
@@ -28,7 +28,19 @@ class AppTheme {
   bool get _isDark =>
     ThemeData.estimateBrightnessForColor(secondaryColor) == Brightness.dark;
 
+  // Near-white sidebars (e.g. the Pure White default) need solid fills:
+  // white-alpha overlays and computed shades vanish on a white panel.
+  bool get _nearWhite =>
+    HSLColor.fromColor(secondaryColor).lightness >= 0.97;
+
   LinearGradient get sideGradient {
+    if (_nearWhite) {
+      return LinearGradient(
+        colors: [secondaryColor, secondaryColor],
+        begin: Alignment.topCenter,
+        end:   Alignment.bottomCenter,
+      );
+    }
     final hsl = HSLColor.fromColor(secondaryColor);
     final l   = hsl.lightness;
     return LinearGradient(
@@ -51,9 +63,16 @@ class AppTheme {
 
   Color get navHoverColor => _isDark
     ? Colors.white.withValues(alpha: 0.12)
-    : Colors.white.withValues(alpha: 0.70);
+    : _nearWhite
+      ? const Color(0xFFF1F5F9)
+      : Colors.white.withValues(alpha: 0.46);
+
+  Color get userCardFill => !_isDark && _nearWhite
+    ? const Color(0xFFF8FAFC)
+    : Colors.white.withValues(alpha: 0.58);
 
   Color get sideBorder {
+    if (_nearWhite) return const Color(0xFFCBD5E1);
     final hsl = HSLColor.fromColor(secondaryColor);
     return hsl.withLightness((hsl.lightness - 0.12).clamp(0.0, 1.0)).toColor();
   }

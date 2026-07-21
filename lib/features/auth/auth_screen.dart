@@ -14,6 +14,7 @@ import '../../shared/widgets/app_alert.dart';
 import '../organizer/mobile/dashboard/organizer_dashboard.dart';
 import '../student/dashboard/student_dashboard.dart';
 import '../../core/app_colors.dart';
+import '../../core/theme_store.dart';
 
 // ── Enums ──────────────────────────────────────────────────────────────────────
 enum _LegalType  { terms, privacy }
@@ -858,6 +859,10 @@ class _AuthScreenState extends State<AuthScreen> {
           identifier: _lrnCtrl.text.trim(),
         );
       }
+
+      // ── Load per-user theme before navigating ───────────────────────────────
+      await ThemeStore.loadForUser(
+          user.id, isOrganizer ? 'organizer' : 'student');
 
       // ── Route correctly ─────────────────────────────────────────────────────
       if (mounted) {

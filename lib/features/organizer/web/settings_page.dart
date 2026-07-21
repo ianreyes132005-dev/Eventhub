@@ -21,6 +21,7 @@ const _kPrimary = [
 ];
 
 const _kSecondary = [
+  (Color(0xFFFFFFFF), 'Pure White'),
   (Color(0xFFF2DD6B), 'Golden'),
   (Color(0xFFF1F5F9), 'Ice White'),
   (Color(0xFFE0D7F6), 'Lavender'),
@@ -46,7 +47,8 @@ class WebSettingsPage extends StatefulWidget {
   final String?  organization;
   final AppTheme theme;
   final void Function(AppTheme)          onThemeChanged;
-  final void Function(String?, String?)  onProfileUpdated;
+  final void Function(String)?           onPhotoUpdated;
+  final void Function(OrganizerPage)?    onNavigate;
 
   const WebSettingsPage({
     super.key,
@@ -56,7 +58,8 @@ class WebSettingsPage extends StatefulWidget {
     this.organization,
     required this.theme,
     required this.onThemeChanged,
-    required this.onProfileUpdated,
+    this.onPhotoUpdated,
+    this.onNavigate,
   });
 
   @override
@@ -136,7 +139,7 @@ class _WebSettingsPageState extends State<WebSettingsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Page header ──
-          const Text('Settings',
+          const Text('Profile',
             style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 20,
@@ -167,7 +170,8 @@ class _WebSettingsPageState extends State<WebSettingsPage> {
               name:         widget.name,
               email:        widget.email,
               organization: widget.organization,
-              onProfileUpdated: widget.onProfileUpdated,
+              onPhotoUpdated: widget.onPhotoUpdated,
+              onNavigate:     widget.onNavigate,
             )
           else if (_tab == _Tab.theme)
             _ThemeTab(
@@ -547,6 +551,10 @@ class _SwatchBtnState extends State<_SwatchBtn> {
   @override
   Widget build(BuildContext context) {
     final sel = widget.isSelected;
+    // Near-white swatches vanish on the white card — give them a slate
+    // outline, a neutral shadow, and a dark check mark.
+    final nearWhite =
+        HSLColor.fromColor(widget.color).lightness >= 0.97;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -563,25 +571,34 @@ class _SwatchBtnState extends State<_SwatchBtn> {
               color: widget.color,
               shape: BoxShape.circle,
               border: Border.all(
-                color: sel
-                  ? Colors.white
-                  : _hovered
-                    ? Colors.white.withValues(alpha: 0.80)
-                    : Colors.transparent,
+                color: nearWhite
+                  ? (sel
+                      ? const Color(0xFF94A3B8)
+                      : _hovered
+                        ? const Color(0xFFCBD5E1)
+                        : kCardBorder)
+                  : sel
+                    ? Colors.white
+                    : _hovered
+                      ? Colors.white.withValues(alpha: 0.80)
+                      : Colors.transparent,
                 width: sel ? 3 : 2,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: widget.color.withValues(
-                    alpha: sel ? 0.55 : _hovered ? 0.40 : 0.20),
+                  color: nearWhite
+                    ? Colors.black.withValues(
+                        alpha: sel ? 0.14 : _hovered ? 0.10 : 0.05)
+                    : widget.color.withValues(
+                        alpha: sel ? 0.55 : _hovered ? 0.40 : 0.20),
                   blurRadius: sel ? 12 : _hovered ? 8 : 4,
                   offset: const Offset(0, 2),
                 ),
               ],
             ),
             child: sel
-              ? const Icon(
-                  Icons.check_rounded, size: 16, color: Colors.white)
+              ? Icon(Icons.check_rounded, size: 16,
+                  color: nearWhite ? kSubText : Colors.white)
               : null,
           ),
         ),
@@ -720,7 +737,9 @@ class _VariantCardState extends State<_VariantCard> {
                     decoration: BoxDecoration(
                       color: i == 0
                         ? primary.withValues(alpha: 0.90)
-                        : Colors.white.withValues(alpha: 0.45),
+                        : HSLColor.fromColor(sideColor).lightness >= 0.97
+                          ? kMuted.withValues(alpha: 0.55)
+                          : Colors.white.withValues(alpha: 0.45),
                       shape: BoxShape.circle,
                     ),
                   ),

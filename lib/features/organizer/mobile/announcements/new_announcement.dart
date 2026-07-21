@@ -71,19 +71,20 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return Scaffold(
-      backgroundColor: kBackground,
+      backgroundColor: t.bg,
       body: SafeArea(
         child: Column(
           children: [
-            _buildHeader(),
+            _buildHeader(t),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                child: _buildComposeSurface(),
+                child: _buildComposeSurface(t),
               ),
             ),
-            _buildBottomBar(context),
+            _buildBottomBar(context, t),
           ],
         ),
       ),
@@ -92,7 +93,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
 
   // ── Header ────────────────────────────────────────────────────────────────
 
-  Widget _buildHeader() {
+  Widget _buildHeader(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
       child: Row(
@@ -102,24 +103,24 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
             child: Container(
               width: 44, height: 44,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: t.card,
                 borderRadius: BorderRadius.circular(14),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 10, offset: const Offset(0, 3))],
+                boxShadow: [BoxShadow(color: t.shadow, blurRadius: 10, offset: const Offset(0, 3))],
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: kText),
+              child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: t.text),
             ),
           ),
           const SizedBox(width: 14),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
+            children: [
               Text(
                 'New Announcement',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 20, fontWeight: FontWeight.w800, color: kText, height: 1.1),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 20, fontWeight: FontWeight.w800, color: t.text, height: 1.1),
               ),
               Text(
                 'Notify all students instantly',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub),
               ),
             ],
           ),
@@ -130,13 +131,13 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
 
   // ── Compose surface ───────────────────────────────────────────────────────
 
-  Widget _buildComposeSurface() {
+  Widget _buildComposeSurface(AppTk t) {
     return Container(
       margin: const EdgeInsets.only(top: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: t.card,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 14, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: t.shadow, blurRadius: 14, offset: const Offset(0, 4))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -147,20 +148,21 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _fieldLabel('TITLE'),
+                _fieldLabel('TITLE', t),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _titleCtrl,
-                  maxLength: 120,
+                  maxLength: 100,
                   maxLines: 2,
                   minLines: 1,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Poppins', fontSize: 16,
-                    fontWeight: FontWeight.w700, color: kText,
+                    fontWeight: FontWeight.w700, color: t.text,
                   ),
                   decoration: _fieldDecor(
                     hint: 'e.g. Pep Rally Reminder',
-                    counterText: '${_titleCtrl.text.length}/120',
+                    counterText: '${_titleCtrl.text.length}/100',
+                    t: t,
                   ),
                 ),
               ],
@@ -169,7 +171,7 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
 
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Divider(height: 24, color: Colors.grey.shade100),
+            child: Divider(height: 24, color: t.divider),
           ),
 
           // ── Message field ──────────────────────────────────────────────
@@ -178,20 +180,21 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _fieldLabel('MESSAGE'),
+                _fieldLabel('MESSAGE', t),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _messageCtrl,
                   maxLines: 9,
                   minLines: 5,
                   maxLength: 1000,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Poppins', fontSize: 14,
-                    color: kText, height: 1.65,
+                    color: t.text, height: 1.65,
                   ),
                   decoration: _fieldDecor(
                     hint: 'Write what students need to know…',
                     counterText: '${_messageCtrl.text.length}/1000',
+                    t: t,
                   ),
                 ),
               ],
@@ -222,10 +225,10 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text('Audience', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
-                        SizedBox(height: 2),
-                        Text('All Students', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700, color: kText)),
+                      children: [
+                        Text('Audience', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
+                        const SizedBox(height: 2),
+                        Text('All Students', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700, color: t.text)),
                       ],
                     ),
                   ),
@@ -251,12 +254,12 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
 
   // ── Bottom action bar ─────────────────────────────────────────────────────
 
-  Widget _buildBottomBar(BuildContext context) {
+  Widget _buildBottomBar(BuildContext context, AppTk t) {
     return Container(
       padding: EdgeInsets.fromLTRB(16, 14, 16, MediaQuery.of(context).padding.bottom + 14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 16, offset: const Offset(0, -4))],
+        color: t.card,
+        boxShadow: [BoxShadow(color: t.shadow, blurRadius: 16, offset: const Offset(0, -4))],
       ),
       child: SizedBox(
         width: double.infinity,
@@ -287,25 +290,25 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  Widget _fieldLabel(String text) => Text(
+  Widget _fieldLabel(String text, AppTk t) => Text(
     text,
-    style: const TextStyle(
+    style: TextStyle(
       fontFamily: 'Poppins', fontSize: 10,
-      fontWeight: FontWeight.w700, letterSpacing: 1.1, color: kMuted,
+      fontWeight: FontWeight.w700, letterSpacing: 1.1, color: t.muted,
     ),
   );
 
-  InputDecoration _fieldDecor({required String hint, String counterText = ''}) {
+  InputDecoration _fieldDecor({required String hint, required AppTk t, String counterText = ''}) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: kMuted),
+      hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: t.muted),
       counterText: counterText,
-      counterStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kMuted),
-      border:        OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.grey.shade200)),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.grey.shade200)),
+      counterStyle: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
+      border:        OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: t.border)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: t.border)),
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: kGold, width: 2)),
       filled: true,
-      fillColor: Colors.grey.shade50,
+      fillColor: t.inputBg,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     );
   }

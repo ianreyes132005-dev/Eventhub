@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'create_event_screen.dart';
 import 'manage_event_screen.dart';
@@ -22,15 +23,16 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   String? _organizerId;
 
   final _searchCtrl = TextEditingController();
-  List<Map<String, dynamic>> _events    = [];
-  List<Map<String, dynamic>> _filtered  = [];
-  // event_id â†’ checked-in count (loaded alongside events)
+  List<Map<String, dynamic>> _events   = [];
+  List<Map<String, dynamic>> _filtered = [];
+  // event_id → checked-in count (loaded alongside events)
   final Map<String, int> _checkedInMap = {};
+
+  static const _filterOptions = ['All', 'Upcoming', 'Ongoing', 'Ended', 'Draft'];
 
   @override
   void initState() {
     super.initState();
-    _searchCtrl.addListener(() => setState(() {}));
     _loadData();
   }
 
@@ -86,7 +88,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
 
       if (mounted) {
         setState(() {
-          _events        = events;
+          _events = events;
           _checkedInMap
             ..clear()
             ..addAll(checkedIn);
@@ -103,21 +105,23 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   void _applyFilter() {
     final q = _searchCtrl.text.toLowerCase();
     _filtered = _events.where((e) {
-      final label     = _statusLabel(e);
-      final matchFilter  = _filter == 'All' || label == _filter;
-      final title        = (e['title']      as String? ?? '').toLowerCase();
-      final location     = (e['location']   as String? ?? '').toLowerCase();
-      final type         = (e['event_type'] as String? ?? '').toLowerCase();
-      final matchSearch  = q.isEmpty ||
+      final label       = _statusLabel(e);
+      final matchFilter = _filter == 'All' ||
+          label == _filter ||
+          (_filter == 'Ended' && label == 'Cancelled');
+      final title       = (e['title']      as String? ?? '').toLowerCase();
+      final location    = (e['location']   as String? ?? '').toLowerCase();
+      final type        = (e['event_type'] as String? ?? '').toLowerCase();
+      final matchSearch = q.isEmpty ||
           title.contains(q) || location.contains(q) || type.contains(q);
       return matchFilter && matchSearch;
     }).toList();
 
     int statusOrder(String label) {
-      if (label == 'Upcoming')  return 0;
-      if (label == 'Ongoing')   return 1;
-      if (label == 'Ended')     return 2;
-      if (label == 'Draft')     return 3;
+      if (label == 'Upcoming') return 0;
+      if (label == 'Ongoing')  return 1;
+      if (label == 'Ended')    return 2;
+      if (label == 'Draft')    return 3;
       return 4; // Cancelled
     }
 
@@ -132,34 +136,29 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     setState(() {});
   }
 
+  int _countFor(String filter) {
+    if (filter == 'All') return _events.length;
+    return _events.where((e) {
+      final label = _statusLabel(e);
+      return label == filter || (filter == 'Ended' && label == 'Cancelled');
+    }).length;
+  }
+
   // ── Status helpers ─────────────────────────────────────────────────────────
 
   String _statusLabel(Map<String, dynamic> e) {
     final s = (e['event_status'] as String? ?? '').toLowerCase();
-    if (s == 'ongoing' || s == 'active')                    return 'Ongoing';
-    if (s == 'completed' || s == 'past' || s == 'ended')    return 'Ended';
-    if (s == 'cancelled')                                    return 'Cancelled';
-    if (s == 'draft'    || s == 'pending')                   return 'Draft';
-    final dateStr = e['event_date'] as String?;
-    if (dateStr != null) {
-      try {
-        final date  = DateTime.parse(dateStr);
-        final today = DateTime.now();
-        if (date.isBefore(DateTime(today.year, today.month, today.day))) {
-          return 'Ended';
-        }
-      } catch (_) {}
-    }
-    return 'Upcoming';
+    if (s == 'draft' || s == 'pending') return 'Draft';
+    return eventStatusLabel(e);
   }
 
   Color _statusColor(String label) {
     switch (label) {
       case 'Ongoing':   return const Color(0xFF16A34A);
       case 'Ended':     return const Color(0xFF6B7280);
-      case 'Cancelled': return Colors.red;
+      case 'Cancelled': return const Color(0xFFEF4444);
       case 'Draft':     return const Color(0xFF9333EA);
-      default:          return const Color(0xFFE87A00);
+      default:          return const Color(0xFFE87A00); // Upcoming
     }
   }
 
@@ -184,15 +183,32 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
       final h = int.tryParse(p[0]) ?? 0;
       return '${h % 12 == 0 ? 12 : h % 12}:${p[1]} ${h >= 12 ? 'PM' : 'AM'}';
     }
-    return en != null ? '${fmt(s)} - ${fmt(en)}' : fmt(s);
+    return en != null ? '${fmt(s)} — ${fmt(en)}' : fmt(s);
   }
 
-  // ── Computed counts ────────────────────────────────────────────────────────
+  // ── Navigation ─────────────────────────────────────────────────────────────
 
-  int get _total         => _events.length;
-  int get _upcomingCount => _events.where((e) => _statusLabel(e) == 'Upcoming').length;
-  int get _ongoingCount  => _events.where((e) => _statusLabel(e) == 'Ongoing').length;
-  int get _pastCount     => _events.where((e) => _statusLabel(e) == 'Ended').length;
+  void _openCreate() {
+    HapticFeedback.lightImpact();
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CreateEventScreen()),
+    ).then((_) => _loadData());
+  }
+
+  void _openDetails(Map<String, dynamic> e) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => EventDetailsScreen(eventData: e)),
+    ).then((_) => _loadData());
+  }
+
+  void _openManage(Map<String, dynamic> e) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ManageEventScreen(eventData: e)),
+    ).then((_) => _loadData());
+  }
 
   // ══════════════════════════════════════════════════════════════════════════
   // BUILD
@@ -200,51 +216,49 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return Scaffold(
       backgroundColor:
-          widget.showAsEmbedded ? Colors.transparent : kBackground,
+          widget.showAsEmbedded ? Colors.transparent : t.bg,
       body: SafeArea(
         child: Column(
           children: [
-            if (!widget.showAsEmbedded) _buildTopBar(),
+            if (!widget.showAsEmbedded) _buildTopBar(t),
             Expanded(
               child: _loading
-                  ? _buildLoadingState()
+                  ? _buildLoadingState(t)
                   : _loadError
-                      ? _buildErrorState()
+                      ? _buildErrorState(t)
                       : RefreshIndicator(
-                      color: kGold,
-                      onRefresh: _loadData,
-                      child: CustomScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        slivers: [
-                          SliverToBoxAdapter(child: _buildPageHeader()),
-                          SliverToBoxAdapter(child: _buildSummaryStrip()),
-                          SliverToBoxAdapter(child: _buildCreateButton()),
-                          SliverToBoxAdapter(child: _buildFilterRow()),
-                          SliverToBoxAdapter(child: _buildSearchBar()),
-                          SliverToBoxAdapter(child: _buildResultCount()),
-                          if (_filtered.isEmpty)
-                            SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: _buildEmptyState(),
-                            )
-                          else
-                            SliverPadding(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
-                              sliver: SliverList(
-                                delegate: SliverChildBuilderDelegate(
-                                  (_, i) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 14),
-                                    child: _buildEventCard(_filtered[i]),
+                          color: kGold,
+                          backgroundColor: t.card,
+                          onRefresh: _loadData,
+                          child: CustomScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            slivers: [
+                              SliverToBoxAdapter(child: _buildHeader(t)),
+                              SliverToBoxAdapter(child: _buildSearchBar(t)),
+                              SliverToBoxAdapter(child: _buildCreateButton()),
+                              SliverToBoxAdapter(child: _buildFilterRow(t)),
+                              if (_filtered.isEmpty)
+                                SliverFillRemaining(
+                                  hasScrollBody: false,
+                                  child: _buildEmptyState(t),
+                                )
+                              else
+                                SliverPadding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(20, 0, 20, 36),
+                                  sliver: SliverList(
+                                    delegate: SliverChildBuilderDelegate(
+                                      (_, i) => _buildEventCard(_filtered[i], t),
+                                      childCount: _filtered.length,
+                                    ),
                                   ),
-                                  childCount: _filtered.length,
                                 ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
+                            ],
+                          ),
+                        ),
             ),
           ],
         ),
@@ -254,73 +268,64 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
 
   // ── Loading state ──────────────────────────────────────────────────────────
 
-  Widget _buildLoadingState() {
+  Widget _buildLoadingState(AppTk t) {
     return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
       child: Column(
         children: [
-          _buildPageHeader(),
-          const AppShimmerList(itemCount: 5, hasAvatar: false, hasImage: true),
+          _buildHeader(t),
+          _buildSearchBar(t),
+          const SizedBox(height: 8),
+          const AppShimmerList(itemCount: 4, hasAvatar: false, hasImage: true),
         ],
       ),
     );
   }
 
-  Widget _buildErrorState() {
+  // ── Error state ────────────────────────────────────────────────────────────
+
+  Widget _buildErrorState(AppTk t) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 36),
+        padding: const EdgeInsets.all(32),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 72,
-              height: 72,
+              width: 68, height: 68,
               decoration: BoxDecoration(
                 color: const Color(0xFFEF4444).withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.22)),
               ),
-              child: const Icon(Icons.cloud_off_rounded, size: 36, color: Color(0xFFEF4444)),
+              child: const Icon(Icons.wifi_off_rounded,
+                  size: 32, color: Color(0xFFEF4444)),
             ),
             const SizedBox(height: 20),
-            const Text(
-              'Could not load events',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: kText,
-              ),
-            ),
+            Text('Could not load events',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 16,
+                  fontWeight: FontWeight.w700, color: t.text)),
             const SizedBox(height: 8),
-            const Text(
-              'Check your connection and try again.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 13,
-                color: kSubText,
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 28),
+            Text('Check your connection and try again.',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                  color: t.muted),
+              textAlign: TextAlign.center),
+            const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: _loadData,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text(
-                'Retry',
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Retry',
                 style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+                    fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: kGold,
                 foregroundColor: Colors.white,
                 elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 13),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 28, vertical: 13),
               ),
             ),
           ],
@@ -331,7 +336,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
 
   // ── Standalone top bar (non-embedded mode) ────────────────────────────────
 
-  Widget _buildTopBar() {
+  Widget _buildTopBar(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 16, 16, 8),
       child: Row(
@@ -342,39 +347,34 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: t.card,
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.07),
+                    color: t.shadow,
                     blurRadius: 10,
                     offset: const Offset(0, 3),
                   ),
                 ],
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.arrow_back_ios_new_rounded,
                 size: 18,
-                color: kText,
+                color: t.text,
               ),
             ),
           ),
           const SizedBox(width: 14),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'My Events',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: kText,
-                    height: 1.1,
-                  ),
-                ),
-              ],
+            child: Text(
+              'My Events',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: t.text,
+                height: 1.1,
+              ),
             ),
           ),
         ],
@@ -382,346 +382,61 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // ── Inline page header (embedded mode) ────────────────────────────────────
+  // ── Header — matches the student events tab pattern ───────────────────────
 
-  Widget _buildPageHeader() {
+  Widget _buildHeader(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Eyebrow label
-                Row(
-                  children: [
-                    Container(
-                      width: 4,
-                      height: 4,
-                      decoration: const BoxDecoration(
-                        color: kGold,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 7),
-                    const Text(
-                      'ORGANIZER',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: kGold,
-                        letterSpacing: 1.8,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 5),
-
-                // Title
-                const Text(
-                  'My Events',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: kText,
-                    height: 1.1,
-                  ),
-                ),
-                const SizedBox(height: 7),
-
-                // Gold accent underline
-                Container(
-                  width: 38,
-                  height: 3,
-                  decoration: BoxDecoration(
-                    gradient: kGoldGradient,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Decorative icon badge
           Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              gradient: kGoldGradient,
-              borderRadius: BorderRadius.circular(17),
-              boxShadow: [
-                BoxShadow(
-                  color: kGold.withValues(alpha: 0.32),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.event_rounded,
-              color: Colors.white,
-              size: 26,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Summary stat strip ─────────────────────────────────────────────────────
-
-  Widget _buildSummaryStrip() {
-    final tiles = [
-      (value: '$_total',        label: 'Total',    icon: Icons.event_rounded,         color: kGold),
-      (value: '$_upcomingCount',label: 'Upcoming', icon: Icons.schedule_rounded,      color: const Color(0xFFE87A00)),
-      (value: '$_ongoingCount', label: 'Ongoing',  icon: Icons.play_circle_rounded,   color: const Color(0xFF16A34A)),
-      (value: '$_pastCount',    label: 'Ended',     icon: Icons.history_rounded,       color: const Color(0xFF6B7280)),
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      child: Row(
-        children: tiles.asMap().entries.map((entry) {
-          final i = entry.key;
-          final t = entry.value;
-          return Expanded(
-            child: Container(
-              margin: EdgeInsets.only(left: i == 0 ? 0 : 8),
-              padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 6),
-              decoration: BoxDecoration(
-                color: t.color.withValues(alpha: 0.07),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: t.color.withValues(alpha: 0.2), width: 1.5,
-                ),
-              ),
-              child: Column(
-                children: [
-                  Icon(t.icon, color: t.color, size: 18),
-                  const SizedBox(height: 5),
-                  Text(
-                    t.value,
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      color: t.color,
-                      height: 1.1,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    t.label,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins', fontSize: 9, color: kMuted,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  // ── Create new event (gradient card button) ────────────────────────────────
-
-  Widget _buildCreateButton() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const CreateEventScreen()),
-          ).then((_) => _loadData()),
-          borderRadius: BorderRadius.circular(18),
-          child: Ink(
+            width: 3, height: 36,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [Color(0xFFC49230), kGold, Color(0xFFEAB866)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
               ),
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: [
-                BoxShadow(
-                  color: kGold.withValues(alpha: 0.38),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
-              child: Row(
-                children: [
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(13),
-                    ),
-                    child: const Icon(
-                      Icons.add_rounded,
-                      color: Colors.white,
-                      size: 26,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'Create New Event',
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          'Publish a school event for students',
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 11,
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(9),
-                    ),
-                    child: const Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      color: Colors.white,
-                      size: 15,
-                    ),
-                  ),
-                ],
-              ),
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  // ── Filter pill row (horizontal scroll) ───────────────────────────────────
-
-  Widget _buildFilterRow() {
-    const filters = ['All', 'Upcoming', 'Ongoing', 'Ended', 'Draft'];
-    return Padding(
-      padding: const EdgeInsets.only(top: 18),
-      child: SizedBox(
-        height: 42,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: filters.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 8),
-          itemBuilder: (ctx, i) {
-            final f        = filters[i];
-            final selected = _filter == f;
-            return GestureDetector(
-              onTap: () => setState(() { _filter = f; _applyFilter(); }),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                padding: const EdgeInsets.symmetric(horizontal: 22),
-                decoration: BoxDecoration(
-                  gradient: selected ? kGoldGradient : null,
-                  color: selected ? null : Colors.white,
-                  borderRadius: BorderRadius.circular(21),
-                  border: Border.all(
-                    color: selected ? const Color(0xFFC49230) : Colors.grey.shade300,
-                    width: 1.5,
-                  ),
-                  boxShadow: selected
-                      ? [
-                          BoxShadow(
-                            color: kGold.withValues(alpha: 0.32),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Center(
-                  child: Text(
-                    f,
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: selected ? Colors.white : kSubText,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
+          const SizedBox(width: 14),
+          Text('My Events',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 26,
+                fontWeight: FontWeight.w800, color: t.text, height: 1.15)),
+        ],
       ),
     );
   }
 
   // ── Search bar ─────────────────────────────────────────────────────────────
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(AppTk t) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: t.inputBg,
           borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: t.border),
           boxShadow: [
-            BoxShadow(
-              color: kText.withValues(alpha: 0.07),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
-            ),
+            BoxShadow(color: t.shadow, blurRadius: 12, offset: const Offset(0, 3)),
           ],
         ),
         child: TextField(
           controller: _searchCtrl,
           onChanged: (_) => _applyFilter(),
-          style: const TextStyle(
-            fontFamily: 'Poppins', fontSize: 14, color: kText,
-          ),
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: t.text),
           decoration: InputDecoration(
             hintText: 'Search events, venue, or type…',
             hintStyle: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 13,
-              color: kMuted.withValues(alpha: 0.8),
-            ),
-            prefixIcon: const Icon(
-              Icons.search_rounded, color: kGold, size: 22,
-            ),
+                fontFamily: 'Poppins', fontSize: 13, color: t.muted),
+            prefixIcon:
+                const Icon(Icons.search_rounded, color: kGold, size: 22),
             suffixIcon: _searchCtrl.text.isNotEmpty
                 ? IconButton(
-                    icon: Icon(
-                      Icons.cancel_rounded,
-                      color: kMuted.withValues(alpha: 0.6),
-                      size: 20,
-                    ),
+                    icon: Icon(Icons.cancel_rounded, color: t.muted, size: 20),
                     onPressed: () {
                       _searchCtrl.clear();
                       _applyFilter();
@@ -731,352 +446,446 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
             filled: false,
             contentPadding: const EdgeInsets.symmetric(vertical: 16),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide.none,
-            ),
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide.none,
-            ),
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: kGold, width: 2),
-            ),
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: kGold, width: 1.8)),
           ),
         ),
       ),
     );
   }
 
-  // ── Result count label ─────────────────────────────────────────────────────
+  // ── Create new event (gradient CTA — parallels the student shortcut) ───────
 
-  Widget _buildResultCount() {
+  Widget _buildCreateButton() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 6),
-      child: Text(
-        '${_filtered.length} event${_filtered.length == 1 ? '' : 's'} found',
-        style: const TextStyle(
-          fontFamily: 'Poppins',
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: kSubText,
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      child: GestureDetector(
+        onTap: _openCreate,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFC49230), kGold, Color(0xFFE8C26C)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                  color: kGold.withValues(alpha: 0.35),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6)),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.add_rounded,
+                    color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Create New Event',
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5,
+                          fontWeight: FontWeight.w700, color: Colors.white)),
+                    SizedBox(height: 2),
+                    Text('Publish a school event for students',
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                          color: Colors.white70)),
+                  ],
+                ),
+              ),
+              Container(
+                width: 32, height: 32,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: const Icon(Icons.arrow_forward_ios_rounded,
+                    color: Colors.white, size: 13),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Filter chips with live count badges ────────────────────────────────────
+
+  Widget _buildFilterRow(AppTk t) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: SizedBox(
+        height: 38,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          itemCount: _filterOptions.length,
+          itemBuilder: (_, i) {
+            final f        = _filterOptions[i];
+            final selected = _filter == f;
+            final count    = _countFor(f);
+
+            return GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _filter = f);
+                _applyFilter();
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  gradient: selected ? kGoldGradient : null,
+                  color:    selected ? null : t.card,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: selected ? const Color(0xFFC49230) : t.border,
+                    width: 1.5,
+                  ),
+                  boxShadow: selected
+                      ? [
+                          BoxShadow(
+                              color: kGold.withValues(alpha: 0.28),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3)),
+                        ]
+                      : null,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(f,
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: selected ? Colors.white : t.sub,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? Colors.white.withValues(alpha: 0.25)
+                            : t.divider,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text('$count',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: selected ? Colors.white : t.muted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // Event card — kept exactly as shown in screenshot
+  // Event card — image header, meta, capacity + check-in stats, actions
   // ══════════════════════════════════════════════════════════════════════════
 
-  Widget _buildEventCard(Map<String, dynamic> e) {
+  Widget _buildEventCard(Map<String, dynamic> e, AppTk t) {
     final eventId     = e['event_id'] as String;
-    final title       = e['title']    as String? ?? '—';
-    final location    = e['location'] as String? ?? '—';
-    final type        = e['event_type'] as String? ?? '—';
+    final title       = e['title']      as String? ?? '—';
+    final location    = e['location']   as String? ?? '—';
+    final type        = e['event_type'] as String?;
     final imageUrl    = e['event_image_url'] as String?;
+    final hasImage    = imageUrl != null && imageUrl.isNotEmpty;
     final registered  = e['current_participants'] as int? ?? 0;
-    final capacity    = e['max_participants']     as int? ?? 0;
-    final checkedIn   = _checkedInMap[eventId]   ?? 0;
+    final capacity    = e['max_participants']     as int?;
+    final checkedIn   = _checkedInMap[eventId] ?? 0;
     final statusLabel = _statusLabel(e);
     final statusColor = _statusColor(statusLabel);
-    final fillPercent   = capacity > 0 ? (registered / capacity).clamp(0.0, 1.0) : 0.0;
-    final attendancePct = registered > 0 ? ((checkedIn / registered) * 100).toInt() : 0;
+    final maxSet      = capacity != null && capacity > 0;
+    final attendancePct =
+        registered > 0 ? ((checkedIn / registered) * 100).round() : 0;
+    final shortId = eventId.length > 8
+        ? '…${eventId.substring(eventId.length - 8)}'
+        : eventId;
 
     return Container(
+      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        color: t.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: t.border),
         boxShadow: [
-          BoxShadow(
-            color: kText.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
+          BoxShadow(color: t.shadow, blurRadius: 14, offset: const Offset(0, 5)),
         ],
-        border: Border.all(color: Colors.grey.withValues(alpha: 0.1)),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Banner image
-          Stack(
-            children: [
-              SizedBox(
-                width: double.infinity,
-                height: 160,
-                child: imageUrl != null && imageUrl.isNotEmpty
-                    ? Image.network(
-                        imageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (ctx, err, stack) => _imagePlaceholder(),
-                      )
-                    : _imagePlaceholder(),
-              ),
-              Positioned(
-                bottom: 0, left: 0, right: 0,
-                child: Container(
-                  height: 50,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.35),
+          // ── Image header: date pill + status chip ────────────────────────
+          GestureDetector(
+            onTap: () => _openDetails(e),
+            child: Stack(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  height: 150,
+                  child: hasImage
+                      ? Image.network(
+                          imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => _imagePlaceholder(t),
+                        )
+                      : _imagePlaceholder(t),
+                ),
+                Positioned(
+                  top: 10, right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: statusColor,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
                       ],
                     ),
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 10, right: 10,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
+                    child: Text(
+                      statusLabel,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
                       ),
-                    ],
-                  ),
-                  child: Text(
-                    statusLabel,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
 
+          // ── Body ─────────────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title + type badge
+                // Title + type chip
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: Text(
                         title,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontFamily: 'Poppins',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: kText,
+                          fontSize: 16.5,
+                          fontWeight: FontWeight.w800,
+                          color: t.text,
+                          height: 1.2,
                         ),
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: kGold.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        type,
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: kGold,
+                    if (type != null && type.isNotEmpty) ...[
+                      const SizedBox(width: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: kGold.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: kGold.withValues(alpha: 0.25)),
                         ),
+                        child: Text(type,
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFB8861C),
+                          )),
                       ),
-                    ),
+                    ],
                   ],
                 ),
+                const SizedBox(height: 3),
+                Text(shortId,
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11.5,
+                    color: t.muted,
+                  )),
+                const SizedBox(height: 12),
 
-                const SizedBox(height: 10),
-
-                // Location / date / time block
+                // ── Venue + schedule panel ──────────────────────────────
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 8,
-                  ),
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                   decoration: BoxDecoration(
-                    color: kBackground.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(10),
+                    color: kGold.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                        color: kGold.withValues(alpha: 0.14)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          const Icon(
-                            Icons.location_on_outlined,
-                            size: 13,
-                            color: kGold,
-                          ),
-                          const SizedBox(width: 5),
+                          const Icon(Icons.location_on_rounded,
+                              size: 15, color: kGold),
+                          const SizedBox(width: 7),
                           Expanded(
-                            child: Text(
-                              location,
-                              style: const TextStyle(
+                            child: Text(location,
+                              style: TextStyle(
                                 fontFamily: 'Poppins',
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: kText,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w700,
+                                color: t.text,
                               ),
                               maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                              overflow: TextOverflow.ellipsis),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 5),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
-                          const Icon(
-                            Icons.calendar_today_outlined,
-                            size: 12,
-                            color: kSubText,
-                          ),
-                          const SizedBox(width: 5),
-                          Text(
-                            _formatDate(e),
-                            style: const TextStyle(
+                          Icon(Icons.calendar_month_rounded,
+                              size: 13, color: t.sub),
+                          const SizedBox(width: 6),
+                          Text(_formatDate(e),
+                            style: TextStyle(
                               fontFamily: 'Poppins',
-                              fontSize: 11,
-                              color: kSubText,
-                            ),
-                          ),
-                          const Text(
-                            ' · ',
-                            style: TextStyle(color: kSubText),
-                          ),
-                          const Icon(
-                            Icons.access_time_outlined,
-                            size: 12,
-                            color: kSubText,
-                          ),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: t.sub,
+                            )),
+                          Text('  ·  ',
+                            style: TextStyle(
+                                fontSize: 12.5, color: t.muted)),
+                          Icon(Icons.access_time_rounded,
+                              size: 13, color: t.sub),
                           const SizedBox(width: 5),
-                          Expanded(
-                            child: Text(
-                              _formatTime(e),
-                              style: const TextStyle(
+                          Flexible(
+                            child: Text(_formatTime(e),
+                              style: TextStyle(
                                 fontFamily: 'Poppins',
-                                fontSize: 11,
-                                color: kSubText,
+                                fontSize: 12.5,
+                                color: t.sub,
                               ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
                           ),
                         ],
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(height: 14),
 
-                const SizedBox(height: 10),
+                // ── Stats: Registered / Checked In / Attendance ─────────
+                IntrinsicHeight(
+                  child: Row(
+                    children: [
+                      _statCol(
+                        maxSet ? '$registered/$capacity' : '$registered',
+                        'Registered', kGold, t, first: true,
+                      ),
+                      Container(width: 1, color: t.divider),
+                      _statCol('$checkedIn', 'Checked In',
+                          const Color(0xFF16A34A), t),
+                      Container(width: 1, color: t.divider),
+                      _statCol('$attendancePct%', 'Attendance',
+                          const Color(0xFF3B82F6), t),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Divider(height: 1, color: t.divider),
+                const SizedBox(height: 14),
 
-                // Stats row
+                // ── Actions ─────────────────────────────────────────────
                 Row(
                   children: [
                     Expanded(
-                      child: _statItem(
-                        '$registered${capacity > 0 ? '/$capacity' : ''}',
-                        'Registered',
-                        kGold,
+                      child: SizedBox(
+                        height: 46,
+                        child: ElevatedButton(
+                          onPressed: () => _openManage(e),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kGold,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                          ),
+                          child: const Text('Edit',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            )),
+                        ),
                       ),
                     ),
-                    Container(
-                      width: 1, height: 32,
-                      color: Colors.grey.withValues(alpha: 0.2),
-                    ),
+                    const SizedBox(width: 12),
                     Expanded(
-                      child: _statItem('$checkedIn', 'Checked In', const Color(0xFF1A9E6E)),
-                    ),
-                    Container(
-                      width: 1, height: 32,
-                      color: Colors.grey.withValues(alpha: 0.2),
-                    ),
-                    Expanded(
-                      child: _statItem(
-                        '$attendancePct%', 'Attendance', const Color(0xFF2979C8),
+                      child: SizedBox(
+                        height: 46,
+                        child: OutlinedButton(
+                          onPressed: () => _openDetails(e),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: kGold,
+                            side: BorderSide(
+                                color: kGold.withValues(alpha: 0.55),
+                                width: 1.5),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                          ),
+                          child: const Text('Details',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            )),
+                        ),
                       ),
                     ),
                   ],
                 ),
-
-                const SizedBox(height: 8),
-
-                // Fill progress bar
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: fillPercent,
-                    minHeight: 5,
-                    backgroundColor: Colors.grey.withValues(alpha: 0.12),
-                    valueColor: AlwaysStoppedAnimation<Color>(statusColor),
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
-                // Action buttons
-                if (statusLabel == 'Ended')
-                  SizedBox(
-                    width: double.infinity,
-                    child: _actionBtn('Details', kGold, true, () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => EventDetailsScreen(eventData: e),
-                        ),
-                      );
-                    }),
-                  )
-                else
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _actionBtn('Manage', kGold, false, () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ManageEventScreen(
-                                eventData: {
-                                  ...e,
-                                  'registered': registered,
-                                  'checkedIn':  checkedIn,
-                                },
-                              ),
-                            ),
-                          ).then((_) => _loadData());
-                        }),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _actionBtn('Details', kGold, true, () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => EventDetailsScreen(eventData: e),
-                            ),
-                          );
-                        }),
-                      ),
-                    ],
-                  ),
               ],
             ),
           ),
@@ -1085,136 +894,53 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // ── Card helpers (unchanged) ───────────────────────────────────────────────
-
-  Widget _statItem(String value, String label, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: const TextStyle(
-              fontFamily: 'Poppins', fontSize: 10, color: kSubText,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _actionBtn(
-    String label,
-    Color color,
-    bool secondary,
-    VoidCallback? onTap,
-  ) {
-    // Disabled state — grey flat button, non-interactive
-    if (onTap == null) {
-      return ElevatedButton(
-        onPressed: null,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFF3F4F6),
-          disabledBackgroundColor: const Color(0xFFF3F4F6),
-          disabledForegroundColor: const Color(0xFF9CA3AF),
-          elevation: 0,
-          side: BorderSide(color: const Color(0xFF9CA3AF).withValues(alpha: 0.25)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-        ),
-        child: const Text(
-          'Manage',
-          style: TextStyle(
-            fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700,
-            color: Color(0xFF9CA3AF),
-          ),
-          textAlign: TextAlign.center,
-        ),
-      );
-    }
-
-    // Secondary (outlined) variant — e.g. "Details"
-    if (secondary) {
-      return ElevatedButton(
-        onPressed: onTap,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: color,
-          elevation: 0,
-          side: BorderSide(color: color.withValues(alpha: 0.4), width: 1.5),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      );
-    }
-
-    // Primary variant — gradient matching the AI Assistant button
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: kGoldGradient,
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: kGold.withValues(alpha: 0.38),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ElevatedButton(
-        onPressed: onTap,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.transparent,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shadowColor: Colors.transparent,
-          side: BorderSide.none,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-          ),
-          textAlign: TextAlign.center,
+  Widget _statCol(String value, String label, Color color, AppTk t,
+      {bool first = false}) {
+    return Expanded(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(first ? 0 : 12, 0, 12, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(value,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 15.5,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 3),
+            Text(label,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 11.5,
+                color: t.muted,
+              )),
+          ],
         ),
       ),
     );
   }
 
-  Widget _imagePlaceholder() {
+  Widget _imagePlaceholder(AppTk t) {
     return Container(
-      color: kBackground,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            kGold.withValues(alpha: 0.14),
+            kGold.withValues(alpha: 0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
       child: Center(
         child: Icon(
-          Icons.image_not_supported_outlined,
-          size: 48,
-          color: kGold.withValues(alpha: 0.3),
+          Icons.event_rounded,
+          size: 42,
+          color: kGold.withValues(alpha: 0.35),
         ),
       ),
     );
@@ -1222,9 +948,8 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
 
   // ── Empty state ────────────────────────────────────────────────────────────
 
-  Widget _buildEmptyState() {
-    final isFiltered =
-        _filter != 'All' || _searchCtrl.text.isNotEmpty;
+  Widget _buildEmptyState(AppTk t) {
+    final isFiltered = _filter != 'All' || _searchCtrl.text.isNotEmpty;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 32),
@@ -1232,78 +957,69 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 84,
-            height: 84,
+            width: 70, height: 70,
             decoration: BoxDecoration(
-              color: kGold.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(26),
+              color: kGold.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: kGold.withValues(alpha: 0.18)),
             ),
             child: Icon(
-              isFiltered
-                  ? Icons.search_off_rounded
-                  : Icons.event_busy_rounded,
-              size: 42,
-              color: kGold.withValues(alpha: 0.65),
+              isFiltered ? Icons.search_off_rounded : Icons.event_busy_rounded,
+              size: 32, color: kGold.withValues(alpha: 0.55),
             ),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 20),
           Text(
-            isFiltered ? 'No events found' : 'No events yet',
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: kText,
-            ),
+            isFiltered ? 'No results found' : 'No events yet',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 16,
+                fontWeight: FontWeight.w700, color: t.text),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             isFiltered
-                ? 'Try adjusting your search or filter'
-                : 'Create your first event to get started',
+                ? 'Try a different search or filter.'
+                : 'Create your first event to get started.',
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 13,
-              color: kMuted,
-              height: 1.6,
-            ),
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
+                color: t.muted, height: 1.6),
           ),
-          if (isFiltered) ...[
-            const SizedBox(height: 28),
-            GestureDetector(
-              onTap: () {
+          const SizedBox(height: 24),
+          if (isFiltered)
+            OutlinedButton(
+              onPressed: () {
                 _searchCtrl.clear();
-                setState(() { _filter = 'All'; });
+                setState(() => _filter = 'All');
                 _applyFilter();
               },
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 28, vertical: 13,
-                ),
-                decoration: BoxDecoration(
-                  color: kGold,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: kGold.withValues(alpha: 0.35),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: const Text(
-                  'Clear filters',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: kGold,
+                side: const BorderSide(color: kGold, width: 1.5),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              child: const Text('Clear filters',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                    fontWeight: FontWeight.w700, color: kGold)),
+            )
+          else
+            ElevatedButton.icon(
+              onPressed: _openCreate,
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Create Event',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                    fontWeight: FontWeight.w700)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kGold,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
             ),
-          ],
         ],
       ),
     );

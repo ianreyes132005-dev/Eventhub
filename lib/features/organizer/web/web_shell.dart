@@ -33,6 +33,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   String?       _name;
   String?       _email;
   String?       _organization;
+  String?       _photoUrl;
   bool          _loading      = true;
   bool          _profileError = false;
 
@@ -80,15 +81,16 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
       _email = user.email;
       final row = await SupabaseService.client
           .from('organizers')
-          .select('organizer_id, full_name, organization')
+          .select('organizer_id, full_name, organization, profile_image_url')
           .eq('user_id', user.id)
           .maybeSingle();
       if (!mounted) return;
       if (row == null) { _goLogin(); return; }
       setState(() {
-        _orgId        = row['organizer_id'] as String?;
-        _name         = row['full_name']    as String?;
-        _organization = row['organization'] as String?;
+        _orgId        = row['organizer_id']     as String?;
+        _name         = row['full_name']        as String?;
+        _organization = row['organization']     as String?;
+        _photoUrl     = row['profile_image_url'] as String?;
         _loading      = false;
       });
       _entryCt.forward();
@@ -235,6 +237,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                     currentPage:  _page,
                     name:         _name,
                     organization: _organization,
+                    photoUrl:     _photoUrl,
                     onPageChanged: (p) => setState(() => _page = p),
                     onToggle:  () => setState(() => _collapsed = !_collapsed),
                     onSignOut: _signOut,
@@ -255,9 +258,12 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                         name:        _name,
                         email:       _email,
                         orgId:       _orgId,
+                        photoUrl:    _photoUrl,
                         leftPad:     0,
                         onMenuTap:   _onMenuTap,
                         onSignOut:   _signOut,
+                        onProfileTap: () =>
+                            setState(() => _page = OrganizerPage.settings),
                         currentPage: _page,
                       ),
                     ),
@@ -291,9 +297,12 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                     name:        _name,
                     email:       _email,
                     orgId:       _orgId,
+                    photoUrl:    _photoUrl,
                     leftPad:     pad,
                     onMenuTap:   _onMenuTap,
                     onSignOut:   _signOut,
+                    onProfileTap: () =>
+                        setState(() => _page = OrganizerPage.settings),
                     currentPage: _page,
                   ),
                 ),
@@ -335,6 +344,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                         currentPage:  _page,
                         name:         _name,
                         organization: _organization,
+                        photoUrl:     _photoUrl,
                         onPageChanged: (p) => setState(() => _page = p),
                         onToggle:  () => setState(() => _collapsed = !_collapsed),
                         onSignOut: _signOut,
@@ -362,6 +372,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                   currentPage:  _page,
                   name:         _name,
                   organization: _organization,
+                  photoUrl:     _photoUrl,
                   onPageChanged: (p) => setState(() => _page = p),
                   onToggle:  _onMenuTap,
                   onSignOut: _signOut,
@@ -380,9 +391,12 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                         name:        _name,
                         email:       _email,
                         orgId:       _orgId,
+                        photoUrl:    _photoUrl,
                         leftPad:     0,
                         onMenuTap:   _onMenuTap,
                         onSignOut:   _signOut,
+                        onProfileTap: () =>
+                            setState(() => _page = OrganizerPage.settings),
                         currentPage: _page,
                       ),
                     ),
@@ -416,10 +430,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
           organization: _organization,
           theme:        _theme,
           onThemeChanged:   _onThemeChanged,
-          onProfileUpdated: (name, org) => setState(() {
-            _name         = name;
-            _organization = org;
-          }),
+          onPhotoUpdated: (url) => setState(() => _photoUrl = url),
+          onNavigate:     (p)   => setState(() => _page = p),
         ),
     };
   }
@@ -434,7 +446,7 @@ const _kNavItems = [
   (OrganizerPage.events,        Icons.event_rounded,           'Events'),
   (OrganizerPage.registrations, Icons.how_to_reg_rounded,      'Registrations'),
   (OrganizerPage.announcements, Icons.campaign_rounded,        'Announcements'),
-  (OrganizerPage.settings,      Icons.settings_rounded,        'Settings'),
+  (OrganizerPage.settings,      Icons.person_rounded,          'Profile'),
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -448,6 +460,7 @@ class _Sidebar extends StatefulWidget {
   final OrganizerPage currentPage;
   final String?       name;
   final String?       organization;
+  final String?       photoUrl;
   final ValueChanged<OrganizerPage> onPageChanged;
   final VoidCallback  onToggle;
   final VoidCallback  onSignOut;
@@ -459,6 +472,7 @@ class _Sidebar extends StatefulWidget {
     required this.currentPage,
     required this.name,
     required this.organization,
+    this.photoUrl,
     required this.onPageChanged,
     required this.onToggle,
     required this.onSignOut,
@@ -712,6 +726,38 @@ class _SidebarState extends State<_Sidebar>
 
   // ── User section ─────────────────────────────────────────────────────────────
 
+  Widget _avatar(double size, String initials, double fontSize, double shadowAlpha) {
+    final url = widget.photoUrl;
+    final fallback = Center(
+      child: Text(initials,
+        style: TextStyle(
+          fontFamily: 'Poppins',
+          fontSize: fontSize,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        )),
+    );
+    return Container(
+      width: size, height: size,
+      decoration: BoxDecoration(
+        gradient: widget.theme.avatarGradient,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: widget.theme.primaryColor.withValues(alpha: shadowAlpha),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: (url != null && url.isNotEmpty)
+          ? Image.network(url, fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => fallback)
+          : fallback,
+    );
+  }
+
   Widget _buildUserSection() {
     final initials = (widget.name ?? '?').trim().split(' ')
         .where((w) => w.isNotEmpty)
@@ -724,27 +770,14 @@ class _SidebarState extends State<_Sidebar>
         padding: EdgeInsets.fromLTRB(
           widget.minimal ? 9 : 10, 8, widget.minimal ? 9 : 10, 12),
         child: Column(children: [
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              gradient: widget.theme.avatarGradient,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: widget.theme.primaryColor.withValues(alpha: 0.26),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Center(
-              child: Text(initials,
-                style: const TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                )),
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () => widget.onPageChanged(OrganizerPage.settings),
+              child: Tooltip(
+                message: 'Profile',
+                child: _avatar(36, initials, 13, 0.26),
+              ),
             ),
           ),
           const SizedBox(height: 6),
@@ -759,9 +792,13 @@ class _SidebarState extends State<_Sidebar>
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
-      child: Container(
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: () => widget.onPageChanged(OrganizerPage.settings),
+          child: Container(
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.58),
+          color: widget.theme.userCardFill,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: widget.theme.sideBorder.withValues(alpha: 0.50)),
@@ -799,29 +836,7 @@ class _SidebarState extends State<_Sidebar>
                     padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
                     child: Row(children: [
                       // Avatar
-                      Container(
-                        width: 34, height: 34,
-                        decoration: BoxDecoration(
-                          gradient: widget.theme.avatarGradient,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: widget.theme.primaryColor.withValues(alpha: 0.28),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child: Text(initials,
-                            style: const TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            )),
-                        ),
-                      ),
+                      _avatar(34, initials, 12, 0.28),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
@@ -854,6 +869,8 @@ class _SidebarState extends State<_Sidebar>
                 ),
               ],
             ),
+          ),
+        ),
           ),
         ),
       ),
@@ -897,7 +914,7 @@ class _NavItemState extends State<_NavItem> {
     final Color itemBg     = active
         ? t.primaryColor.withValues(alpha: 0.13)
         : _hovered
-            ? Colors.white.withValues(alpha: 0.46)
+            ? t.navHoverColor
             : Colors.transparent;
     final Color itemBorder = active
         ? t.primaryColor.withValues(alpha: 0.24)
@@ -1103,9 +1120,11 @@ class _TopBar extends StatefulWidget {
   final String?      name;
   final String?      email;
   final String?      orgId;
+  final String?      photoUrl;
   final double       leftPad;
   final VoidCallback onMenuTap;
   final VoidCallback onSignOut;
+  final VoidCallback onProfileTap;
   final OrganizerPage currentPage;
 
   const _TopBar({
@@ -1113,9 +1132,11 @@ class _TopBar extends StatefulWidget {
     required this.name,
     required this.email,
     this.orgId,
+    this.photoUrl,
     required this.leftPad,
     required this.onMenuTap,
     required this.onSignOut,
+    required this.onProfileTap,
     required this.currentPage,
   });
 
@@ -1175,49 +1196,76 @@ class _TopBarState extends State<_TopBar> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(widget.name ?? 'Organizer',
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: kText,
-                    )),
-                  if (widget.email != null)
-                    Text(widget.email!,
-                      style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 10.5,
-                        color: kMuted,
-                      )),
-                ],
-              ),
-              const SizedBox(width: 10),
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  gradient: widget.theme.avatarGradient,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: widget.theme.primaryColor.withValues(alpha: 0.30),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: widget.onProfileTap,
+                  child: Tooltip(
+                    message: 'Profile',
+                    waitDuration: const Duration(milliseconds: 600),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(widget.name ?? 'Organizer',
+                              style: const TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: kText,
+                              )),
+                            if (widget.email != null)
+                              Text(widget.email!,
+                                style: const TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 10.5,
+                                  color: kMuted,
+                                )),
+                          ],
+                        ),
+                        const SizedBox(width: 10),
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            gradient: widget.theme.avatarGradient,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: widget.theme.primaryColor.withValues(alpha: 0.30),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: (widget.photoUrl != null && widget.photoUrl!.isNotEmpty)
+                              ? Image.network(widget.photoUrl!, fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => Center(
+                                    child: Text(initials,
+                                      style: const TextStyle(
+                                        fontFamily: 'Poppins',
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white,
+                                      )),
+                                  ))
+                              : Center(
+                                  child: Text(initials,
+                                    style: const TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                    )),
+                                ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: Center(
-                  child: Text(initials,
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    )),
+                  ),
                 ),
               ),
               const SizedBox(width: 16),
@@ -1246,7 +1294,7 @@ class _PageContext extends StatelessWidget {
     OrganizerPage.events:        'Events',
     OrganizerPage.registrations: 'Registrations',
     OrganizerPage.announcements: 'Announcements',
-    OrganizerPage.settings:      'Settings',
+    OrganizerPage.settings:      'Profile',
   };
 
   @override

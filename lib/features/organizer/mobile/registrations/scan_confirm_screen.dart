@@ -20,6 +20,8 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
   bool _confirming = false;
   String? _error;
 
+  AppTk get _t => AppTk(Theme.of(context).brightness == Brightness.dark);
+
   @override
   void initState() {
     super.initState();
@@ -100,11 +102,12 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return Scaffold(
-      backgroundColor: kBackground,
+      backgroundColor: t.bg,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: kText,
+        backgroundColor: t.card,
+        foregroundColor: t.text,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         title: const Text(
@@ -135,11 +138,11 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
               child: Icon(Icons.qr_code_2, size: 40, color: Colors.red.shade400),
             ),
             const SizedBox(height: 20),
-            const Text('Invalid QR Code',
-                style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 18, color: kText)),
+            Text('Invalid QR Code',
+                style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 18, color: _t.text)),
             const SizedBox(height: 8),
             Text(_error!, textAlign: TextAlign.center,
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kSubText, height: 1.5)),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: _t.sub, height: 1.5)),
             const SizedBox(height: 28),
             ElevatedButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -178,9 +181,9 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: _t.card,
               borderRadius: BorderRadius.circular(18),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 12, offset: const Offset(0, 4))],
+              boxShadow: [BoxShadow(color: _t.shadow, blurRadius: 12, offset: const Offset(0, 4))],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -202,12 +205,12 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                         children: [
                           Text(
                             reg['student_name'] as String? ?? '—',
-                            style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 17, color: kText),
+                            style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 17, color: _t.text),
                           ),
                           const SizedBox(height: 2),
                           Text(
                             reg['student_school_id'] as String? ?? '—',
-                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kSubText),
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: _t.sub),
                           ),
                         ],
                       ),
@@ -230,7 +233,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                   ],
                 ),
                 const SizedBox(height: 18),
-                Divider(height: 1, color: Colors.grey.shade100),
+                Divider(height: 1, color: _t.divider),
                 const SizedBox(height: 14),
                 _row(Icons.event_rounded,     'Event',    reg['event_title'] as String? ?? '—'),
                 const SizedBox(height: 10),
@@ -364,10 +367,10 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
         ),
 
         const SizedBox(height: 10),
-        const Text(
+        Text(
           'This instantly re-opens the front camera on the student\'s device.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText),
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: _t.sub),
         ),
       ],
     );
@@ -418,7 +421,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: color)),
                 const SizedBox(height: 4),
                 Text(subtitle,
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText, height: 1.5)),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: _t.sub, height: 1.5)),
               ],
             ),
           ),
@@ -461,10 +464,10 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
       children: [
         Icon(icon, size: 16, color: kGold),
         const SizedBox(width: 8),
-        Text('$label: ', style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kSubText)),
+        Text('$label: ', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: _t.sub)),
         Expanded(
           child: Text(value,
-              style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: kText),
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: _t.text),
               overflow: TextOverflow.ellipsis),
         ),
       ],

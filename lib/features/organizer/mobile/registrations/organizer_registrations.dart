@@ -291,31 +291,32 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return Scaffold(
       backgroundColor:
-          widget.showAsEmbedded ? Colors.transparent : kBackground,
+          widget.showAsEmbedded ? Colors.transparent : t.bg,
       body: SafeArea(
         child: Column(
           children: [
-            if (!widget.showAsEmbedded) _buildTopBar(),
+            if (!widget.showAsEmbedded) _buildTopBar(t),
             Expanded(
               child: _loading
-                  ? _buildLoadingState()
+                  ? _buildLoadingState(t)
                   : RefreshIndicator(
                       color: kGold,
                       onRefresh: _load,
                       child: CustomScrollView(
                         physics: const AlwaysScrollableScrollPhysics(),
                         slivers: [
-                          SliverToBoxAdapter(child: _buildPageHeader()),
-                          SliverToBoxAdapter(child: _buildSummaryStrip()),
-                          SliverToBoxAdapter(child: _buildFilterRow()),
-                          SliverToBoxAdapter(child: _buildSearchBar()),
-                          SliverToBoxAdapter(child: _buildResultCount()),
+                          SliverToBoxAdapter(child: _buildPageHeader(t)),
+                          SliverToBoxAdapter(child: _buildSummaryStrip(t)),
+                          SliverToBoxAdapter(child: _buildFilterRow(t)),
+                          SliverToBoxAdapter(child: _buildSearchBar(t)),
+                          SliverToBoxAdapter(child: _buildResultCount(t)),
                           if (_filtered.isEmpty)
                             SliverFillRemaining(
                               hasScrollBody: false,
-                              child: _buildEmptyState(),
+                              child: _buildEmptyState(t),
                             )
                           else
                             SliverPadding(
@@ -327,7 +328,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                                     padding:
                                         const EdgeInsets.only(bottom: 14),
                                     child: _buildRegistrationCard(
-                                        _filtered[i]),
+                                        _filtered[i], t),
                                   ),
                                   childCount: _filtered.length,
                                 ),
@@ -345,11 +346,11 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   // ── Loading ───────────────────────────────────────────────────────────────
 
-  Widget _buildLoadingState() {
+  Widget _buildLoadingState(AppTk t) {
     return SingleChildScrollView(
       child: Column(
         children: [
-          _buildPageHeader(),
+          _buildPageHeader(t),
           const AppShimmerList(itemCount: 6, hasAvatar: true, hasImage: false),
         ],
       ),
@@ -358,7 +359,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   // ── Top bar (non-embedded) ────────────────────────────────────────────────
 
-  Widget _buildTopBar() {
+  Widget _buildTopBar(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 16, 16, 8),
       child: Row(
@@ -369,20 +370,20 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: t.card,
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.07),
+                    color: t.shadow,
                     blurRadius: 10,
                     offset: const Offset(0, 3),
                   ),
                 ],
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.arrow_back_ios_new_rounded,
                 size: 18,
-                color: kText,
+                color: t.text,
               ),
             ),
           ),
@@ -391,13 +392,13 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Registrations',
                   style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
-                    color: kText,
+                    color: t.text,
                     height: 1.1,
                   ),
                 ),
@@ -411,7 +412,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   // ── Page header (embedded) ────────────────────────────────────────────────
 
-  Widget _buildPageHeader() {
+  Widget _buildPageHeader(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
       child: Row(
@@ -448,13 +449,13 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                 const SizedBox(height: 5),
 
                 // Title
-                const Text(
+                Text(
                   'Registrations',
                   style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 28,
                     fontWeight: FontWeight.w800,
-                    color: kText,
+                    color: t.text,
                     height: 1.1,
                   ),
                 ),
@@ -501,7 +502,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   // ── Summary strip ─────────────────────────────────────────────────────────
 
-  Widget _buildSummaryStrip() {
+  Widget _buildSummaryStrip(AppTk t) {
     final tiles = [
       (
         value: '$_total',
@@ -533,38 +534,38 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Row(
         children: tiles.asMap().entries.map((entry) {
-          final i = entry.key;
-          final t = entry.value;
+          final i    = entry.key;
+          final tile = entry.value;
           return Expanded(
             child: Container(
               margin: EdgeInsets.only(left: i == 0 ? 0 : 8),
               padding:
                   const EdgeInsets.symmetric(vertical: 13, horizontal: 6),
               decoration: BoxDecoration(
-                color: t.color.withValues(alpha: 0.07),
+                color: tile.color.withValues(alpha: 0.07),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                    color: t.color.withValues(alpha: 0.2), width: 1.5),
+                    color: tile.color.withValues(alpha: 0.2), width: 1.5),
               ),
               child: Column(
                 children: [
-                  Icon(t.icon, color: t.color, size: 18),
+                  Icon(tile.icon, color: tile.color, size: 18),
                   const SizedBox(height: 5),
                   Text(
-                    t.value,
+                    tile.value,
                     style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
-                      color: t.color,
+                      color: tile.color,
                       height: 1.1,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    t.label,
-                    style: const TextStyle(
-                        fontFamily: 'Poppins', fontSize: 9, color: kMuted),
+                    tile.label,
+                    style: TextStyle(
+                        fontFamily: 'Poppins', fontSize: 9, color: t.muted),
                   ),
                 ],
               ),
@@ -579,7 +580,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   // ── Filter pills ──────────────────────────────────────────────────────────
 
-  Widget _buildFilterRow() {
+  Widget _buildFilterRow(AppTk t) {
     const filters = [
       'All',
       'Pending',
@@ -610,12 +611,12 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 18),
                 decoration: BoxDecoration(
                   gradient: selected ? kGoldGradient : null,
-                  color:    selected ? null : Colors.white,
+                  color:    selected ? null : t.card,
                   borderRadius: BorderRadius.circular(21),
                   border: Border.all(
                     color: selected
                         ? const Color(0xFFC49230)
-                        : Colors.grey.shade300,
+                        : t.border,
                     width: 1.5,
                   ),
                   boxShadow: selected
@@ -635,7 +636,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                       fontFamily: 'Poppins',
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: selected ? Colors.white : kSubText,
+                      color: selected ? Colors.white : t.sub,
                     ),
                   ),
                 ),
@@ -649,16 +650,16 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   // ── Search bar ────────────────────────────────────────────────────────────
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: t.card,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: kText.withValues(alpha: 0.07),
+              color: t.shadow,
               blurRadius: 14,
               offset: const Offset(0, 4),
             ),
@@ -670,14 +671,14 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
             _applyFilter();
             setState(() {});
           },
-          style: const TextStyle(
-              fontFamily: 'Poppins', fontSize: 14, color: kText),
+          style: TextStyle(
+              fontFamily: 'Poppins', fontSize: 14, color: t.text),
           decoration: InputDecoration(
             hintText: 'Search by name, school ID, or event…',
             hintStyle: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 13,
-              color: kMuted.withValues(alpha: 0.8),
+              color: t.muted.withValues(alpha: 0.8),
             ),
             prefixIcon:
                 const Icon(Icons.search_rounded, color: kGold, size: 22),
@@ -685,7 +686,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                 ? IconButton(
                     icon: Icon(
                       Icons.cancel_rounded,
-                      color: kMuted.withValues(alpha: 0.6),
+                      color: t.muted.withValues(alpha: 0.6),
                       size: 20,
                     ),
                     onPressed: () {
@@ -717,16 +718,16 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   // ── Result count ──────────────────────────────────────────────────────────
 
-  Widget _buildResultCount() {
+  Widget _buildResultCount(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 6),
       child: Text(
         '${_filtered.length} registration${_filtered.length == 1 ? '' : 's'} found',
-        style: const TextStyle(
+        style: TextStyle(
           fontFamily: 'Poppins',
           fontSize: 12,
           fontWeight: FontWeight.w600,
-          color: kSubText,
+          color: t.sub,
         ),
       ),
     );
@@ -736,7 +737,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   // Registration card
   // ══════════════════════════════════════════════════════════════════════════
 
-  Widget _buildRegistrationCard(Map<String, dynamic> r) {
+  Widget _buildRegistrationCard(Map<String, dynamic> r, AppTk t) {
     final id          = r['id']                as String;
     final name        = r['student_name']      as String? ?? '—';
     final sid         = r['student_school_id'] as String? ?? '—';
@@ -748,12 +749,12 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: t.card,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.withValues(alpha: 0.1)),
+        border: Border.all(color: t.border),
         boxShadow: [
           BoxShadow(
-            color: kText.withValues(alpha: 0.06),
+            color: t.shadow,
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -804,11 +805,11 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                             children: [
                               Text(
                                 name,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 14,
                                   fontWeight: FontWeight.w700,
-                                  color: kText,
+                                  color: t.text,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -816,10 +817,10 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                               const SizedBox(height: 2),
                               Text(
                                 sid,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 11,
-                                  color: kSubText,
+                                  color: t.sub,
                                 ),
                               ),
                             ],
@@ -860,7 +861,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 8),
                       decoration: BoxDecoration(
-                        color: kBackground.withValues(alpha: 0.6),
+                        color: t.bg,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Column(
@@ -874,11 +875,11 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                               Expanded(
                                 child: Text(
                                   event,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontFamily: 'Poppins',
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
-                                    color: kText,
+                                    color: t.text,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -889,15 +890,15 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                           const SizedBox(height: 4),
                           Row(
                             children: [
-                              const Icon(Icons.schedule_rounded,
-                                  size: 12, color: kSubText),
+                              Icon(Icons.schedule_rounded,
+                                  size: 12, color: t.sub),
                               const SizedBox(width: 5),
                               Text(
                                 'Registered: ${_fmtDate(date)}',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 11,
-                                  color: kSubText,
+                                  color: t.sub,
                                 ),
                               ),
                             ],
@@ -909,7 +910,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                     // Selfie preview
                     if (status == 'photo_submitted') ...[
                       const SizedBox(height: 10),
-                      _buildSelfiePreview(id, r['selfie_url'] as String?),
+                      _buildSelfiePreview(id, r['selfie_url'] as String?, t),
                     ],
 
                     // Waiting spinner
@@ -952,7 +953,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                     Row(
                       children: [
                         Expanded(
-                            child: _buildPrimaryAction(r, id, name, status)),
+                            child: _buildPrimaryAction(r, id, name, status, t)),
                         const SizedBox(width: 8),
                         PopupMenuButton<String>(
                           onSelected: (v) {
@@ -981,11 +982,11 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                             width: 36,
                             height: 36,
                             decoration: BoxDecoration(
-                              color: Colors.grey.withValues(alpha: 0.08),
+                              color: t.border,
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Icon(Icons.more_vert_rounded,
-                                color: kSubText, size: 20),
+                            child: Icon(Icons.more_vert_rounded,
+                                color: t.sub, size: 20),
                           ),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12)),
@@ -1026,22 +1027,22 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   // ── Selfie preview ────────────────────────────────────────────────────────
 
-  Widget _buildSelfiePreview(String regId, String? path) {
+  Widget _buildSelfiePreview(String regId, String? path, AppTk t) {
     final url = _selfieUrls[regId];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          children: const [
-            Icon(Icons.photo_camera_rounded, size: 13, color: kGold),
-            SizedBox(width: 5),
+          children: [
+            const Icon(Icons.photo_camera_rounded, size: 13, color: kGold),
+            const SizedBox(width: 5),
             Text(
               'Student Selfie',
               style: TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: kText,
+                color: t.text,
               ),
             ),
           ],
@@ -1059,29 +1060,29 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                       ? child
                       : Container(
                           height: 140,
-                          color: kBackground,
+                          color: t.bg,
                           child: const Center(
                             child: CircularProgressIndicator(
                                 color: kGold, strokeWidth: 3),
                           ),
                         ),
-                  errorBuilder: (_, _, _) => _selfieError(),
+                  errorBuilder: (_, _, _) => _selfieError(t),
                 )
-              : (path != null ? _selfieSpinner() : _selfieError()),
+              : (path != null ? _selfieSpinner(t) : _selfieError(t)),
         ),
       ],
     );
   }
 
-  Widget _selfieSpinner() => Container(
+  Widget _selfieSpinner(AppTk t) => Container(
         height: 100,
-        color: kBackground,
+        color: t.bg,
         child: const Center(
           child: CircularProgressIndicator(color: kGold, strokeWidth: 3),
         ),
       );
 
-  Widget _selfieError() => Container(
+  Widget _selfieError(AppTk t) => Container(
         height: 100,
         decoration: BoxDecoration(
           color: kGold.withValues(alpha: 0.05),
@@ -1097,7 +1098,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   // ── Primary action buttons ────────────────────────────────────────────────
 
   Widget _buildPrimaryAction(
-      Map<String, dynamic> r, String id, String name, String status) {
+      Map<String, dynamic> r, String id, String name, String status, AppTk t) {
     switch (status) {
       case 'pending':
       case 'qr_scanned':
@@ -1106,6 +1107,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
           icon: Icons.camera_alt_outlined,
           color: const Color(0xFF16A34A),
           onTap: () => _updateStatus(id, 'photo_required'),
+          t: t,
         );
       case 'photo_required':
         return _awaitingBtn();
@@ -1115,6 +1117,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
           icon: Icons.how_to_reg_rounded,
           color: kGold,
           onTap: () => _updateStatus(id, 'checked_in'),
+          t: t,
         );
       case 'checked_in':
       default:
@@ -1124,6 +1127,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
           color: const Color(0xFF2979C8),
           outlined: true,
           onTap: () => _showDetails(r),
+          t: t,
         );
     }
   }
@@ -1161,6 +1165,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     required IconData icon,
     required Color color,
     required VoidCallback onTap,
+    required AppTk t,
     bool outlined = false,
   }) {
     return ElevatedButton.icon(
@@ -1176,7 +1181,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
         ),
       ),
       style: ElevatedButton.styleFrom(
-        backgroundColor: outlined ? Colors.white : color,
+        backgroundColor: outlined ? t.card : color,
         foregroundColor: outlined ? color : Colors.white,
         elevation: 0,
         side: BorderSide(
@@ -1191,7 +1196,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   // ── Empty state ───────────────────────────────────────────────────────────
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(AppTk t) {
     final isFiltered = _filter != 'All' || _search.text.isNotEmpty;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 32),
@@ -1214,11 +1219,11 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
           const SizedBox(height: 22),
           Text(
             isFiltered ? 'No registrations found' : 'No registrations yet',
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 18,
               fontWeight: FontWeight.w700,
-              color: kText,
+              color: t.text,
             ),
           ),
           const SizedBox(height: 8),
@@ -1227,10 +1232,10 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                 ? 'Try adjusting your search or filter'
                 : 'Students who register for events will appear here',
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 13,
-              color: kMuted,
+              color: t.muted,
               height: 1.6,
             ),
           ),
@@ -1299,6 +1304,7 @@ class _RegistrationDetailsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     final name        = r['student_name']      as String? ?? '—';
     final sid         = r['student_school_id'] as String? ?? '—';
     final event       = r['event_title']       as String? ?? '—';
@@ -1311,9 +1317,9 @@ class _RegistrationDetailsSheet extends StatelessWidget {
     final bottomPad   = MediaQuery.of(context).padding.bottom;
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1325,7 +1331,7 @@ class _RegistrationDetailsSheet extends StatelessWidget {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: const Color(0xFFE5E7EB),
+                color: t.border,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -1375,11 +1381,11 @@ class _RegistrationDetailsSheet extends StatelessWidget {
                   Text(
                     name,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
-                      color: kText,
+                      color: t.text,
                       height: 1.2,
                     ),
                     maxLines: 2,
@@ -1390,10 +1396,10 @@ class _RegistrationDetailsSheet extends StatelessWidget {
                   // School ID
                   Text(
                     sid,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 13,
-                      color: kSubText,
+                      color: t.sub,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -1436,22 +1442,22 @@ class _RegistrationDetailsSheet extends StatelessWidget {
                   const SizedBox(height: 24),
 
                   // Event card
-                  _infoCard(children: [
-                    _infoRow(Icons.event_rounded, 'Event', event, kGold,
+                  _infoCard(t, children: [
+                    _infoRow(t, Icons.event_rounded, 'Event', event, kGold,
                         multiLine: true),
                   ]),
                   const SizedBox(height: 12),
 
                   // Timeline card
-                  _infoCard(children: [
-                    _infoRow(Icons.schedule_rounded, 'Registered',
-                        _fmtDate(regDate), kSubText),
+                  _infoCard(t, children: [
+                    _infoRow(t, Icons.schedule_rounded, 'Registered',
+                        _fmtDate(regDate), t.sub),
                     if (checkedInAt != null) ...[
-                      const Divider(
+                      Divider(
                           height: 1,
                           thickness: 1,
-                          color: Color(0xFFF0EBE0)),
-                      _infoRow(Icons.check_circle_rounded, 'Checked In',
+                          color: t.divider),
+                      _infoRow(t, Icons.check_circle_rounded, 'Checked In',
                           _fmtDate(checkedInAt),
                           const Color(0xFF16A34A)),
                     ],
@@ -1460,24 +1466,24 @@ class _RegistrationDetailsSheet extends StatelessWidget {
                   // Selfie card
                   if (selfieUrl != null) ...[
                     const SizedBox(height: 12),
-                    _infoCard(children: [
+                    _infoCard(t, children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Row(
+                            Row(
                               children: [
-                                Icon(Icons.photo_camera_rounded,
+                                const Icon(Icons.photo_camera_rounded,
                                     size: 14, color: kGold),
-                                SizedBox(width: 8),
+                                const SizedBox(width: 8),
                                 Text(
                                   'Student Selfie',
                                   style: TextStyle(
                                     fontFamily: 'Poppins',
                                     fontSize: 12,
                                     fontWeight: FontWeight.w700,
-                                    color: kText,
+                                    color: t.text,
                                   ),
                                 ),
                               ],
@@ -1495,7 +1501,7 @@ class _RegistrationDetailsSheet extends StatelessWidget {
                                         ? child
                                         : Container(
                                             height: 160,
-                                            color: kBackground,
+                                            color: t.bg,
                                             child: const Center(
                                               child: CircularProgressIndicator(
                                                   color: kGold,
@@ -1561,16 +1567,16 @@ class _RegistrationDetailsSheet extends StatelessWidget {
     );
   }
 
-  Widget _infoCard({required List<Widget> children}) {
+  Widget _infoCard(AppTk t, {required List<Widget> children}) {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: kBackground,
+        color: t.bg,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFF0E8D8)),
+        border: Border.all(color: t.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: t.shadow,
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -1582,6 +1588,7 @@ class _RegistrationDetailsSheet extends StatelessWidget {
   }
 
   Widget _infoRow(
+    AppTk t,
     IconData icon,
     String label,
     String value,
@@ -1609,21 +1616,21 @@ class _RegistrationDetailsSheet extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 10.5,
                     fontWeight: FontWeight.w600,
-                    color: kMuted,
+                    color: t.muted,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: kText,
+                    color: t.text,
                     height: 1.3,
                   ),
                   maxLines: multiLine ? 3 : 1,

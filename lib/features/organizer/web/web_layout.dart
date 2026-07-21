@@ -30,25 +30,31 @@ const kWebLightGold = Color(0xFFD4AA60);
 enum OrganizerPage { dashboard, events, registrations, announcements, settings }
 
 // ── Web input decoration helper ───────────────────────────────────────────────
-InputDecoration webInputDeco(String hint, {IconData? icon, int? maxLines}) =>
+// `dark` defaults to false — organizer web never enables dark mode, so its
+// call sites are unaffected. Only the admin dashboard passes `dark: true`
+// when its own theme is dark, using the same graphite palette as AdminTk.
+InputDecoration webInputDeco(String hint, {IconData? icon, int? maxLines, bool dark = false}) =>
   InputDecoration(
     hintText: hint,
-    hintStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: kMuted),
-    prefixIcon: icon != null ? Icon(icon, size: 18, color: kMuted) : null,
+    hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
+        color: dark ? const Color(0xFF666E7D) : kMuted),
+    prefixIcon: icon != null
+        ? Icon(icon, size: 18, color: dark ? const Color(0xFF666E7D) : kMuted)
+        : null,
     alignLabelWithHint: true,
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: kCardBorder),
+      borderSide: BorderSide(color: dark ? const Color(0xFF232833) : kCardBorder),
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: kCardBorder),
+      borderSide: BorderSide(color: dark ? const Color(0xFF232833) : kCardBorder),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
       borderSide: const BorderSide(color: kGold, width: 1.5),
     ),
     filled: true,
-    fillColor: const Color(0xFFF8F9FC),
+    fillColor: dark ? const Color(0xFF0E1116) : const Color(0xFFF8F9FC),
   );

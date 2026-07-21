@@ -15,6 +15,7 @@ import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../shared/widgets/live_countdown.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../core/services/org_notif_prefs.dart';
 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -87,6 +88,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
   bool    _dashError    = false;
   bool    _hasAnyEvents = false;
   String? _organizerName;
+  String? _photoUrl;
 
   // Analytics data
   List<double> _dailyRegistrations = List.filled(7, 0);
@@ -128,7 +130,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
       final orgRow = await client
           .from('organizers')
-          .select('organizer_id, full_name, organization')
+          .select('organizer_id, full_name, organization, profile_image_url')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -280,11 +282,26 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
         ));
       }
 
+      // Respect per-user preferences (Profile → Notifications).
+      final disabledCats = await OrgNotifPrefs.disabled(user.id);
+      if (disabledCats.isNotEmpty) {
+        notifResult.removeWhere((n) =>
+            (disabledCats.contains(OrgNotifPrefs.signups) &&
+                n.id.startsWith('signups_today_')) ||
+            (disabledCats.contains(OrgNotifPrefs.live) &&
+                n.id.startsWith('event_live_')) ||
+            (disabledCats.contains(OrgNotifPrefs.today) &&
+                n.id.startsWith('event_today_')) ||
+            (disabledCats.contains(OrgNotifPrefs.tomorrow) &&
+                n.id.startsWith('event_tomorrow_')));
+      }
+
       if (mounted) {
         final alreadyRead = await _wasAlreadyRead(user.id, notifResult);
         if (!mounted) return;
         setState(() {
           _organizerName      = orgRow['full_name']    as String? ?? 'Organizer';
+          _photoUrl           = orgRow['profile_image_url'] as String?;
           _dailyRegistrations = dailyRegs;
           _totalRegsThisWeek  = dailyRegs.fold(0, (s, v) => s + v.toInt());
           _eventAttendance    = attendance;
@@ -343,8 +360,9 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return Scaffold(
-      backgroundColor: kBackground,
+      backgroundColor: t.bg,
       body: SafeArea(
         // IndexedStack keeps all tabs alive so they preserve scroll position
         // and don't re-fetch when the user switches tabs.
@@ -352,10 +370,10 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
         child: IndexedStack(
           index: _selectedIndex,
           children: [
-            _buildHomeContent(),
+            _buildHomeContent(t),
             const events.OrganizerEventsScreen(showAsEmbedded: true),
             const regs.RegistrationsScreen(showAsEmbedded: true),
-            const OrganizerProfileScreen(showAsEmbedded: true),
+            const OrganizerProfileScreen(),
           ],
         ),
       ),
@@ -408,7 +426,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
     return notifs.every((n) => readIds.contains(n.id));
   }
 
-  Widget _buildHomeContent() {
+  Widget _buildHomeContent(AppTk t) {
     if (_homeLoading) {
       return const AppFullScreenLoader(message: 'Loading your dashboard…');
     }
@@ -430,24 +448,24 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                 child: const Icon(Icons.cloud_off_rounded, size: 36, color: Color(0xFFEF4444)),
               ),
               const SizedBox(height: 20),
-              const Text(
+              Text(
                 'Could not load dashboard',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: kText,
+                  color: t.text,
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 'Check your connection and try again.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 13,
-                  color: kSubText,
+                  color: t.sub,
                   height: 1.5,
                 ),
               ),
@@ -483,11 +501,11 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
-          SliverToBoxAdapter(child: _stagger(_buildHeader(),            start: 0.00, end: 0.38)),
-          SliverToBoxAdapter(child: _stagger(_buildUpcomingCountdown(), start: 0.10, end: 0.48)),
-          SliverToBoxAdapter(child: _stagger(_buildAnnouncementsCard(), start: 0.20, end: 0.58)),
+          SliverToBoxAdapter(child: _stagger(_buildHeader(),               start: 0.00, end: 0.38)),
+          SliverToBoxAdapter(child: _stagger(_buildUpcomingCountdown(),    start: 0.10, end: 0.48)),
+          SliverToBoxAdapter(child: _stagger(_buildAnnouncementsCard(t),   start: 0.20, end: 0.58)),
           SliverToBoxAdapter(child: _stagger(
-            _hasAnyEvents ? _buildAnalyticsSection() : _buildEmptyStateCTA(),
+            _hasAnyEvents ? _buildAnalyticsSection(t) : _buildEmptyStateCTA(t),
             start: 0.32, end: 0.72,
           )),
           const SliverToBoxAdapter(child: SizedBox(height: 32)),
@@ -559,8 +577,49 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             ),
           ),
           const SizedBox(width: 10),
+          _buildHeaderAvatar(displayName),
+          const SizedBox(width: 10),
           _buildBellButton(t),
         ],
+      ),
+    );
+  }
+
+  // ── Header avatar — taps through to the Profile tab ───────────────────────
+
+  Widget _buildHeaderAvatar(String displayName) {
+    final initials = displayName.trim().split(' ')
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase())
+        .take(2)
+        .join();
+    final url = _photoUrl;
+    final fallback = Center(
+      child: Text(initials.isEmpty ? 'O' : initials,
+        style: const TextStyle(fontFamily: 'Poppins', fontSize: 15,
+            fontWeight: FontWeight.w700, color: Colors.white)),
+    );
+    return GestureDetector(
+      onTap: () => setState(() => _selectedIndex = 3),
+      child: Container(
+        width: 46, height: 46,
+        decoration: BoxDecoration(
+          gradient: kGoldGradient,
+          shape: BoxShape.circle,
+          border: Border.all(color: kGold.withValues(alpha: 0.40), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: kGold.withValues(alpha: 0.25),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: (url != null && url.isNotEmpty)
+            ? Image.network(url, fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => fallback)
+            : fallback,
       ),
     );
   }
@@ -641,19 +700,19 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
   // ── Announcements card ────────────────────────────────────────────────────
 
-  Widget _buildAnnouncementsCard() {
+  Widget _buildAnnouncementsCard(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Quick Actions',
             style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: kText,
+              color: t.text,
             ),
           ),
           const SizedBox(height: 12),
@@ -669,13 +728,13 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
               borderRadius: BorderRadius.circular(16),
               child: Ink(
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: t.card,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
                       color: const Color(0xFFE87A00).withValues(alpha: 0.2)),
                   boxShadow: [
                     BoxShadow(
-                      color: kText.withValues(alpha: 0.05),
+                      color: t.shadow,
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -704,13 +763,13 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'Announcements',
                               style: TextStyle(
                                 fontFamily: 'Poppins',
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700,
-                                color: kText,
+                                color: t.text,
                               ),
                             ),
                             const SizedBox(height: 3),
@@ -719,7 +778,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                               style: TextStyle(
                                 fontFamily: 'Poppins',
                                 fontSize: 12,
-                                color: kSubText.withValues(alpha: 0.8),
+                                color: t.sub.withValues(alpha: 0.8),
                               ),
                             ),
                           ],
@@ -755,17 +814,17 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
   // Analytics section
   // ══════════════════════════════════════════════════════════════════════════
 
-  Widget _buildAnalyticsSection() {
+  Widget _buildAnalyticsSection(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 28, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildAnalyticsHeader(),
+          _buildAnalyticsHeader(t),
           const SizedBox(height: 16),
-          _buildRegistrationsCard(),
+          _buildRegistrationsCard(t),
           const SizedBox(height: 14),
-          _buildAttendanceCard(),
+          _buildAttendanceCard(t),
         ],
       ),
     );
@@ -773,7 +832,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
   // ── Section header ────────────────────────────────────────────────────────
 
-  Widget _buildAnalyticsHeader() {
+  Widget _buildAnalyticsHeader(AppTk t) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -792,7 +851,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           ),
         ),
         const SizedBox(width: 9),
-        const Expanded(
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -800,12 +859,12 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                 'Analytics',
                 style: TextStyle(
                   fontFamily: 'Poppins', fontSize: 18,
-                  fontWeight: FontWeight.w800, color: kText, height: 1.1,
+                  fontWeight: FontWeight.w800, color: t.text, height: 1.1,
                 ),
               ),
               Text(
                 'Live event performance data',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted),
               ),
             ],
           ),
@@ -814,12 +873,12 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: t.card,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.grey.shade200),
+              border: Border.all(color: t.border),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
+                  color: t.shadow,
                   blurRadius: 6, offset: const Offset(0, 2),
                 ),
               ],
@@ -827,11 +886,11 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.access_time_rounded, size: 11, color: kMuted),
+                Icon(Icons.access_time_rounded, size: 11, color: t.muted),
                 const SizedBox(width: 4),
                 Text(
                   _timeAgo(_lastUpdated!),
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kMuted),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
                 ),
               ],
             ),
@@ -842,7 +901,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
   // ── Registrations card (white + purple) ──────────────────────────────────
 
-  Widget _buildRegistrationsCard() {
+  Widget _buildRegistrationsCard(AppTk t) {
     const purple = Color(0xFF7C3AED);
     const indigo = Color(0xFF4F46E5);
     const green  = Color(0xFF059669);
@@ -858,12 +917,12 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: t.card,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.withValues(alpha: 0.10)),
+        border: Border.all(color: t.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: t.shadow,
             blurRadius: 14,
             offset: const Offset(0, 5),
           ),
@@ -884,17 +943,17 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
               child: const Icon(Icons.how_to_reg_rounded, color: purple, size: 19),
             ),
             const SizedBox(width: 11),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Weekly Registrations',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: kText),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: t.text),
                   ),
                   Text(
                     'Sign-up activity · this week',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kMuted),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
                   ),
                 ],
               ),
@@ -906,6 +965,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           // ── KPI chips ────────────────────────────────────────────────
           Row(children: [
             _kpiChip(
+              t: t,
               value: '$_totalRegsThisWeek',
               label: 'This Week',
               icon: Icons.how_to_reg_rounded,
@@ -913,6 +973,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             ),
             const SizedBox(width: 10),
             _kpiChip(
+              t: t,
               value: peak != null ? '${peak['count']}' : '—',
               label: peak != null ? 'Peak · ${peak['label']}' : 'Peak Day',
               icon: Icons.trending_up_rounded,
@@ -920,6 +981,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             ),
             const SizedBox(width: 10),
             _kpiChip(
+              t: t,
               value: '$todayCount',
               label: 'Today',
               icon: Icons.today_rounded,
@@ -932,9 +994,9 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
+                Text(
                   'Daily average this week',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w500, color: kSubText),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w500, color: t.sub),
                 ),
                 Text(
                   '$avgStr / day',
@@ -955,7 +1017,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                 builder: (_, v, _) => LinearProgressIndicator(
                   value: v,
                   minHeight: 6,
-                  backgroundColor: Colors.grey.shade100,
+                  backgroundColor: t.divider,
                   valueColor: const AlwaysStoppedAnimation<Color>(purple),
                 ),
               ),
@@ -965,16 +1027,16 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           const SizedBox(height: 16),
 
           // ── Bar chart ────────────────────────────────────────────────
-          SizedBox(height: 185, child: _buildDailyBarChart()),
+          SizedBox(height: 185, child: _buildDailyBarChart(t)),
 
           if (_dailyRegistrations.any((v) => v > 0)) ...[
             const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _legendItem(color: purple, label: 'Registrations'),
+                _legendItem(t: t, color: purple, label: 'Registrations'),
                 const SizedBox(width: 20),
-                _legendItem(color: kGold, label: 'Today'),
+                _legendItem(t: t, color: kGold, label: 'Today'),
               ],
             ),
           ],
@@ -999,7 +1061,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
   // ── Bar chart: daily registrations (light-card version) ─────────────────
 
-  Widget _buildDailyBarChart() {
+  Widget _buildDailyBarChart(AppTk t) {
     const purple   = Color(0xFF7C3AED);
     const labels   = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final rawMax   = _dailyRegistrations.reduce(max);
@@ -1020,14 +1082,14 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
               child: const Icon(Icons.bar_chart_rounded, size: 30, color: purple),
             ),
             const SizedBox(height: 14),
-            const Text(
+            Text(
               'No registrations this week',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w600, color: kText),
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w600, color: t.text),
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'Appears once students sign up',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted),
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted),
             ),
           ],
         ),
@@ -1106,7 +1168,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                           fontFamily: 'Poppins',
                           fontSize: 10,
                           fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
-                          color: isToday ? kGold : kMuted.withValues(alpha: 0.70),
+                          color: isToday ? kGold : t.muted.withValues(alpha: 0.70),
                         ),
                       ),
                     ],
@@ -1129,7 +1191,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                     style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 9,
-                      color: kMuted.withValues(alpha: 0.70),
+                      color: t.muted.withValues(alpha: 0.70),
                     ),
                   ),
                 );
@@ -1143,7 +1205,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           show: true,
           drawVerticalLine: false,
           getDrawingHorizontalLine: (value) => FlLine(
-            color:       Colors.grey.withValues(alpha: 0.09),
+            color:       t.divider,
             strokeWidth: 1,
             dashArray:   [4, 4],
           ),
@@ -1190,7 +1252,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
   // ── Attendance card (white + blue) ────────────────────────────────────────
 
-  Widget _buildAttendanceCard() {
+  Widget _buildAttendanceCard(AppTk t) {
     const blue = Color(0xFF2563EB);
 
     final totalCheckedIn       = _eventAttendance.fold<int>(0, (s, e) => s + (e['checkedIn']       as int));
@@ -1207,12 +1269,12 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: t.card,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.withValues(alpha: 0.10)),
+        border: Border.all(color: t.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: t.shadow,
             blurRadius: 14, offset: const Offset(0, 5),
           ),
         ],
@@ -1232,14 +1294,14 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
               child: const Icon(Icons.people_alt_rounded, color: blue, size: 19),
             ),
             const SizedBox(width: 11),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Event Attendance',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: kText)),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: t.text)),
                   Text('Attendance per event · last 5 events',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kMuted)),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
                 ],
               ),
             ),
@@ -1249,9 +1311,9 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
           // ── KPI chips ────────────────────────────────────────────────
           Row(children: [
-            _kpiChip(value: '$totalCheckedIn', label: 'Checked In', icon: Icons.check_circle_rounded, color: blue),
+            _kpiChip(t: t, value: '$totalCheckedIn', label: 'Checked In', icon: Icons.check_circle_rounded, color: blue),
             const SizedBox(width: 10),
-            _kpiChip(value: '$rate%',          label: 'Avg Rate',   icon: Icons.trending_up_rounded,  color: rateColor),
+            _kpiChip(t: t, value: '$rate%',          label: 'Avg Rate',   icon: Icons.trending_up_rounded,  color: rateColor),
           ]),
 
           if (_eventAttendance.isNotEmpty) ...[
@@ -1259,8 +1321,8 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Overall capacity filled',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w500, color: kSubText)),
+                Text('Overall capacity filled',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w500, color: t.sub)),
                 Text('$rate%',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700, color: rateColor)),
               ],
@@ -1277,7 +1339,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                 builder: (_, v, _) => LinearProgressIndicator(
                   value: v,
                   minHeight: 6,
-                  backgroundColor: Colors.grey.shade100,
+                  backgroundColor: t.divider,
                   valueColor: AlwaysStoppedAnimation<Color>(rateColor),
                 ),
               ),
@@ -1285,13 +1347,14 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           ],
 
           const SizedBox(height: 16),
-          _buildAttendanceBreakdown(),
+          _buildAttendanceBreakdown(t),
         ],
       ),
     );
   }
 
   Widget _kpiChip({
+    required AppTk    t,
     required String   value,
     required String   label,
     required IconData icon,
@@ -1320,8 +1383,8 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             const SizedBox(height: 3),
             Text(
               label,
-              style: const TextStyle(
-                fontFamily: 'Poppins', fontSize: 9, color: kMuted,
+              style: TextStyle(
+                fontFamily: 'Poppins', fontSize: 9, color: t.muted,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -1332,7 +1395,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
     );
   }
 
-  Widget _legendItem({required Color color, required String label}) {
+  Widget _legendItem({required AppTk t, required Color color, required String label}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1345,14 +1408,14 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           ),
         ),
         const SizedBox(width: 6),
-        Text(label, style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kMuted)),
+        Text(label, style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
       ],
     );
   }
 
   // ── Per-event attendance breakdown (horizontal progress rows) ───────────
 
-  Widget _buildAttendanceBreakdown() {
+  Widget _buildAttendanceBreakdown(AppTk t) {
     const blue  = Color(0xFF2563EB);
     const green = Color(0xFF16A34A);
     const red   = Color(0xFFDC2626);
@@ -1374,12 +1437,12 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                   child: const Icon(Icons.people_alt_rounded, size: 26, color: blue),
                 ),
                 const SizedBox(height: 12),
-                const Text('No attendance data yet',
+                Text('No attendance data yet',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                    fontWeight: FontWeight.w600, color: kText)),
+                    fontWeight: FontWeight.w600, color: t.text)),
                 const SizedBox(height: 4),
-                const Text('Appears after your first check-in',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
+                Text('Appears after your first check-in',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
               ],
             ),
           ),
@@ -1424,12 +1487,12 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(title,
-                          style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 12, fontWeight: FontWeight.w600, color: kText),
+                          style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 12, fontWeight: FontWeight.w600, color: t.text),
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                         Text(dateLabel,
-                          style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 10, color: kMuted)),
+                          style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 10, color: t.muted)),
                       ],
                     ),
                   ),
@@ -1451,8 +1514,8 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                       const SizedBox(height: 2),
                       Text(
                         maxParticipants > 0 ? '$checkedIn / $maxParticipants' : '$checkedIn',
-                        style: const TextStyle(fontFamily: 'Poppins',
-                          fontSize: 10, fontWeight: FontWeight.w500, color: kMuted)),
+                        style: TextStyle(fontFamily: 'Poppins',
+                          fontSize: 10, fontWeight: FontWeight.w500, color: t.muted)),
                     ],
                   ),
                 ],
@@ -1481,19 +1544,19 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
   // ── Empty dashboard CTA (shown to new organizers with no events) ─────────
 
-  Widget _buildEmptyStateCTA() {
+  Widget _buildEmptyStateCTA(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 28, 16, 0),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: t.card,
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: kGold.withValues(alpha: 0.15)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
+              color: t.shadow,
               blurRadius: 16,
               offset: const Offset(0, 6),
             ),
@@ -1517,23 +1580,23 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
               child: const Icon(Icons.event_note_rounded, size: 38, color: Colors.white),
             ),
             const SizedBox(height: 20),
-            const Text(
+            Text(
               'No events yet',
               style: TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
-                color: kText,
+                color: t.text,
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Create your first event to start managing\nregistrations and tracking attendance.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 13,
-                color: kSubText,
+                color: t.sub,
                 height: 1.6,
               ),
             ),
@@ -1859,6 +1922,7 @@ class _NotifSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t         = AppTk(Theme.of(context).brightness == Brightness.dark);
     final now       = DateTime.now();
     const days      = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
     const months    = ['Jan','Feb','Mar','Apr','May','Jun',
@@ -1866,9 +1930,9 @@ class _NotifSheet extends StatelessWidget {
     final dateLabel = '${days[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: SafeArea(
         top: false,
@@ -1881,7 +1945,7 @@ class _NotifSheet extends StatelessWidget {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.shade300,
+                color: t.border,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -1890,27 +1954,27 @@ class _NotifSheet extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(children: [
-                const Icon(Icons.notifications_rounded, size: 18, color: kText),
+                Icon(Icons.notifications_rounded, size: 18, color: t.text),
                 const SizedBox(width: 10),
-                const Expanded(
+                Expanded(
                   child: Text('Notifications',
                     style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
-                      color: kText,
+                      color: t.text,
                     )),
                 ),
                 Text(dateLabel,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 11,
-                    color: kMuted,
+                    color: t.muted,
                   )),
               ]),
             ),
             const SizedBox(height: 14),
-            Divider(height: 1, color: Colors.grey.shade100),
+            Divider(height: 1, color: t.divider),
             // Content
             if (notifs.isEmpty)
               Padding(
@@ -1929,20 +1993,20 @@ class _NotifSheet extends StatelessWidget {
                         size: 26, color: Color(0xFF10B981)),
                     ),
                     const SizedBox(height: 14),
-                    const Text("You're all caught up!",
+                    Text("You're all caught up!",
                       style: TextStyle(
                         fontFamily: 'Poppins',
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
-                        color: kText,
+                        color: t.text,
                       ),
                       textAlign: TextAlign.center),
                     const SizedBox(height: 4),
-                    const Text('No new events or sign-ups today.',
+                    Text('No new events or sign-ups today.',
                       style: TextStyle(
                         fontFamily: 'Poppins',
                         fontSize: 12,
-                        color: kMuted,
+                        color: t.muted,
                       ),
                       textAlign: TextAlign.center),
                     const SizedBox(height: 8),
@@ -1956,8 +2020,8 @@ class _NotifSheet extends StatelessWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: notifs.length,
                 separatorBuilder: (_, _) =>
-                    Divider(height: 1, color: Colors.grey.shade100),
-                itemBuilder: (_, i) => _buildItem(notifs[i]),
+                    Divider(height: 1, color: t.divider),
+                itemBuilder: (_, i) => _buildItem(notifs[i], t),
               ),
             const SizedBox(height: 8),
           ],
@@ -1966,7 +2030,7 @@ class _NotifSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildItem(_AppNotif n) {
+  Widget _buildItem(_AppNotif n, AppTk t) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(children: [
@@ -1985,20 +2049,20 @@ class _NotifSheet extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(n.title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: kText,
+                  color: t.text,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
               const SizedBox(height: 3),
               Text(n.subtitle,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 11,
-                  color: kMuted,
+                  color: t.muted,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),

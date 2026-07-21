@@ -259,28 +259,29 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return Scaffold(
-      backgroundColor: kBackgroundAlt,
-      bottomNavigationBar: _buildBottomBar(),
+      backgroundColor: t.bg,
+      bottomNavigationBar: _buildBottomBar(t),
       body: Stack(
         children: [
           SafeArea(
             child: Column(
               children: [
-                _buildHeader(),
-                _buildProgressBar(),
+                _buildHeader(t),
+                _buildProgressBar(t),
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                     child: Column(
                       children: [
-                        _buildEventDetailsSection(),
+                        _buildEventDetailsSection(t),
                         const SizedBox(height: 14),
-                        _buildScheduleSection(),
+                        _buildScheduleSection(t),
                         const SizedBox(height: 14),
-                        _buildVenueSection(),
+                        _buildVenueSection(t),
                         const SizedBox(height: 14),
-                        _buildBannerSection(),
+                        _buildBannerSection(t),
                         const SizedBox(height: 8),
                       ],
                     ),
@@ -297,7 +298,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Header ───────────────────────────────────────────────────────────────────
 
-  Widget _buildHeader() {
+  Widget _buildHeader(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 16, 16, 10),
       child: Row(
@@ -307,20 +308,20 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             child: Container(
               width: 44, height: 44,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: t.card,
                 borderRadius: BorderRadius.circular(14),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 10, offset: const Offset(0, 3))],
+                boxShadow: [BoxShadow(color: t.shadow, blurRadius: 10, offset: const Offset(0, 3))],
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: kText),
+              child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: t.text),
             ),
           ),
           const SizedBox(width: 14),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Create Event', style: TextStyle(fontFamily: 'Poppins', fontSize: 20, fontWeight: FontWeight.w800, color: kText, height: 1.1)),
-                Text('Fill in the event details below', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText)),
+                Text('Create Event', style: TextStyle(fontFamily: 'Poppins', fontSize: 20, fontWeight: FontWeight.w800, color: t.text, height: 1.1)),
+                Text('Fill in the event details below', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub)),
               ],
             ),
           ),
@@ -331,7 +332,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Progress bar ─────────────────────────────────────────────────────────────
 
-  Widget _buildProgressBar() {
+  Widget _buildProgressBar(AppTk t) {
     final progress = _formProgress;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -341,7 +342,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Form completion', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
+              Text('Form completion', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
               Text(
                 '${(progress * 100).toInt()}%',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700,
@@ -358,7 +359,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               curve: Curves.easeOut,
               builder: (_, value, _) => LinearProgressIndicator(
                 value: value, minHeight: 5,
-                backgroundColor: Colors.grey.shade200,
+                backgroundColor: t.divider,
                 valueColor: AlwaysStoppedAnimation<Color>(
                   value == 1.0 ? const Color(0xFF16A34A) : kGold),
               ),
@@ -371,33 +372,34 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Event Details section ────────────────────────────────────────────────────
 
-  Widget _buildEventDetailsSection() {
+  Widget _buildEventDetailsSection(AppTk t) {
     return _sectionCard(
       icon: Icons.event_note_rounded, iconBg: kGoldLight, iconColor: kGold,
       title: 'Event Details',
+      t: t,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _inputField(label: 'Event Name', required: true, controller: _nameCtrl,
-              hint: 'e.g. Annual Science Fair 2026', icon: Icons.title_rounded),
+              hint: 'e.g. Annual Science Fair 2026', icon: Icons.title_rounded, t: t),
           const SizedBox(height: 18),
-          _fieldLabel('Event Type', required: true),
+          _fieldLabel('Event Type', required: true, t: t),
           const SizedBox(height: 10),
-          _buildTypeChips(),
+          _buildTypeChips(t),
           if (_selectedEventType == 'Other') ...[
             const SizedBox(height: 12),
             _inputField(label: 'Specify type', controller: _otherTypeCtrl,
-                hint: 'e.g. Academic Quiz, Cultural Night…', icon: Icons.edit_note_rounded),
+                hint: 'e.g. Academic Quiz, Cultural Night…', icon: Icons.edit_note_rounded, t: t),
           ],
           const SizedBox(height: 18),
           _inputField(label: 'Description', controller: _descCtrl,
-              hint: 'Describe what the event is about…', icon: Icons.notes_rounded, maxLines: 4),
+              hint: 'Describe what the event is about…', icon: Icons.notes_rounded, maxLines: 4, t: t),
         ],
       ),
     );
   }
 
-  Widget _buildTypeChips() {
+  Widget _buildTypeChips(AppTk t) {
     return SizedBox(
       height: 80,
       child: ListView.separated(
@@ -414,9 +416,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               duration: const Duration(milliseconds: 200),
               width: 74,
               decoration: BoxDecoration(
-                color: selected ? kGold : Colors.grey.shade50,
+                color: selected ? kGold : t.inputBg,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: selected ? kGold : Colors.grey.shade200, width: 1.5),
+                border: Border.all(color: selected ? kGold : t.border, width: 1.5),
                 boxShadow: selected
                     ? [BoxShadow(color: kGold.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 3))]
                     : null,
@@ -427,7 +429,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   Icon(icon, size: 24, color: selected ? Colors.white : color),
                   const SizedBox(height: 5),
                   Text(label, style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w600,
-                    color: selected ? Colors.white : kText)),
+                    color: selected ? Colors.white : t.text)),
                 ],
               ),
             ),
@@ -439,20 +441,21 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Schedule section — redesigned ─────────────────────────────────────────────
 
-  Widget _buildScheduleSection() {
+  Widget _buildScheduleSection(AppTk t) {
     return _sectionCard(
       icon: Icons.schedule_rounded,
       iconBg: const Color(0x1A2563EB),
       iconColor: _kBlue,
       title: 'Schedule',
+      t: t,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildDateField(),
+          _buildDateField(t),
           const SizedBox(height: 16),
-          _buildTimeRow(),
+          _buildTimeRow(t),
           const SizedBox(height: 14),
-          _buildDeadlineField(),
+          _buildDeadlineField(t),
         ],
       ),
     );
@@ -460,12 +463,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Date field with inline collapsible calendar ───────────────────────────────
 
-  Widget _buildDateField() {
+  Widget _buildDateField(AppTk t) {
     final filled = _selectedDate != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _fieldLabel('Event Date', required: true),
+        _fieldLabel('Event Date', required: true, t: t),
         const SizedBox(height: 8),
         // Trigger card
         GestureDetector(
@@ -474,7 +477,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             duration: const Duration(milliseconds: 220),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: filled ? _kBlue.withValues(alpha: 0.04) : Colors.white,
+              color: filled ? _kBlue.withValues(alpha: 0.04) : t.card,
               borderRadius: BorderRadius.only(
                 topLeft:     const Radius.circular(14),
                 topRight:    const Radius.circular(14),
@@ -486,7 +489,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                     ? _kBlue.withValues(alpha: 0.5)
                     : filled
                     ? _kBlue.withValues(alpha: 0.3)
-                    : Colors.grey.shade200,
+                    : t.border,
                 width: 1.5,
               ),
             ),
@@ -497,7 +500,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   duration: const Duration(milliseconds: 200),
                   width: 48, height: 48,
                   decoration: BoxDecoration(
-                    color: filled ? _kBlue : Colors.grey.shade100,
+                    color: filled ? _kBlue : t.divider,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: filled
@@ -514,7 +517,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                             ),
                           ],
                         )
-                      : const Icon(Icons.calendar_month_rounded, color: kMuted, size: 22),
+                      : Icon(Icons.calendar_month_rounded, color: t.muted, size: 22),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -523,11 +526,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(_fmtDate(_selectedDate!),
-                              style: const TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: kText)),
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: t.text)),
                             const SizedBox(height: 2),
                             Text(
                               _weekdayFull(_selectedDate!.weekday),
-                              style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.grey.shade500),
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted),
                             ),
                           ],
                         )
@@ -535,13 +538,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
-                              children: const [
-                                Text('Event Date', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: kText)),
-                                Text(' *', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Colors.red, fontWeight: FontWeight.w700)),
+                              children: [
+                                Text('Event Date', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
+                                const Text(' *', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Colors.red, fontWeight: FontWeight.w700)),
                               ],
                             ),
                             const SizedBox(height: 2),
-                            Text('Tap to open calendar', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.grey.shade400)),
+                            Text('Tap to open calendar', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
                           ],
                         ),
                 ),
@@ -551,11 +554,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   child: Container(
                     width: 28, height: 28,
                     decoration: BoxDecoration(
-                      color: _showCalendar ? _kBlue.withValues(alpha: 0.1) : Colors.grey.shade100,
+                      color: _showCalendar ? _kBlue.withValues(alpha: 0.1) : t.divider,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(Icons.keyboard_arrow_down_rounded, size: 18,
-                      color: _showCalendar ? _kBlue : Colors.grey.shade400),
+                      color: _showCalendar ? _kBlue : t.muted),
                   ),
                 ),
               ],
@@ -569,7 +572,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           child: _showCalendar
               ? Container(
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: t.card,
                     borderRadius: const BorderRadius.only(
                       bottomLeft:  Radius.circular(14),
                       bottomRight: Radius.circular(14),
@@ -599,7 +602,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Time row ─────────────────────────────────────────────────────────────────
 
-  Widget _buildTimeRow() {
+  Widget _buildTimeRow(AppTk t) {
     // Duration chip
     String? durationLabel;
     bool badDuration = false;
@@ -624,6 +627,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               time: _startTime, accentColor: _kGreen,
               icon: Icons.play_circle_outline_rounded,
               onTap: _pickStartTime,
+              t: t,
             )),
             const SizedBox(width: 10),
             Expanded(child: _buildTimeCard(
@@ -631,6 +635,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               time: _endTime, accentColor: _kRed,
               icon: Icons.stop_circle_outlined,
               onTap: _pickEndTime,
+              t: t,
             )),
           ],
         ),
@@ -674,11 +679,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     required Color     accentColor,
     required IconData  icon,
     required VoidCallback onTap,
+    required AppTk t,
   }) {
     final filled = time != null;
-    String fmt12(TimeOfDay t) {
-      final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
-      return '$h:${t.minute.toString().padLeft(2,'0')}';
+    String fmt12(TimeOfDay tod) {
+      final h = tod.hour % 12 == 0 ? 12 : tod.hour % 12;
+      return '$h:${tod.minute.toString().padLeft(2,'0')}';
     }
 
     return GestureDetector(
@@ -687,10 +693,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
         decoration: BoxDecoration(
-          color: filled ? accentColor.withValues(alpha: 0.05) : Colors.white,
+          color: filled ? accentColor.withValues(alpha: 0.05) : t.card,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: filled ? accentColor.withValues(alpha: 0.35) : Colors.grey.shade200,
+            color: filled ? accentColor.withValues(alpha: 0.35) : t.border,
             width: 1.5,
           ),
         ),
@@ -699,12 +705,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           children: [
             Row(
               children: [
-                Icon(icon, size: 12, color: filled ? accentColor : kMuted),
+                Icon(icon, size: 12, color: filled ? accentColor : t.muted),
                 const SizedBox(width: 5),
                 Expanded(
                   child: Text(label, style: TextStyle(
                     fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w600,
-                    color: filled ? accentColor : kMuted)),
+                    color: filled ? accentColor : t.muted)),
                 ),
                 if (required && !filled)
                   const Text('*', style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: Colors.red, fontWeight: FontWeight.w700)),
@@ -736,9 +742,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               const SizedBox(height: 3),
               Text('Tap to edit', style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: accentColor.withValues(alpha: 0.6))),
             ] else ...[
-              Text('--:--', style: TextStyle(fontFamily: 'Poppins', fontSize: 28, fontWeight: FontWeight.w800, color: Colors.grey.shade200, height: 1.0)),
+              Text('--:--', style: TextStyle(fontFamily: 'Poppins', fontSize: 28, fontWeight: FontWeight.w800, color: t.muted, height: 1.0)),
               const SizedBox(height: 3),
-              Text('Tap to set', style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: Colors.grey.shade400)),
+              Text('Tap to set', style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
             ],
           ],
         ),
@@ -748,7 +754,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Deadline field ────────────────────────────────────────────────────────────
 
-  Widget _buildDeadlineField() {
+  Widget _buildDeadlineField(AppTk t) {
     final filled = _registrationDeadline != null;
     final d      = _registrationDeadline;
 
@@ -757,12 +763,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       children: [
         Row(
           children: [
-            _fieldLabel('Registration Deadline'),
+            _fieldLabel('Registration Deadline', t: t),
             const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
-              child: const Text('optional', style: TextStyle(fontFamily: 'Poppins', fontSize: 9, color: kMuted, fontWeight: FontWeight.w500)),
+              decoration: BoxDecoration(color: t.divider, borderRadius: BorderRadius.circular(4)),
+              child: Text('optional', style: TextStyle(fontFamily: 'Poppins', fontSize: 9, color: t.muted, fontWeight: FontWeight.w500)),
             ),
           ],
         ),
@@ -773,10 +779,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: filled ? kGold.withValues(alpha: 0.04) : Colors.white,
+              color: filled ? kGold.withValues(alpha: 0.04) : t.card,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: filled ? kGold.withValues(alpha: 0.4) : Colors.grey.shade200,
+                color: filled ? kGold.withValues(alpha: 0.4) : t.border,
                 width: 1.5,
               ),
             ),
@@ -785,10 +791,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 Container(
                   width: 44, height: 44,
                   decoration: BoxDecoration(
-                    color: filled ? kGold.withValues(alpha: 0.12) : Colors.grey.shade100,
+                    color: filled ? kGold.withValues(alpha: 0.12) : t.border,
                     borderRadius: BorderRadius.circular(11),
                   ),
-                  child: Icon(Icons.event_busy_rounded, size: 20, color: filled ? kGold : kMuted),
+                  child: Icon(Icons.event_busy_rounded, size: 20, color: filled ? kGold : t.muted),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -796,7 +802,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                       ? Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(_fmtDate(d), style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700, color: kText)),
+                            Text(_fmtDate(d), style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700, color: t.text)),
                             const SizedBox(height: 4),
                             Row(
                               children: [
@@ -818,10 +824,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('No deadline set', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: kText)),
+                            Text('No deadline set', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
                             const SizedBox(height: 2),
                             Text('Tap to add a registration deadline',
-                              style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.grey.shade400)),
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
                           ],
                         ),
                 ),
@@ -833,8 +839,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                       padding: const EdgeInsets.all(4),
                       child: Container(
                         width: 24, height: 24,
-                        decoration: BoxDecoration(color: Colors.grey.shade100, shape: BoxShape.circle),
-                        child: const Icon(Icons.close_rounded, size: 14, color: kMuted),
+                        decoration: BoxDecoration(color: t.divider, shape: BoxShape.circle),
+                        child: Icon(Icons.close_rounded, size: 14, color: t.muted),
                       ),
                     ),
                   )
@@ -850,26 +856,27 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Venue & Capacity section ─────────────────────────────────────────────────
 
-  Widget _buildVenueSection() {
+  Widget _buildVenueSection(AppTk t) {
     return _sectionCard(
       icon: Icons.place_rounded, iconBg: const Color(0x1A16A34A), iconColor: const Color(0xFF16A34A),
       title: 'Venue & Capacity',
+      t: t,
       child: Column(
         children: [
           _inputField(label: 'Venue / Location', required: true, controller: _venueCtrl,
-              hint: 'e.g. School Gymnasium', icon: Icons.location_on_outlined),
+              hint: 'e.g. School Gymnasium', icon: Icons.location_on_outlined, t: t),
           const SizedBox(height: 18),
-          _buildCapacityField(),
+          _buildCapacityField(t),
         ],
       ),
     );
   }
 
-  Widget _buildCapacityField() {
+  Widget _buildCapacityField(AppTk t) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _fieldLabel('Max Participants', optional: true),
+        _fieldLabel('Max Participants', optional: true, t: t),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -881,14 +888,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.center,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700, color: kText),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700, color: t.text),
                 decoration: InputDecoration(
                   hintText: '—',
-                  hintStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 16, color: kMuted),
-                  filled: true, fillColor: Colors.grey.shade50,
+                  hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 16, color: t.muted),
+                  filled: true, fillColor: t.inputBg,
                   contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                  border:        OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+                  border:        OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.border)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.border)),
                   focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: kGold, width: 2)),
                 ),
               ),
@@ -898,8 +905,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           ],
         ),
         const SizedBox(height: 6),
-        const Text('Leave blank for unlimited participants',
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
+        Text('Leave blank for unlimited participants',
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
       ],
     );
   }
@@ -918,23 +925,24 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Banner section ────────────────────────────────────────────────────────────
 
-  Widget _buildBannerSection() {
+  Widget _buildBannerSection(AppTk t) {
     return _sectionCard(
       icon: Icons.image_rounded, iconBg: const Color(0x1A7C3AED), iconColor: const Color(0xFF7C3AED),
       title: 'Event Banner',
-      child: _selectedBanner != null ? _buildBannerPreview() : _buildBannerDropZone(),
+      t: t,
+      child: _selectedBanner != null ? _buildBannerPreview(t) : _buildBannerDropZone(t),
     );
   }
 
-  Widget _buildBannerDropZone() {
+  Widget _buildBannerDropZone(AppTk t) {
     return GestureDetector(
       onTap: _uploadBanner,
       child: Container(
         width: double.infinity, height: 160,
         decoration: BoxDecoration(
-          color: Colors.grey.shade50,
+          color: t.inputBg,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade300, width: 1.5),
+          border: Border.all(color: t.border, width: 1.5),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -945,16 +953,16 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               child: const Icon(Icons.add_photo_alternate_rounded, size: 26, color: Color(0xFF7C3AED)),
             ),
             const SizedBox(height: 12),
-            const Text('Tap to upload banner image', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: kText)),
+            Text('Tap to upload banner image', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
             const SizedBox(height: 4),
-            const Text('Recommended: 16 : 9  ·  JPG or PNG', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
+            Text('Recommended: 16 : 9  ·  JPG or PNG', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildBannerPreview() {
+  Widget _buildBannerPreview(AppTk t) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: Stack(
@@ -971,10 +979,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.9), borderRadius: BorderRadius.circular(10)),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.swap_horiz_rounded, size: 14, color: kText),
-                  SizedBox(width: 5),
-                  Text('Change', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w600, color: kText)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.swap_horiz_rounded, size: 14, color: t.text),
+                  const SizedBox(width: 5),
+                  Text('Change', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w600, color: t.text)),
                 ]),
               ),
             )),
@@ -994,19 +1002,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Bottom bar ────────────────────────────────────────────────────────────────
 
-  Widget _buildBottomBar() {
+  Widget _buildBottomBar(AppTk t) {
     return SafeArea(
       top: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 20, offset: const Offset(0, -4))],
+          color: t.card,
+          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 20, offset: const Offset(0, -4))],
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
             gradient: _isPublishing ? null : kGoldGradient,
-            color:    _isPublishing ? Colors.grey.shade300 : null,
+            color:    _isPublishing ? t.border : null,
             borderRadius: BorderRadius.circular(14),
             boxShadow: _isPublishing ? null : [BoxShadow(color: kGold.withValues(alpha: 0.40), blurRadius: 16, offset: const Offset(0, 6))],
           ),
@@ -1034,12 +1042,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   Widget _sectionCard({
     required IconData icon, required Color iconBg, required Color iconColor,
-    required String title, required Widget child,
+    required String title, required Widget child, required AppTk t,
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white, borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 12, offset: const Offset(0, 4))],
+        color: t.card, borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: t.shadow, blurRadius: 12, offset: const Offset(0, 4))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1052,12 +1060,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(9)),
                   child: Icon(icon, color: iconColor, size: 16)),
                 const SizedBox(width: 10),
-                Text(title, style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: kText)),
+                Text(title, style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: t.text)),
               ],
             ),
           ),
           const SizedBox(height: 12),
-          Divider(height: 1, thickness: 1, color: Colors.grey.shade100),
+          Divider(height: 1, thickness: 1, color: t.divider),
           Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 18), child: child),
         ],
       ),
@@ -1066,25 +1074,26 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   Widget _inputField({
     required String label, required TextEditingController controller,
+    required AppTk t,
     String? hint, IconData? icon, int maxLines = 1,
     bool required = false, TextInputType? keyboard,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _fieldLabel(label, required: required),
+        _fieldLabel(label, required: required, t: t),
         const SizedBox(height: 7),
         TextFormField(
           controller: controller, maxLines: maxLines, keyboardType: keyboard,
-          style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kMuted),
+            hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.muted),
             prefixIcon: icon != null ? Icon(icon, color: kGold, size: 18) : null,
-            filled: true, fillColor: Colors.grey.shade50,
+            filled: true, fillColor: t.inputBg,
             contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            border:        OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+            border:        OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.border)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.border)),
             focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: kGold, width: 2)),
           ),
         ),
@@ -1092,12 +1101,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  Widget _fieldLabel(String label, {bool required = false, bool optional = false}) {
+  Widget _fieldLabel(String label, {bool required = false, bool optional = false, required AppTk t}) {
     return Row(
       children: [
-        Text(label, style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w600, color: kText)),
+        Text(label, style: TextStyle(fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w600, color: t.text)),
         if (required) const Text('  *', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Colors.red, fontWeight: FontWeight.w700)),
-        if (optional) const Text('  (optional)', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
+        if (optional) Text('  (optional)', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
       ],
     );
   }
@@ -1160,6 +1169,7 @@ class _InlineCalendarState extends State<_InlineCalendar> {
 
   @override
   Widget build(BuildContext context) {
+    final t     = AppTk(Theme.of(context).brightness == Brightness.dark);
     final today = DateUtils.dateOnly(DateTime.now());
     final cells = _cells();
     final accent = widget.accentColor;
@@ -1176,7 +1186,7 @@ class _InlineCalendarState extends State<_InlineCalendar> {
                 child: Text(
                   '${_months[_month - 1]} $_year',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: kText),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: t.text),
                 ),
               ),
               _CalNavBtn(icon: Icons.chevron_right_rounded, onTap: _next, color: accent),
@@ -1189,7 +1199,7 @@ class _InlineCalendarState extends State<_InlineCalendar> {
               child: Text(d,
                 textAlign: TextAlign.center,
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700,
-                  color: d == 'Su' || d == 'Sa' ? accent.withValues(alpha: 0.55) : Colors.grey.shade500)),
+                  color: d == 'Su' || d == 'Sa' ? accent.withValues(alpha: 0.55) : t.muted)),
             )).toList(),
           ),
           const SizedBox(height: 8),
@@ -1226,9 +1236,9 @@ class _InlineCalendarState extends State<_InlineCalendar> {
                             fontSize:    13,
                             fontWeight:  isSel || isToday ? FontWeight.w700 : FontWeight.w500,
                             color: isSel ? Colors.white
-                                : disabled ? Colors.grey.shade300
+                                : disabled ? t.muted
                                 : isToday  ? accent
-                                : kText,
+                                : t.text,
                           ),
                         ),
                       ),
@@ -1316,14 +1326,15 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final t      = AppTk(Theme.of(context).brightness == Brightness.dark);
     final accent = widget.accentColor;
     final bottom = MediaQuery.of(context).padding.bottom;
     const itemH  = 54.0;
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1332,7 +1343,7 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
           Padding(
             padding: const EdgeInsets.only(top: 12, bottom: 4),
             child: Container(width: 40, height: 4,
-              decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+              decoration: BoxDecoration(color: t.border, borderRadius: BorderRadius.circular(2))),
           ),
           // Header
           Padding(
@@ -1343,12 +1354,12 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
                 child: Icon(Icons.access_time_rounded, color: accent, size: 20)),
               const SizedBox(width: 12),
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(widget.title, style: const TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w700, color: kText)),
+                Text(widget.title, style: TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w700, color: t.text)),
                 Text(
                   widget.minTime != null
                       ? 'Today\'s event — from ${_fmtMinTime(widget.minTime!)} onwards'
                       : 'Scroll to set hour, minute & period',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.grey.shade500),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted),
                 ),
               ]),
             ]),
@@ -1365,7 +1376,7 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
                   Expanded(child: _drum(
                     ctrl: _hourCtrl, count: 12,
                     label: (i) => '${i + 1}'.padLeft(2, '0'),
-                    accent: accent, itemH: itemH,
+                    accent: accent, itemH: itemH, t: t,
                   )),
                   // Colon
                   Padding(
@@ -1380,7 +1391,7 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
                   Expanded(child: _drum(
                     ctrl: _minCtrl, count: 60,
                     label: (i) => '$i'.padLeft(2, '0'),
-                    accent: accent, itemH: itemH,
+                    accent: accent, itemH: itemH, t: t,
                   )),
                   const SizedBox(width: 14),
                   // AM/PM
@@ -1395,13 +1406,13 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
                           width: 58, height: itemH * 1.1,
                           margin: const EdgeInsets.only(bottom: 6),
                           decoration: BoxDecoration(
-                            color: sel ? accent : Colors.grey.shade50,
+                            color: sel ? accent : t.inputBg,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: sel ? accent : Colors.grey.shade200, width: 1.5),
+                            border: Border.all(color: sel ? accent : t.border, width: 1.5),
                           ),
                           child: Center(child: Text(p,
                             style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700,
-                              color: sel ? Colors.white : Colors.grey.shade400))),
+                              color: sel ? Colors.white : t.muted))),
                         ),
                       );
                     }).toList(),
@@ -1480,6 +1491,7 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
     required String Function(int) label,
     required Color accent,
     required double itemH,
+    required AppTk t,
   }) {
     return Stack(
       alignment: Alignment.center,
@@ -1512,7 +1524,7 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
                     fontFamily: 'Poppins',
                     fontSize:   isSel ? 30 : 20,
                     fontWeight: isSel ? FontWeight.w800 : FontWeight.w400,
-                    color:      isSel ? accent : Colors.grey.shade400,
+                    color:      isSel ? accent : t.muted,
                   )),
               );
             },
@@ -1524,7 +1536,7 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
             height: itemH * 2,
             decoration: BoxDecoration(gradient: LinearGradient(
               begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+              colors: [t.card, t.card.withValues(alpha: 0)],
             )),
           ))),
         // Bottom fade
@@ -1533,7 +1545,7 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
             height: itemH * 2,
             decoration: BoxDecoration(gradient: LinearGradient(
               begin: Alignment.bottomCenter, end: Alignment.topCenter,
-              colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+              colors: [t.card, t.card.withValues(alpha: 0)],
             )),
           ))),
       ],
@@ -1603,15 +1615,16 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final t      = AppTk(Theme.of(context).brightness == Brightness.dark);
     final today  = DateUtils.dateOnly(DateTime.now());
     final cells  = _cells();
     final bottom = MediaQuery.of(context).padding.bottom;
     const itemH  = 44.0;
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: SingleChildScrollView(
         child: Column(
@@ -1621,7 +1634,7 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
             Padding(
               padding: const EdgeInsets.only(top: 12, bottom: 4),
               child: Container(width: 40, height: 4,
-                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+                decoration: BoxDecoration(color: t.border, borderRadius: BorderRadius.circular(2))),
             ),
             // Header
             Padding(
@@ -1632,13 +1645,13 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
                   child: const Icon(Icons.event_busy_rounded, color: kGold, size: 20)),
                 const SizedBox(width: 12),
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Registration Deadline', style: TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w700, color: kText)),
-                  Text('Last day students can sign up', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.grey.shade500)),
+                  Text('Registration Deadline', style: TextStyle(fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w700, color: t.text)),
+                  Text('Last day students can sign up', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
                 ]),
               ]),
             ),
             const SizedBox(height: 16),
-            Divider(color: Colors.grey.shade100, height: 1),
+            Divider(color: t.divider, height: 1),
             // ── Mini calendar ──────────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
@@ -1648,14 +1661,14 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
                     _CalNavBtn(icon: Icons.chevron_left_rounded,  onTap: _prev, color: kGold),
                     Expanded(child: Text('${_months[_viewMonth - 1]} $_viewYear',
                       textAlign: TextAlign.center,
-                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: kText))),
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: t.text))),
                     _CalNavBtn(icon: Icons.chevron_right_rounded, onTap: _next, color: kGold),
                   ]),
                   const SizedBox(height: 10),
                   Row(children: _weekdays.map((d) => Expanded(
                     child: Text(d, textAlign: TextAlign.center,
                       style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700,
-                        color: d == 'Su' || d == 'Sa' ? kGold.withValues(alpha: 0.6) : Colors.grey.shade400)),
+                        color: d == 'Su' || d == 'Sa' ? kGold.withValues(alpha: 0.6) : t.muted)),
                   )).toList()),
                   const SizedBox(height: 6),
                   ...List.generate(cells.length ~/ 7, (week) => Padding(
@@ -1679,7 +1692,7 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
                             child: Text('${date.day}', style: TextStyle(
                               fontFamily: 'Poppins', fontSize: 12,
                               fontWeight: isSel || isToday ? FontWeight.w700 : FontWeight.w500,
-                              color: isSel ? Colors.white : isPast ? Colors.grey.shade300 : isToday ? kGold : kText,
+                              color: isSel ? Colors.white : isPast ? t.muted : isToday ? kGold : t.text,
                             )),
                           ),
                         ),
@@ -1690,7 +1703,7 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
               ),
             ),
             const SizedBox(height: 8),
-            Divider(color: Colors.grey.shade100, height: 1),
+            Divider(color: t.divider, height: 1),
             // ── Time drums ──────────────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 18, 24, 0),
@@ -1698,7 +1711,7 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   // Hour
-                  _deadlineDrum(ctrl: _hourCtrl, count: 12, label: (i) => '${i+1}'.padLeft(2,'0'), header: 'Hour', itemH: itemH),
+                  _deadlineDrum(ctrl: _hourCtrl, count: 12, label: (i) => '${i+1}'.padLeft(2,'0'), header: 'Hour', itemH: itemH, t: t),
                   // Colon
                   Padding(padding: const EdgeInsets.fromLTRB(6, 0, 6, 20),
                     child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -1707,7 +1720,7 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
                       Container(width: 5, height: 5, decoration: const BoxDecoration(color: kGold, shape: BoxShape.circle)),
                     ])),
                   // Minute
-                  _deadlineDrum(ctrl: _minCtrl, count: 60, label: (i) => '$i'.padLeft(2,'0'), header: 'Min', itemH: itemH),
+                  _deadlineDrum(ctrl: _minCtrl, count: 60, label: (i) => '$i'.padLeft(2,'0'), header: 'Min', itemH: itemH, t: t),
                   const SizedBox(width: 16),
                   // AM/PM
                   Column(children: [
@@ -1719,17 +1732,17 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
                           duration: const Duration(milliseconds: 180),
                           width: 58, height: itemH, margin: const EdgeInsets.only(bottom: 6),
                           decoration: BoxDecoration(
-                            color: sel ? kGold : Colors.grey.shade50,
+                            color: sel ? kGold : t.inputBg,
                             borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: sel ? kGold : Colors.grey.shade200, width: 1.5),
+                            border: Border.all(color: sel ? kGold : t.border, width: 1.5),
                           ),
                           child: Center(child: Text(p, style: TextStyle(
                             fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700,
-                            color: sel ? Colors.white : Colors.grey.shade400))),
+                            color: sel ? Colors.white : t.muted))),
                         ),
                       );
                     }),
-                    Text('Period', style: TextStyle(fontFamily: 'Poppins', fontSize: 9, color: Colors.grey.shade400)),
+                    Text('Period', style: TextStyle(fontFamily: 'Poppins', fontSize: 9, color: t.muted)),
                   ]),
                 ],
               ),
@@ -1743,8 +1756,8 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
                   child: OutlinedButton(
                     onPressed: () => Navigator.pop(context),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: kMuted,
-                      side: BorderSide(color: Colors.grey.shade300),
+                      foregroundColor: t.muted,
+                      side: BorderSide(color: t.border),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
@@ -1757,7 +1770,7 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
                     decoration: BoxDecoration(
-                      color: _selDate != null ? kGold : Colors.grey.shade200,
+                      color: _selDate != null ? kGold : t.border,
                       borderRadius: BorderRadius.circular(14),
                       boxShadow: _selDate != null
                           ? [BoxShadow(color: kGold.withValues(alpha: 0.35), blurRadius: 12, offset: const Offset(0, 5))]
@@ -1790,6 +1803,7 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
     required String Function(int) label,
     required String header,
     required double itemH,
+    required AppTk t,
   }) {
     return Column(children: [
       SizedBox(
@@ -1814,7 +1828,7 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
                   fontFamily: 'Poppins',
                   fontSize:   isSel ? 26 : 18,
                   fontWeight: isSel ? FontWeight.w800 : FontWeight.w400,
-                  color:      isSel ? kGold : Colors.grey.shade400,
+                  color:      isSel ? kGold : t.muted,
                 )));
               },
             ),
@@ -1822,17 +1836,17 @@ class _DeadlinePickerSheetState extends State<_DeadlinePickerSheet> {
           Positioned(top: 0, left: 0, right: 0, child: IgnorePointer(child: Container(
             height: itemH * 1.5, decoration: BoxDecoration(gradient: LinearGradient(
               begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+              colors: [t.card, t.card.withValues(alpha: 0)],
             ))))),
           Positioned(bottom: 0, left: 0, right: 0, child: IgnorePointer(child: Container(
             height: itemH * 1.5, decoration: BoxDecoration(gradient: LinearGradient(
               begin: Alignment.bottomCenter, end: Alignment.topCenter,
-              colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+              colors: [t.card, t.card.withValues(alpha: 0)],
             ))))),
         ]),
       ),
       const SizedBox(height: 5),
-      Text(header, style: TextStyle(fontFamily: 'Poppins', fontSize: 9, color: Colors.grey.shade400)),
+      Text(header, style: TextStyle(fontFamily: 'Poppins', fontSize: 9, color: t.muted)),
     ]);
   }
 }

@@ -8,19 +8,32 @@ class WebCard extends StatelessWidget {
   const WebCard({super.key, required this.child, this.padding, this.radius = 16});
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: padding ?? const EdgeInsets.all(22),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: kCardBorder),
-      boxShadow: [
-        BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 2)),
-      ],
-    ),
-    child: child,
-  );
+  Widget build(BuildContext context) {
+    // Web-only dark check — organizer web never enables dark mode, so this
+    // branch only ever fires for the admin dashboard, using the same cool
+    // graphite palette as its AdminTk tokens (kept literal here since this
+    // is a shared widget with no access to a feature-local token class).
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: double.infinity,
+      padding: padding ?? const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xFF12151B) : Colors.white,
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: dark ? const Color(0xFF232833) : kCardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: dark
+                ? Colors.black.withValues(alpha: 0.55)
+                : Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
 }
 
 class WebSectionHeader extends StatelessWidget {

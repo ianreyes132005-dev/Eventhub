@@ -35,7 +35,6 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
     _titleCtrl.addListener(_updateLengths);
     _msgCtrl.addListener(_updateLengths);
     _load();
-    SupabaseService.announcementsVersion.addListener(_load);
     _subscribeRealtime();
   }
 
@@ -55,7 +54,6 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
     _staggerCtrl.dispose();
     _titleCtrl.dispose();
     _msgCtrl.dispose();
-    SupabaseService.announcementsVersion.removeListener(_load);
     super.dispose();
   }
 
@@ -392,7 +390,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
         SizedBox(
           width: double.infinity, height: 46,
           child: ElevatedButton.icon(
-            onPressed: _posting ? null : _post,
+            onPressed: (_posting || _titleCtrl.text.trim().isEmpty || _msgCtrl.text.trim().isEmpty) ? null : _post,
             icon: _posting
               ? const SizedBox(
                   width: 16, height: 16,

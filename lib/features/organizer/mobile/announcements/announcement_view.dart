@@ -31,22 +31,23 @@ class AnnouncementViewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark,
       child: Scaffold(
-        backgroundColor: kBackground,
+        backgroundColor: t.bg,
         body: SafeArea(
           child: CustomScrollView(
             slivers: [
-              SliverToBoxAdapter(child: _buildHeader(context)),
+              SliverToBoxAdapter(child: _buildHeader(context, t)),
               SliverToBoxAdapter(child: _buildHeroBanner()),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 48),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate([
-                    _buildMessageCard(),
+                    _buildMessageCard(t),
                     const SizedBox(height: 12),
-                    _buildMetaCard(),
+                    _buildMetaCard(t),
                   ]),
                 ),
               ),
@@ -59,7 +60,7 @@ class AnnouncementViewScreen extends StatelessWidget {
 
   // ── Header ────────────────────────────────────────────────────────────────
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
       child: Row(
@@ -69,18 +70,18 @@ class AnnouncementViewScreen extends StatelessWidget {
             child: Container(
               width: 44, height: 44,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: t.card,
                 borderRadius: BorderRadius.circular(14),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 10, offset: const Offset(0, 3))],
+                boxShadow: [BoxShadow(color: t.shadow, blurRadius: 10, offset: const Offset(0, 3))],
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: kText),
+              child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: t.text),
             ),
           ),
           const SizedBox(width: 14),
-          const Expanded(
+          Expanded(
             child: Text(
               'Announcement',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w700, color: kText),
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w700, color: t.text),
             ),
           ),
           // Copy button
@@ -101,11 +102,11 @@ class AnnouncementViewScreen extends StatelessWidget {
             child: Container(
               width: 44, height: 44,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: t.card,
                 borderRadius: BorderRadius.circular(14),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 10, offset: const Offset(0, 3))],
+                boxShadow: [BoxShadow(color: t.shadow, blurRadius: 10, offset: const Offset(0, 3))],
               ),
-              child: const Icon(Icons.copy_rounded, size: 18, color: kText),
+              child: Icon(Icons.copy_rounded, size: 18, color: t.text),
             ),
           ),
         ],
@@ -193,12 +194,12 @@ class AnnouncementViewScreen extends StatelessWidget {
 
   // ── Message card ──────────────────────────────────────────────────────────
 
-  Widget _buildMessageCard() {
+  Widget _buildMessageCard(AppTk t) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: t.card,
         borderRadius: BorderRadius.circular(18),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: t.shadow, blurRadius: 12, offset: const Offset(0, 4))],
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -212,16 +213,16 @@ class AnnouncementViewScreen extends StatelessWidget {
                 child: const Icon(Icons.message_outlined, color: kGold, size: 18),
               ),
               const SizedBox(width: 10),
-              const Text(
+              Text(
                 'MESSAGE',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.2, color: kMuted),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.2, color: t.muted),
               ),
             ],
           ),
           const SizedBox(height: 14),
           Text(
             message,
-            style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, color: kText, height: 1.75),
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: t.text, height: 1.75),
           ),
         ],
       ),
@@ -230,12 +231,12 @@ class AnnouncementViewScreen extends StatelessWidget {
 
   // ── Meta card ─────────────────────────────────────────────────────────────
 
-  Widget _buildMetaCard() {
+  Widget _buildMetaCard(AppTk t) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: t.card,
         borderRadius: BorderRadius.circular(18),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: t.shadow, blurRadius: 12, offset: const Offset(0, 4))],
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -249,28 +250,28 @@ class AnnouncementViewScreen extends StatelessWidget {
                 child: const Icon(Icons.info_outline_rounded, color: kGold, size: 18),
               ),
               const SizedBox(width: 10),
-              const Text(
+              Text(
                 'DETAILS',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.2, color: kMuted),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.2, color: t.muted),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          _metaRow(Icons.calendar_today_rounded, 'Published',  _fullDate(createdAt)),
+          _metaRow(Icons.calendar_today_rounded, 'Published',  _fullDate(createdAt), t),
           const SizedBox(height: 12),
-          Divider(height: 1, color: Colors.grey.shade100),
+          Divider(height: 1, color: t.divider),
           const SizedBox(height: 12),
-          _metaRow(Icons.groups_rounded,          'Audience',   'All Students'),
+          _metaRow(Icons.groups_rounded,          'Audience',   'All Students', t),
           const SizedBox(height: 12),
-          Divider(height: 1, color: Colors.grey.shade100),
+          Divider(height: 1, color: t.divider),
           const SizedBox(height: 12),
-          _metaRow(Icons.tag_rounded,             'Ref ID',     '#$id'),
+          _metaRow(Icons.tag_rounded,             'Ref ID',     '#$id', t),
         ],
       ),
     );
   }
 
-  Widget _metaRow(IconData icon, String label, String value) {
+  Widget _metaRow(IconData icon, String label, String value, AppTk t) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -284,9 +285,9 @@ class AnnouncementViewScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label,  style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
+              Text(label,  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
               const SizedBox(height: 3),
-              Text(value,  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: kText)),
+              Text(value,  style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
             ],
           ),
         ),

@@ -702,10 +702,11 @@ class _EventDialog extends StatefulWidget {
 }
 
 class _EventDialogState extends State<_EventDialog> {
-  final _titleCtrl    = TextEditingController();
-  final _descCtrl     = TextEditingController();
-  final _locationCtrl = TextEditingController();
-  final _capacityCtrl = TextEditingController();
+  final _titleCtrl     = TextEditingController();
+  final _descCtrl      = TextEditingController();
+  final _locationCtrl  = TextEditingController();
+  final _capacityCtrl  = TextEditingController();
+  final _otherTypeCtrl = TextEditingController();
 
   String    _type         = 'Concert';
   String    _status       = 'upcoming';
@@ -748,7 +749,15 @@ class _EventDialogState extends State<_EventDialog> {
       _descCtrl.text     = e['description'] as String? ?? '';
       _locationCtrl.text = e['location'] as String? ?? '';
       _capacityCtrl.text = (e['max_participants'] ?? '').toString();
-      _type              = e['event_type'] as String? ?? 'Concert';
+      // Custom types (saved via "Other") don't match a preset chip — select
+      // Other and surface the stored value in the specify field.
+      final loadedType = e['event_type'] as String? ?? 'Concert';
+      if (_kTypes.any((tp) => tp.$1 == loadedType)) {
+        _type = loadedType;
+      } else {
+        _type = 'Other';
+        _otherTypeCtrl.text = loadedType;
+      }
       _status            = e['event_status'] as String? ?? 'upcoming';
       _existingBannerUrl = e['event_image_url'] as String?;
       final dateStr      = e['event_date'] as String?;
@@ -772,6 +781,7 @@ class _EventDialogState extends State<_EventDialog> {
     _descCtrl.dispose();
     _locationCtrl.dispose();
     _capacityCtrl.dispose();
+    _otherTypeCtrl.dispose();
     super.dispose();
   }
 
@@ -809,6 +819,10 @@ class _EventDialogState extends State<_EventDialog> {
     }
     if (_locationCtrl.text.trim().isEmpty) {
       setState(() => _error = 'Location is required.');
+      return;
+    }
+    if (_type == 'Other' && _otherTypeCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Please specify the event type.');
       return;
     }
     // Only validate "time in the past" when creating — editors must be able
@@ -884,7 +898,9 @@ class _EventDialogState extends State<_EventDialog> {
         'title':              _titleCtrl.text.trim(),
         'description':        _descCtrl.text.trim(),
         'location':           _locationCtrl.text.trim(),
-        'event_type':         _type,
+        'event_type':         _type == 'Other'
+            ? _otherTypeCtrl.text.trim()
+            : _type,
         'event_status':       _status,
         'event_date':         dateStr,
         'start_time':      ?startStr,
@@ -1258,6 +1274,28 @@ class _EventDialogState extends State<_EventDialog> {
                               );
                             }),
                           ),
+                          if (_type == 'Other') ...[
+                            const SizedBox(height: 14),
+                            _label('Specify type'),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _otherTypeCtrl,
+                              maxLength: 40,
+                              style: const TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 13.5,
+                                  color: kText),
+                              decoration: webInputDeco(
+                                'e.g. Quiz Bee, Sports Fest, Job Fair',
+                                icon: Icons.edit_rounded,
+                              ).copyWith(
+                                counterStyle: const TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 10,
+                                    color: kMuted),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

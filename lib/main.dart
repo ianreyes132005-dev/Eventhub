@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app.dart';
 import 'core/services/supabase_config.dart';
 import 'core/services/notif_read_store.dart';
+import 'core/theme_store.dart';
 import 'core/app_router.dart';
 
 Future<void> main() async {
@@ -11,9 +12,11 @@ Future<void> main() async {
   await Supabase.initialize(url: kSupabaseBaseUrl, anonKey: kSupabaseAnonKey);
 
   if (kIsWeb) {
+    await ThemeStore.init();
     runApp(const JirehEventHubWebApp());
   } else {
     await NotifReadStore.init();
+    await ThemeStore.init();
     runApp(const JirehEventHubApp());
     setupAppLinks();
     setupAuthStateListener();

@@ -224,18 +224,19 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     if (_loading) {
-      return const Scaffold(
-        backgroundColor: kBackgroundAlt,
-        body: AppFullScreenLoader(message: 'Loading event details…'),
+      return Scaffold(
+        backgroundColor: t.bg,
+        body: const AppFullScreenLoader(message: 'Loading event details…'),
       );
     }
 
     if (_loadError) {
       return Scaffold(
-        backgroundColor: kBackgroundAlt,
+        backgroundColor: t.bg,
         appBar: AppBar(
-          backgroundColor: kText,
+          backgroundColor: Colors.black,
           elevation: 0,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 16),
@@ -258,24 +259,24 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                   child: const Icon(Icons.cloud_off_rounded, size: 36, color: Color(0xFFEF4444)),
                 ),
                 const SizedBox(height: 20),
-                const Text(
+                Text(
                   'Could not load event details',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: kText,
+                    color: t.text,
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Check your connection and try again.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 13,
-                    color: kSubText,
+                    color: t.sub,
                     height: 1.5,
                   ),
                 ),
@@ -309,7 +310,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
-        backgroundColor: kBackgroundAlt,
+        backgroundColor: t.bg,
         body: RefreshIndicator(
           color: kGold,
           onRefresh: _loadData,
@@ -323,7 +324,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                  child: _buildStatsStrip(),
+                  child: _buildStatsStrip(t),
                 ),
               ),
 
@@ -331,7 +332,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                  child: _buildInfoCard(),
+                  child: _buildInfoCard(t),
                 ),
               ),
 
@@ -339,7 +340,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                  child: _buildFillCard(),
+                  child: _buildFillCard(t),
                 ),
               ),
 
@@ -348,7 +349,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                    child: _buildDescCard(),
+                    child: _buildDescCard(t),
                   ),
                 ),
 
@@ -356,7 +357,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                  child: _buildRegistrationsCard(),
+                  child: _buildRegistrationsCard(t),
                 ),
               ),
 
@@ -375,8 +376,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       expandedHeight: 280,
       pinned: true,
       stretch: true,
-      backgroundColor: kText,
-      surfaceTintColor: kText,
+      backgroundColor: Colors.black,
+      surfaceTintColor: Colors.black,
       leading: Padding(
         padding: const EdgeInsets.all(8),
         child: CircleAvatar(
@@ -462,7 +463,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   }
 
   Widget _heroBg() => Container(
-    color: kText,
+    color: Colors.black,
     child: Center(
       child: Icon(
         Icons.event_rounded,
@@ -491,7 +492,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   // ── Stats strip ────────────────────────────────────────────────────────────
 
-  Widget _buildStatsStrip() {
+  Widget _buildStatsStrip(AppTk t) {
     final data = [
       (value: '$_registered',    label: 'Registered',  icon: Icons.confirmation_num_outlined, color: kGold),
       (value: '$_checkedIn',     label: 'Checked In',  icon: Icons.how_to_reg_rounded,        color: const Color(0xFF16A34A)),
@@ -531,8 +532,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 const SizedBox(height: 2),
                 Text(
                   d.label,
-                  style: const TextStyle(
-                    fontFamily: 'Poppins', fontSize: 9, color: kMuted,
+                  style: TextStyle(
+                    fontFamily: 'Poppins', fontSize: 9, color: t.muted,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -546,17 +547,17 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   // ── Event Information card ─────────────────────────────────────────────────
 
-  Widget _buildInfoCard() {
+  Widget _buildInfoCard(AppTk t) {
     final rows = [
       (icon: Icons.calendar_today_rounded, color: const Color(0xFF2563EB), label: 'Date',                value: _fmtDate),
       (icon: Icons.access_time_rounded,    color: const Color(0xFF16A34A), label: 'Time',                value: _fmtTime),
       (icon: Icons.location_on_rounded,    color: kGold,                   label: 'Venue',               value: _location),
       (icon: Icons.category_rounded,       color: const Color(0xFF7C3AED), label: 'Event Type',          value: _type),
       (icon: Icons.person_rounded,         color: const Color(0xFFEA580C), label: 'Organizer',           value: _organizerName ?? '—'),
-      (icon: Icons.lock_clock_rounded,     color: kMuted,                  label: 'Reg. Deadline',       value: _fmtDeadline),
+      (icon: Icons.lock_clock_rounded,     color: t.muted,                 label: 'Reg. Deadline',       value: _fmtDeadline),
     ];
 
-    return _sectionCard(
+    return _sectionCard(t,
       icon: Icons.info_outline_rounded,
       iconBg: kGoldLight,
       iconColor: kGold,
@@ -567,12 +568,12 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
           final r = entry.value;
           return Column(
             children: [
-              _infoTile(r.icon, r.color, r.label, r.value),
+              _infoTile(r.icon, r.color, r.label, r.value, t),
               if (i < rows.length - 1)
                 Divider(
                   height: 16,
                   thickness: 0.8,
-                  color: Colors.grey.shade100,
+                  color: t.divider,
                 ),
             ],
           );
@@ -581,7 +582,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
-  Widget _infoTile(IconData icon, Color color, String label, String value) {
+  Widget _infoTile(IconData icon, Color color, String label, String value, AppTk t) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -601,18 +602,18 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
             children: [
               Text(
                 label,
-                style: const TextStyle(
-                  fontFamily: 'Poppins', fontSize: 11, color: kMuted,
+                style: TextStyle(
+                  fontFamily: 'Poppins', fontSize: 11, color: t.muted,
                 ),
               ),
               const SizedBox(height: 3),
               Text(
                 value,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: kText,
+                  color: t.text,
                 ),
               ),
             ],
@@ -624,14 +625,14 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   // ── Registration fill card ─────────────────────────────────────────────────
 
-  Widget _buildFillCard() {
+  Widget _buildFillCard(AppTk t) {
     final fillColor = _fillRatio >= 0.9
         ? Colors.red
         : _fillRatio >= 0.7
             ? Colors.orange
             : kGold;
 
-    return _sectionCard(
+    return _sectionCard(t,
       icon: Icons.people_rounded,
       iconBg: kGoldLight,
       iconColor: kGold,
@@ -663,20 +664,20 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                           if (_capacity > 0)
                             TextSpan(
                               text: ' / $_capacity',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w500,
-                                color: kMuted,
+                                color: t.muted,
                               ),
                             ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 2),
-                    const Text(
+                    Text(
                       'students registered',
                       style: TextStyle(
-                        fontFamily: 'Poppins', fontSize: 12, color: kMuted,
+                        fontFamily: 'Poppins', fontSize: 12, color: t.muted,
                       ),
                     ),
                   ],
@@ -696,10 +697,10 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                         height: 1.0,
                       ),
                     ),
-                    const Text(
+                    Text(
                       'capacity used',
                       style: TextStyle(
-                        fontFamily: 'Poppins', fontSize: 11, color: kMuted,
+                        fontFamily: 'Poppins', fontSize: 11, color: t.muted,
                       ),
                     ),
                   ],
@@ -719,7 +720,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
               builder: (_, v, _) => LinearProgressIndicator(
                 value: v,
                 minHeight: 10,
-                backgroundColor: Colors.grey.shade200,
+                backgroundColor: t.divider,
                 valueColor: AlwaysStoppedAnimation<Color>(fillColor),
               ),
             ),
@@ -765,14 +766,14 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   // ── Description card ───────────────────────────────────────────────────────
 
-  Widget _buildDescCard() {
+  Widget _buildDescCard(AppTk t) {
     const maxLen = 200;
     final isLong  = _desc.length > maxLen;
     final display = _descExpanded || !isLong
         ? _desc
         : '${_desc.substring(0, maxLen)}…';
 
-    return _sectionCard(
+    return _sectionCard(t,
       icon: Icons.notes_rounded,
       iconBg: const Color(0x1A7C3AED),
       iconColor: const Color(0xFF7C3AED),
@@ -782,10 +783,10 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         children: [
           Text(
             display,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 13,
-              color: kSubText,
+              color: t.sub,
               height: 1.65,
             ),
           ),
@@ -824,10 +825,10 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   // ── Recent Registrations card ──────────────────────────────────────────────
 
-  Widget _buildRegistrationsCard() {
+  Widget _buildRegistrationsCard(AppTk t) {
     final preview = _registrations.take(5).toList();
 
-    return _sectionCard(
+    return _sectionCard(t,
       icon: Icons.list_alt_rounded,
       iconBg: const Color(0x1A16A34A),
       iconColor: const Color(0xFF16A34A),
@@ -849,19 +850,19 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         ),
       ),
       child: preview.isEmpty
-          ? _buildEmptyRegs()
+          ? _buildEmptyRegs(t)
           : Column(
               children: preview.asMap().entries.map((entry) {
                 final i = entry.key;
                 final r = entry.value;
                 return Column(
                   children: [
-                    _buildRegRow(r),
+                    _buildRegRow(r, t),
                     if (i < preview.length - 1)
                       Divider(
                         height: 16,
                         thickness: 0.8,
-                        color: Colors.grey.shade100,
+                        color: t.divider,
                       ),
                   ],
                 );
@@ -870,7 +871,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
-  Widget _buildEmptyRegs() {
+  Widget _buildEmptyRegs(AppTk t) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Column(
@@ -881,20 +882,20 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
             color: kGold.withValues(alpha: 0.3),
           ),
           const SizedBox(height: 12),
-          const Text(
+          Text(
             'No registrations yet',
             style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: kMuted,
+              color: t.muted,
             ),
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Students who register will appear here',
             style: TextStyle(
-              fontFamily: 'Poppins', fontSize: 12, color: kMuted,
+              fontFamily: 'Poppins', fontSize: 12, color: t.muted,
             ),
           ),
         ],
@@ -902,7 +903,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
-  Widget _buildRegRow(Map<String, dynamic> r) {
+  Widget _buildRegRow(Map<String, dynamic> r, AppTk t) {
     final name   = r['student_name']      as String? ?? '—';
     final sid    = r['student_school_id'] as String? ?? '—';
     final status = r['status']            as String? ?? 'pending';
@@ -933,19 +934,19 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
             children: [
               Text(
                 name,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: kText,
+                  color: t.text,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
               Text(
                 '$sid  ·  ${date.isNotEmpty ? _fmtRegDate(date) : '—'}',
-                style: const TextStyle(
-                  fontFamily: 'Poppins', fontSize: 11, color: kMuted,
+                style: TextStyle(
+                  fontFamily: 'Poppins', fontSize: 11, color: t.muted,
                 ),
               ),
             ],
@@ -975,7 +976,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   // ── Shared section card helper ─────────────────────────────────────────────
 
-  Widget _sectionCard({
+  Widget _sectionCard(AppTk t, {
     required IconData icon,
     required Color iconBg,
     required Color iconColor,
@@ -985,11 +986,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: t.card,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: t.shadow,
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -1016,20 +1017,20 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 Expanded(
                   child: Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
-                      color: kText,
+                      color: t.text,
                     ),
                   ),
                 ),
-                if (trailing case final t?) t,
+                if (trailing case final w?) w,
               ],
             ),
           ),
           const SizedBox(height: 12),
-          Divider(height: 1, thickness: 1, color: Colors.grey.shade100),
+          Divider(height: 1, thickness: 1, color: t.divider),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
             child: child,

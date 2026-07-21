@@ -41,6 +41,16 @@ class _WebFilterChipState extends State<WebFilterChip> {
     final initial  = (!isAll && widget.label.trim().isNotEmpty)
         ? widget.label.trim()[0].toUpperCase()
         : null;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final unselectedBg = dark
+        ? (_hovered ? const Color(0xFF1B2029) : const Color(0xFF171B22))
+        : (_hovered ? const Color(0xFFEEF2F7) : const Color(0xFFF8F9FC));
+    final unselectedBorder = dark
+        ? (_hovered ? const Color(0xFF2A3040) : const Color(0xFF232833))
+        : (_hovered ? const Color(0xFFD1D5DB) : kCardBorder);
+    final unselectedText  = dark ? const Color(0xFF9AA3B2) : kSubText;
+    final unselectedMuted = dark ? const Color(0xFF666E7D) : kMuted;
+    final unselectedCountBg = dark ? const Color(0xFF20252E) : const Color(0xFFE5E7EB);
 
     return MouseRegion(
       cursor:  SystemMouseCursors.click,
@@ -55,12 +65,12 @@ class _WebFilterChipState extends State<WebFilterChip> {
           decoration: BoxDecoration(
             color: widget.selected
                 ? c.withValues(alpha: 0.08)
-                : _hovered ? const Color(0xFFEEF2F7) : const Color(0xFFF8F9FC),
+                : unselectedBg,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: widget.selected
                   ? c.withValues(alpha: 0.35)
-                  : _hovered ? const Color(0xFFD1D5DB) : kCardBorder,
+                  : unselectedBorder,
               width: widget.selected ? 1.5 : 1.0,
             ),
           ),
@@ -78,7 +88,7 @@ class _WebFilterChipState extends State<WebFilterChip> {
                 ),
                 child: Center(
                   child: isAll
-                      ? Icon(Icons.layers_rounded, size: 11, color: widget.selected ? c : kMuted)
+                      ? Icon(Icons.layers_rounded, size: 11, color: widget.selected ? c : unselectedMuted)
                       : Text(initial ?? '?',
                           style: TextStyle(
                             fontFamily: 'Poppins', fontSize: 9, fontWeight: FontWeight.w800,
@@ -91,7 +101,7 @@ class _WebFilterChipState extends State<WebFilterChip> {
                 style: TextStyle(
                   fontFamily: 'Poppins', fontSize: 12,
                   fontWeight: widget.selected ? FontWeight.w700 : FontWeight.w500,
-                  color: widget.selected ? c : kSubText,
+                  color: widget.selected ? c : unselectedText,
                   letterSpacing: widget.selected ? 0.1 : 0,
                 )),
               if (widget.count != null) ...[
@@ -100,13 +110,13 @@ class _WebFilterChipState extends State<WebFilterChip> {
                   duration: const Duration(milliseconds: 160),
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                   decoration: BoxDecoration(
-                    color: widget.selected ? c.withValues(alpha: 0.15) : const Color(0xFFE5E7EB),
+                    color: widget.selected ? c.withValues(alpha: 0.15) : unselectedCountBg,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text('${widget.count}',
                     style: TextStyle(
                       fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700,
-                      color: widget.selected ? c : kMuted,
+                      color: widget.selected ? c : unselectedMuted,
                     )),
                 ),
               ],

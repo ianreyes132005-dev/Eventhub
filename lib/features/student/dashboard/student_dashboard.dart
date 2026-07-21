@@ -5,12 +5,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../events/student_all_events.dart';
 import '../events/event_details_page.dart';
 import '../events/my_registered_events_page.dart';
-import '../profile/student_profile.dart' hide kSubText;
+import '../profile/student_profile.dart';
 import '../notifications/notifications_screen.dart';
 import '../check_in/selfie_screen.dart';
-import 'package:eventhub/core/services/supabase_service.dart';
 import 'package:eventhub/core/services/registration_service.dart';
 import 'package:eventhub/core/services/notif_read_store.dart';
+import 'package:eventhub/core/services/student_notif_prefs.dart';
 import 'package:eventhub/shared/widgets/ai_chat_fab.dart';
 import 'package:eventhub/shared/widgets/app_loader.dart';
 import 'package:eventhub/shared/widgets/event_phase_pill.dart';
@@ -92,7 +92,6 @@ class _StudentDashboardState extends State<StudentDashboard>
       duration: const Duration(milliseconds: 900),
     );
     _loadHomeData();
-    SupabaseService.announcementsVersion.addListener(_onAnnouncementUpdate);
     _subscribeToCheckInRequests();
     _subscribeAnnouncements();
     NotifReadStore.unreadNotifier.addListener(_onNotifCountChanged);
@@ -102,13 +101,10 @@ class _StudentDashboardState extends State<StudentDashboard>
     if (mounted) setState(() => _notificationCount = NotifReadStore.unreadNotifier.value);
   }
 
-  void _onAnnouncementUpdate() => _loadHomeData(silent: true);
-
   @override
   void dispose() {
     _annDebounce?.cancel();
     _staggerCtrl.dispose();
-    SupabaseService.announcementsVersion.removeListener(_onAnnouncementUpdate);
     NotifReadStore.unreadNotifier.removeListener(_onNotifCountChanged);
     if (_regChannel != null) Supabase.instance.client.removeChannel(_regChannel!);
     if (_annChannel != null) Supabase.instance.client.removeChannel(_annChannel!);
@@ -153,9 +149,9 @@ class _StudentDashboardState extends State<StudentDashboard>
       final results = await Future.wait([
         client.from('students').select('full_name').eq('user_id', user.id).maybeSingle(),
         client.from('announcements')
-            .select('id, title, message, created_at')
+            .select('id, title, message, created_by, created_at')
             .order('created_at', ascending: false)
-            .limit(10),
+            .limit(3),
       ]);
 
       // Registrations fetched separately (needs user.id, not parallelizable cleanly)
@@ -171,7 +167,24 @@ class _StudentDashboardState extends State<StudentDashboard>
       if (!mounted) return;
 
       final profile  = results[0] as Map<String, dynamic>?;
-      final annList  = List<Map<String, dynamic>>.from(results[1] as List);
+      final annRaw   = List<Map<String, dynamic>>.from(results[1] as List);
+      final annUids  = annRaw.map((a) => a['created_by'] as String?).whereType<String>().toSet().toList();
+      final Map<String, String> annOrgNames = {};
+      if (annUids.isNotEmpty) {
+        final orgRows = List<Map<String, dynamic>>.from(
+          await client
+              .from('organizers')
+              .select('user_id, full_name')
+              .filter('user_id', 'in', '(${annUids.join(',')})'),
+        );
+        for (final o in orgRows) {
+          annOrgNames[o['user_id'] as String] = o['full_name'] as String? ?? '—';
+        }
+      }
+      final annList = annRaw.map((a) => <String, dynamic>{
+        ...a,
+        '_org': annOrgNames[a['created_by'] as String? ?? ''] ?? '—',
+      }).toList();
       final today    = DateTime.now();
       final todayMid = DateTime(today.year, today.month, today.day);
 
@@ -214,11 +227,18 @@ class _StudentDashboardState extends State<StudentDashboard>
           return da.compareTo(db);
         });
 
+      // Respect per-user preferences (Profile → Notifications). Verification
+      // statuses (photo_required / photo_submitted) are never filtered.
+      final disabledCats = await StudentNotifPrefs.disabled(user.id);
       final notifIds = [
-        ...annList.map((a) => 'ann_${a['id']}'),
+        if (!disabledCats.contains(StudentNotifPrefs.announcements))
+          ...annList.map((a) => 'ann_${a['id']}'),
         ...regList
             .where((r) => const {'checked_in', 'photo_required', 'photo_submitted'}
                 .contains(r['status']))
+            .where((r) =>
+                r['status'] != 'checked_in' ||
+                !disabledCats.contains(StudentNotifPrefs.checkins))
             .map((r) => 'reg_${r['id']}_${r['status']}'),
       ];
       NotifReadStore.setAll(notifIds);
@@ -229,7 +249,7 @@ class _StudentDashboardState extends State<StudentDashboard>
           _totalRegistrations    = regList.length;
           _attendedCount         = regList.where((r) => r['status'] == 'checked_in').length;
           _upcomingCount         = upcomingCount;
-          _announcements         = annList.take(3).toList();
+          _announcements         = annList;
           _registrations         = regList;
           _upcomingRegistrations = sortedUpcoming;
           _notificationCount     = NotifReadStore.unreadNotifier.value;
@@ -327,6 +347,14 @@ class _StudentDashboardState extends State<StudentDashboard>
                             Text(title, style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: t.text)),
                             if (createdAt != null)
                               Text(_fmtTime(createdAt), style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
+                            if ((ann['_org'] as String?) != null && ann['_org'] != '—')
+                              Row(
+                                children: [
+                                  Icon(Icons.person_outline_rounded, size: 10, color: t.muted),
+                                  const SizedBox(width: 3),
+                                  Text('by ${ann['_org']}', style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted)),
+                                ],
+                              ),
                           ],
                         ),
                       ),
@@ -1380,9 +1408,23 @@ class _StudentDashboardState extends State<StudentDashboard>
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          _fmtTime(createdAt),
-                          style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted),
+                        Row(
+                          children: [
+                            Icon(Icons.person_outline_rounded, size: 10, color: t.muted),
+                            const SizedBox(width: 3),
+                            Flexible(
+                              child: Text(
+                                ann['_org'] as String? ?? '—',
+                                style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Text(' · ', style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
+                            Text(
+                              _fmtTime(createdAt),
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
+                            ),
+                          ],
                         ),
                       ],
                     ),

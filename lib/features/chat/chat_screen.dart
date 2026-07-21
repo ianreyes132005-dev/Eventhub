@@ -2,14 +2,6 @@ import 'package:flutter/material.dart';
 import '../../core/services/chat_service.dart';
 import '../../core/app_colors.dart';
 
-// ── Palette ────────────────────────────────────────────────────────────────────
-const Color _kBg      = Color(0xFFF7F3EC);
-const Color _kText    = Color(0xFF1A1A1A);
-const Color _kSub     = Color(0xFF6B7280);
-const Color _kMuted   = Color(0xFFB0B7C3);
-const Color _kCard    = Color(0xFFFFFFFF);
-const Color _kSurface = Color(0xFFF1EDE6);
-
 // ── Time helpers ───────────────────────────────────────────────────────────────
 String _msgTime(DateTime t) {
   final h  = t.hour % 12 == 0 ? 12 : t.hour % 12;
@@ -162,80 +154,83 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     if (_sessionId == null || _messages.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        backgroundColor: _kCard,
-        contentPadding: const EdgeInsets.fromLTRB(28, 0, 28, 24),
-        titlePadding: const EdgeInsets.fromLTRB(28, 28, 28, 16),
-        title: const Column(
-          children: [
-            CircleAvatar(
-              radius: 26,
-              backgroundColor: Color(0xFFFEF2F2),
-              child: Icon(Icons.auto_delete_rounded, size: 26, color: Color(0xFFEF4444)),
-            ),
-            SizedBox(height: 14),
-            Text(
-              'Clear conversation?',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontWeight: FontWeight.w700,
-                fontSize: 17,
-                color: _kText,
-              ),
-            ),
-          ],
-        ),
-        content: const Text(
-          'All messages will be permanently deleted.\nThis cannot be undone.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontFamily: 'Poppins', fontSize: 13,
-            color: _kSub, height: 1.65,
-          ),
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-        actions: [
-          Row(
+      builder: (ctx) {
+        final t = AppTk(Theme.of(ctx).brightness == Brightness.dark);
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          backgroundColor: t.card,
+          contentPadding: const EdgeInsets.fromLTRB(28, 0, 28, 24),
+          titlePadding: const EdgeInsets.fromLTRB(28, 28, 28, 16),
+          title: Column(
             children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _kSub,
-                    side: BorderSide(color: Colors.grey.shade200),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                  ),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                ),
+              const CircleAvatar(
+                radius: 26,
+                backgroundColor: Color(0xFFFEF2F2),
+                child: Icon(Icons.auto_delete_rounded, size: 26, color: Color(0xFFEF4444)),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFEF4444),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                  ),
-                  child: const Text(
-                    'Clear All',
-                    style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 14),
-                  ),
+              const SizedBox(height: 14),
+              Text(
+                'Clear conversation?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontWeight: FontWeight.w700,
+                  fontSize: 17,
+                  color: t.text,
                 ),
               ),
             ],
           ),
-        ],
-      ),
+          content: Text(
+            'All messages will be permanently deleted.\nThis cannot be undone.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Poppins', fontSize: 13,
+              color: t.sub, height: 1.65,
+            ),
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          actions: [
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: t.sub,
+                      side: BorderSide(color: t.border),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEF4444),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: const Text(
+                      'Clear All',
+                      style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
     );
     if (ok != true || !mounted) return;
     await ChatService.clearHistory(_sessionId!);
@@ -258,30 +253,31 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return Scaffold(
-      backgroundColor: _kBg,
+      backgroundColor: t.bg,
       resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: Column(
           children: [
-            _buildHeader(),
+            _buildHeader(t),
             Expanded(
               child: _loading
-                  ? _buildLoadingState()
+                  ? _buildLoadingState(t)
                   : _initError != null
-                      ? _buildErrorState()
+                      ? _buildErrorState(t)
                       : Column(
                           children: [
                             Expanded(
                               child: _messages.isEmpty
-                                  ? _buildWelcome()
-                                  : _buildMessageList(),
+                                  ? _buildWelcome(t)
+                                  : _buildMessageList(t),
                             ),
-                            if (_sending) _buildTypingBubble(),
+                            if (_sending) _buildTypingBubble(t),
                           ],
                         ),
             ),
-            _buildInputBar(),
+            _buildInputBar(t),
           ],
         ),
       ),
@@ -290,10 +286,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // ── Header ─────────────────────────────────────────────────────────────────
 
-  Widget _buildHeader() {
+  Widget _buildHeader(AppTk t) {
     return Container(
       decoration: BoxDecoration(
-        color: _kCard,
+        color: t.card,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.06),
@@ -311,9 +307,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             child: InkWell(
               onTap: () => Navigator.pop(context),
               borderRadius: BorderRadius.circular(12),
-              child: const Padding(
-                padding: EdgeInsets.all(8),
-                child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: _kText),
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: t.text),
               ),
             ),
           ),
@@ -341,13 +337,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   'EventHub AI',
                   style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: _kText,
+                    color: t.text,
                     height: 1.2,
                   ),
                 ),
@@ -374,14 +370,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                             ),
                           ],
                         )
-                      : const Text(
+                      : Text(
                           'Groq AI',
-                          key: ValueKey('groq'),
+                          key: const ValueKey('groq'),
                           style: TextStyle(
                             fontFamily: 'Poppins',
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
-                            color: _kMuted,
+                            color: t.muted,
                           ),
                         ),
                 ),
@@ -419,7 +415,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // ── Loading ────────────────────────────────────────────────────────────────
 
-  Widget _buildLoadingState() {
+  Widget _buildLoadingState(AppTk t) {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -445,9 +441,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             child: CircularProgressIndicator(color: kGold, strokeWidth: 2.5),
           ),
           const SizedBox(height: 14),
-          const Text(
+          Text(
             'Starting chat…',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: _kMuted),
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.muted),
           ),
         ],
       ),
@@ -456,7 +452,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // ── Welcome / empty state ──────────────────────────────────────────────────
 
-  Widget _buildWelcome() {
+  Widget _buildWelcome(AppTk t) {
     final isOrg = widget.userRole == 'organizer';
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 40, 20, 24),
@@ -482,13 +478,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             ),
           ),
           const SizedBox(height: 22),
-          const Text(
+          Text(
             'EventHub AI',
             style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 24,
               fontWeight: FontWeight.w800,
-              color: _kText,
+              color: t.text,
             ),
             textAlign: TextAlign.center,
           ),
@@ -516,10 +512,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 ? 'Ask me anything about managing your events,\nQR scanning, or organizer tools.'
                 : 'Ask me anything about events,\nregistrations, or navigating the app.',
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 13,
-              color: _kSub,
+              color: t.sub,
               height: 1.65,
             ),
           ),
@@ -527,7 +523,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           // Section label
           Row(
             children: [
-              Expanded(child: Divider(color: Colors.grey.shade200, height: 1)),
+              Expanded(child: Divider(color: t.divider, height: 1)),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Text(
@@ -537,28 +533,28 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     fontSize: 9.5,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 1.4,
-                    color: _kMuted,
+                    color: t.muted,
                   ),
                 ),
               ),
-              Expanded(child: Divider(color: Colors.grey.shade200, height: 1)),
+              Expanded(child: Divider(color: t.divider, height: 1)),
             ],
           ),
           const SizedBox(height: 14),
           // Suggestion rows
           Column(
-            children: _suggestions.map(_buildSuggestionRow).toList(),
+            children: _suggestions.map((item) => _buildSuggestionRow(item, t)).toList(),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSuggestionRow(_SuggestionItem item) {
+  Widget _buildSuggestionRow(_SuggestionItem item, AppTk t) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 9),
       child: Material(
-        color: _kCard,
+        color: t.card,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           onTap: () => _send(item.text),
@@ -567,7 +563,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.grey.shade100),
+              border: Border.all(color: t.border),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.035),
@@ -590,15 +586,15 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 Expanded(
                   child: Text(
                     item.text,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
-                      color: _kText,
+                      color: t.text,
                     ),
                   ),
                 ),
-                Icon(Icons.arrow_forward_ios_rounded, size: 13, color: Colors.grey.shade400),
+                Icon(Icons.arrow_forward_ios_rounded, size: 13, color: t.muted),
               ],
             ),
           ),
@@ -609,7 +605,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // ── Message list ───────────────────────────────────────────────────────────
 
-  Widget _buildMessageList() {
+  Widget _buildMessageList(AppTk t) {
     return ListView.builder(
       controller:  _scrollCtrl,
       padding:     const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -621,49 +617,49 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (prev == null || !_sameDay(prev.createdAt, msg.createdAt))
-              _buildDayDivider(msg.createdAt),
+              _buildDayDivider(msg.createdAt, t),
             msg.role == 'user'
-                ? _buildUserBubble(msg)
-                : _buildAssistantBubble(msg),
+                ? _buildUserBubble(msg, t)
+                : _buildAssistantBubble(msg, t),
           ],
         );
       },
     );
   }
 
-  Widget _buildDayDivider(DateTime t) {
+  Widget _buildDayDivider(DateTime date, AppTk t) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 18),
       child: Row(
         children: [
-          Expanded(child: Divider(color: Colors.grey.shade200, height: 1)),
+          Expanded(child: Divider(color: t.divider, height: 1)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
               decoration: BoxDecoration(
-                color: _kCard,
+                color: t.card,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.grey.shade200),
+                border: Border.all(color: t.border),
               ),
               child: Text(
-                _dayLabel(t),
-                style: const TextStyle(
+                _dayLabel(date),
+                style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
-                  color: _kMuted,
+                  color: t.muted,
                 ),
               ),
             ),
           ),
-          Expanded(child: Divider(color: Colors.grey.shade200, height: 1)),
+          Expanded(child: Divider(color: t.divider, height: 1)),
         ],
       ),
     );
   }
 
-  Widget _buildUserBubble(ChatMessage msg) {
+  Widget _buildUserBubble(ChatMessage msg, AppTk t) {
     final isTemp = msg.id.startsWith('temp_');
     return Padding(
       padding: const EdgeInsets.only(bottom: 10, left: 54),
@@ -700,15 +696,15 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   width: 10, height: 10,
                   child: CircularProgressIndicator(
                     strokeWidth: 1.5,
-                    color: _kMuted.withValues(alpha: 0.5),
+                    color: t.muted.withValues(alpha: 0.5),
                   ),
                 ),
                 const SizedBox(width: 4),
               ],
               Text(
                 _msgTime(msg.createdAt),
-                style: const TextStyle(
-                  fontFamily: 'Poppins', fontSize: 10, color: _kMuted,
+                style: TextStyle(
+                  fontFamily: 'Poppins', fontSize: 10, color: t.muted,
                 ),
               ),
             ],
@@ -718,7 +714,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildAssistantBubble(ChatMessage msg) {
+  Widget _buildAssistantBubble(ChatMessage msg, AppTk t) {
     final isErr = msg.isError;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10, right: 54),
@@ -757,7 +753,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
                   decoration: BoxDecoration(
-                    color: isErr ? const Color(0xFFFFF5F5) : _kCard,
+                    color: isErr ? const Color(0xFFFFF5F5) : t.card,
                     borderRadius: const BorderRadius.only(
                       topLeft:     Radius.circular(5),
                       topRight:    Radius.circular(20),
@@ -781,15 +777,15 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                       fontFamily: 'Poppins',
                       fontSize: 14,
                       height: 1.65,
-                      color: isErr ? const Color(0xFFDC2626) : _kText,
+                      color: isErr ? const Color(0xFFDC2626) : t.text,
                     ),
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   _msgTime(msg.createdAt),
-                  style: const TextStyle(
-                    fontFamily: 'Poppins', fontSize: 10, color: _kMuted,
+                  style: TextStyle(
+                    fontFamily: 'Poppins', fontSize: 10, color: t.muted,
                   ),
                 ),
               ],
@@ -800,7 +796,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildTypingBubble() {
+  Widget _buildTypingBubble(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
       child: Row(
@@ -815,7 +811,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             decoration: BoxDecoration(
-              color: _kCard,
+              color: t.card,
               borderRadius: const BorderRadius.only(
                 topLeft:     Radius.circular(5),
                 topRight:    Radius.circular(20),
@@ -839,14 +835,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // ── Input bar ──────────────────────────────────────────────────────────────
 
-  Widget _buildInputBar() {
+  Widget _buildInputBar(AppTk t) {
     final canSend = !_inputEmpty && !_sending && _sessionId != null;
     return Container(
       padding: EdgeInsets.fromLTRB(
         16, 10, 16, MediaQuery.of(context).padding.bottom + 12,
       ),
       decoration: BoxDecoration(
-        color: _kCard,
+        color: t.card,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.07),
@@ -862,7 +858,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             child: Container(
               constraints: const BoxConstraints(maxHeight: 120),
               decoration: BoxDecoration(
-                color: _kSurface,
+                color: t.inputBg,
                 borderRadius: BorderRadius.circular(26),
               ),
               child: TextField(
@@ -872,15 +868,15 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 maxLength:          600,
                 textCapitalization: TextCapitalization.sentences,
                 onSubmitted:        (_) => canSend ? _send() : null,
-                style: const TextStyle(
-                  fontFamily: 'Poppins', fontSize: 14, color: _kText,
+                style: TextStyle(
+                  fontFamily: 'Poppins', fontSize: 14, color: t.text,
                 ),
                 decoration: InputDecoration(
                   hintText: _sending ? 'Please wait…' : 'Ask EventHub AI…',
                   hintStyle: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 14,
-                    color: _sending ? kGold.withValues(alpha: 0.5) : _kMuted,
+                    color: _sending ? kGold.withValues(alpha: 0.5) : t.muted,
                   ),
                   border:         InputBorder.none,
                   enabledBorder:  InputBorder.none,
@@ -897,7 +893,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             width: 48, height: 48,
             decoration: BoxDecoration(
               gradient: canSend ? kGoldGradient : null,
-              color:    canSend ? null : Colors.grey.shade100,
+              color:    canSend ? null : t.border,
               shape:    BoxShape.circle,
               boxShadow: canSend
                   ? [BoxShadow(color: kGold.withValues(alpha: 0.4), blurRadius: 12, offset: const Offset(0, 3))]
@@ -912,7 +908,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 child: Icon(
                   Icons.arrow_upward_rounded,
                   size:  20,
-                  color: canSend ? Colors.white : Colors.grey.shade400,
+                  color: canSend ? Colors.white : t.muted,
                 ),
               ),
             ),
@@ -924,7 +920,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // ── Error state ────────────────────────────────────────────────────────────
 
-  Widget _buildErrorState() {
+  Widget _buildErrorState(AppTk t) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -940,22 +936,22 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               child: const Icon(Icons.cloud_off_rounded, size: 38, color: Color(0xFFEF4444)),
             ),
             const SizedBox(height: 22),
-            const Text(
+            Text(
               'Chat unavailable',
               style: TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
-                color: _kText,
+                color: t.text,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               _initError ?? 'An unexpected error occurred.',
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Poppins', fontSize: 13,
-                color: _kSub, height: 1.55,
+                color: t.sub, height: 1.55,
               ),
             ),
             const SizedBox(height: 26),

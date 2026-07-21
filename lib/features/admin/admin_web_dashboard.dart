@@ -5,35 +5,69 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/app_colors.dart';
+import '../../core/theme_store.dart';
 import '../../core/services/supabase_service.dart';
 import '../organizer/web/web_shared.dart';
 import '../../shared/widgets/event_phase_pill.dart';
 
 // ─── Admin palette ────────────────────────────────────────────────────────────
-const _kAccent     = Color(0xFFEA580C); // orange
-const _kSideTop    = Color(0xFF4A2894);
-const _kSideMid    = Color(0xFF3B1F7A);
-const _kSideBot    = Color(0xFF2D1660);
-const _kSideBorder = Color(0xFF5A35A8);
-const _kNavText    = Color(0xFFF1F5F9);
-const _kNavIcon    = Color(0xFFCBD5E1);
+const _kAccent = Color(0xFFEA580C); // orange
 
-const _kSideGrad = LinearGradient(
-  colors: [_kSideTop, _kSideMid, _kSideBot],
-  begin: Alignment.topCenter,
-  end: Alignment.bottomCenter,
-);
+// ─── Admin web content tokens ──────────────────────────────────────────────────
+// A dedicated web dashboard theme — deliberately NOT the shared `AppTk` that
+// organizer/student mobile screens use for dark mode. Mobile dark mode is a
+// warm espresso/gold palette suited to a touch app; this is a cool graphite
+// "SaaS dashboard" dark theme (in the spirit of Linear/GitHub/Vercel), so the
+// admin web dark mode reads as its own product, not a reskinned mobile screen.
+// Light values intentionally mirror AppTk's light palette — only dark changes.
+class AdminTk {
+  final bool dark;
+  const AdminTk(this.dark);
+
+  Color get bg       => dark ? const Color(0xFF0B0D12) : kBackground;
+  Color get card     => dark ? const Color(0xFF12151B) : Colors.white;
+  Color get border   => dark ? const Color(0xFF232833) : const Color(0xFFF0E8D8);
+  Color get text     => dark ? const Color(0xFFE7EAEE) : kText;
+  Color get sub      => dark ? const Color(0xFF9AA3B2) : kSubText;
+  Color get muted    => dark ? const Color(0xFF666E7D) : kMuted;
+  Color get divider  => dark ? const Color(0xFF1B1F27) : const Color(0xFFF0EBE0);
+  Color get shadow   => dark
+      ? Colors.black.withValues(alpha: 0.55)
+      : Colors.black.withValues(alpha: 0.055);
+  Color get inputBg  => dark ? const Color(0xFF0E1116) : Colors.white;
+}
+
+// Sidebar tokens — light mode is a pure-white panel with the organizer web's
+// nav styling; dark is the same cool graphite family as AdminTk, a shade
+// darker than the content canvas for a layered nav → page → card hierarchy.
+class _STk {
+  final bool dark;
+  const _STk(this.dark);
+  Color get top      => dark ? const Color(0xFF080A0E) : Colors.white;
+  Color get mid      => dark ? const Color(0xFF0A0C11) : Colors.white;
+  Color get bot      => dark ? const Color(0xFF0D0F15) : Colors.white;
+  Color get border   => dark ? const Color(0xFF1C212B) : const Color(0xFFCBD5E1);
+  Color get navText  => dark ? const Color(0xFFE4E7EC) : const Color(0xFF3A3324);
+  Color get navIcon  => dark ? const Color(0xFF7E8695) : const Color(0xFF6B5E47);
+  Color get navLabel => dark ? const Color(0xFF565E6C) : const Color(0xFF7A6A52);
+  LinearGradient get grad => LinearGradient(
+    colors: [top, mid, bot],
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+  );
+}
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
-enum AdminPage { overview, students, organizers, events, registrations, logs }
+enum AdminPage { overview, students, organizers, events, registrations, announcements, logs }
 
 const _kNavItems = [
-  (AdminPage.overview,      Icons.dashboard_rounded,      'Dashboard'),
-  (AdminPage.students,      Icons.people_rounded,         'Students'),
-  (AdminPage.organizers,    Icons.badge_rounded,          'Organizers'),
-  (AdminPage.events,        Icons.event_rounded,          'Events'),
-  (AdminPage.registrations, Icons.how_to_reg_rounded,     'Registrations'),
-  (AdminPage.logs,          Icons.history_rounded,        'Logs'),
+  (AdminPage.overview,       Icons.dashboard_rounded,     'Dashboard'),
+  (AdminPage.students,       Icons.people_rounded,        'Students'),
+  (AdminPage.organizers,     Icons.badge_rounded,         'Organizers'),
+  (AdminPage.events,         Icons.event_rounded,         'Events'),
+  (AdminPage.registrations,  Icons.how_to_reg_rounded,    'Registrations'),
+  (AdminPage.announcements,  Icons.campaign_rounded,      'Announcements'),
+  (AdminPage.logs,           Icons.history_rounded,       'Logs'),
 ];
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -92,6 +126,7 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
           .from('admins').select('full_name').eq('user_id', user.id).maybeSingle();
       if (!mounted) return;
       if (row == null) { _goLogin(); return; }
+      await ThemeStore.loadForUser(user.id, 'admin');
       setState(() { _name = row['full_name'] as String?; _loading = false; });
       _entryCt.forward();
     } catch (_) {
@@ -118,15 +153,17 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final t    = AdminTk(dark);
     if (_loading) {
-      return const Scaffold(
-        backgroundColor: kWebBg,
-        body: Center(child: CircularProgressIndicator(color: _kAccent)),
+      return Scaffold(
+        backgroundColor: dark ? t.bg : kWebBg,
+        body: const Center(child: CircularProgressIndicator(color: _kAccent)),
       );
     }
     if (_error) {
       return Scaffold(
-        backgroundColor: kWebBg,
+        backgroundColor: dark ? t.bg : kWebBg,
         body: Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(
@@ -138,12 +175,12 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
               child: const Icon(Icons.cloud_off_rounded, color: Color(0xFFEF4444), size: 34),
             ),
             const SizedBox(height: 20),
-            const Text('Could not load admin profile',
+            Text('Could not load admin profile',
               style: TextStyle(fontFamily: 'Poppins', fontSize: 17,
-                  fontWeight: FontWeight.w800, color: kText)),
+                  fontWeight: FontWeight.w800, color: t.text)),
             const SizedBox(height: 8),
-            const Text('Check your connection and try again.',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kSubText)),
+            Text('Check your connection and try again.',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub)),
             const SizedBox(height: 28),
             WebBtn(label: 'Retry', icon: Icons.refresh_rounded, onTap: () {
               setState(() { _error = false; _loading = true; });
@@ -155,7 +192,7 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
     }
 
     return Scaffold(
-      backgroundColor: kWebBg,
+      backgroundColor: dark ? t.bg : kWebBg,
       body: Row(children: [
         FadeTransition(
           opacity: _sidebarFade,
@@ -205,12 +242,13 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
   }
 
   Widget _buildPage() => switch (_page) {
-    AdminPage.overview      => _AdminOverviewPage(onNavigate: _navigate),
-    AdminPage.students      => const _AdminStudentsPage(),
-    AdminPage.organizers    => const _AdminOrganizersPage(),
-    AdminPage.events        => const _AdminEventsPage(),
-    AdminPage.registrations => const _AdminRegistrationsPage(),
-    AdminPage.logs          => const _AdminLogsPage(),
+    AdminPage.overview       => _AdminOverviewPage(onNavigate: _navigate),
+    AdminPage.students       => const _AdminStudentsPage(),
+    AdminPage.organizers     => const _AdminOrganizersPage(),
+    AdminPage.events         => const _AdminEventsPage(),
+    AdminPage.registrations  => const _AdminRegistrationsPage(),
+    AdminPage.announcements  => const _AdminAnnouncementsPage(),
+    AdminPage.logs           => const _AdminLogsPage(),
   };
 }
 
@@ -268,27 +306,32 @@ class _AdminSidebarState extends State<_AdminSidebar>
   }
 
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: const BoxDecoration(
-      gradient: _kSideGrad,
-      border: Border(right: BorderSide(color: _kSideBorder, width: 1)),
-    ),
-    child: Column(children: [
-      _cascade(_buildHeader(), 0),
-      const SizedBox(height: 4),
-      _cascade(_buildNavLabel(), 1),
-      Expanded(child: _buildNavItems()),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: Divider(color: _kSideBorder.withValues(alpha: 0.35), height: 1),
+  Widget build(BuildContext context) {
+    final s = _STk(Theme.of(context).brightness == Brightness.dark);
+    return Container(
+      decoration: BoxDecoration(
+        gradient: s.grad,
+        border: Border(right: BorderSide(color: s.border, width: 1)),
       ),
-      _cascade(_buildUserSection(), widget.collapsed ? 6 : 7),
-    ]),
-  );
+      child: Column(children: [
+        _cascade(_buildHeader(s), 0),
+        const SizedBox(height: 4),
+        _cascade(_buildNavLabel(s), 1),
+        Expanded(child: _buildNavItems()),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Divider(color: s.border.withValues(alpha: 0.35), height: 1),
+        ),
+        _buildDarkToggle(s),
+        _cascade(_buildUserSection(s), widget.collapsed ? 6 : 7),
+      ]),
+    );
+  }
 
-  Widget _buildHeader() {
-    const bDeco = BoxDecoration(
-      border: Border(bottom: BorderSide(color: _kSideBorder, width: 1)),
+  Widget _buildHeader(_STk s) {
+    final bDeco = BoxDecoration(
+      border: Border(bottom: BorderSide(
+        color: s.dark ? s.border : s.border.withValues(alpha: 0.40), width: 1)),
     );
     if (widget.collapsed) {
       return Container(
@@ -308,17 +351,17 @@ class _AdminSidebarState extends State<_AdminSidebar>
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('J-Jireh',
+              Text('J-Jireh',
                 style: TextStyle(
                   fontFamily: 'Playball', fontSize: 21,
-                  color: _kNavText, fontWeight: FontWeight.w700, height: 1.1,
+                  color: s.navText, fontWeight: FontWeight.w700, height: 1.1,
                 )),
               const SizedBox(height: 3),
               Row(children: [
                 Container(
-                  width: 16, height: 2,
+                  width: 16, height: 1.5,
                   decoration: BoxDecoration(
-                    color: _kAccent,
+                    color: _kAccent.withValues(alpha: s.dark ? 1.0 : 0.55),
                     borderRadius: BorderRadius.circular(1),
                   ),
                 ),
@@ -327,7 +370,9 @@ class _AdminSidebarState extends State<_AdminSidebar>
                   style: TextStyle(
                     fontFamily: 'Poppins', fontSize: 9.5,
                     fontWeight: FontWeight.w700,
-                    color: _kNavText.withValues(alpha: 0.70),
+                    color: s.dark
+                        ? s.navText.withValues(alpha: 0.70)
+                        : _kAccent.withValues(alpha: 0.70),
                     letterSpacing: 2.0,
                   )),
               ]),
@@ -365,7 +410,7 @@ class _AdminSidebarState extends State<_AdminSidebar>
     ),
   );
 
-  Widget _buildNavLabel() {
+  Widget _buildNavLabel(_STk s) {
     if (widget.collapsed) return const SizedBox(height: 8);
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 10, 18, 2),
@@ -376,10 +421,10 @@ class _AdminSidebarState extends State<_AdminSidebar>
             color: _kAccent.withValues(alpha: 0.50), shape: BoxShape.circle),
         ),
         const SizedBox(width: 7),
-        const Text('NAVIGATION',
+        Text('NAVIGATION',
           style: TextStyle(
             fontFamily: 'Poppins', fontSize: 9, fontWeight: FontWeight.w700,
-            color: _kNavIcon, letterSpacing: 1.8,
+            color: s.navLabel, letterSpacing: 1.8,
           )),
       ]),
     );
@@ -405,7 +450,82 @@ class _AdminSidebarState extends State<_AdminSidebar>
     );
   }
 
-  Widget _buildUserSection() {
+  Widget _buildDarkToggle(_STk s) {
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: ThemeStore.notifier,
+      builder: (_, mode, __) {
+        final isDark = mode == ThemeMode.dark;
+        if (widget.collapsed) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: ThemeStore.toggle,
+                child: Container(
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: s.dark
+                        ? Colors.white.withValues(alpha: 0.05)
+                        : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: s.border.withValues(alpha: s.dark ? 0.70 : 0.50)),
+                  ),
+                  child: Center(
+                    child: Icon(
+                      isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                      size: 16, color: s.navIcon,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: ThemeStore.toggle,
+              child: Container(
+                height: 38,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: s.dark
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: s.border.withValues(alpha: s.dark ? 0.70 : 0.50)),
+                ),
+                child: Row(children: [
+                  Icon(
+                    isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                    size: 15, color: s.navIcon,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text('Dark Mode',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                        fontWeight: FontWeight.w500, color: s.navText))),
+                  Switch.adaptive(
+                    value: isDark,
+                    onChanged: (_) => ThemeStore.toggle(),
+                    activeThumbColor: _kAccent,
+                    activeTrackColor: _kAccent.withValues(alpha: 0.35),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildUserSection(_STk s) {
     final initials = ((_name ?? 'A').trim().split(' ')
         .where((w) => w.isNotEmpty)
         .map((w) => w[0].toUpperCase())
@@ -432,7 +552,7 @@ class _AdminSidebarState extends State<_AdminSidebar>
                   fontWeight: FontWeight.w700, color: Colors.white))),
           ),
           const SizedBox(height: 6),
-          _SignOutIconBtn(onTap: widget.onSignOut, borderColor: _kSideBorder),
+          _SignOutIconBtn(onTap: widget.onSignOut),
           const SizedBox(height: 2),
         ]),
       );
@@ -442,11 +562,15 @@ class _AdminSidebarState extends State<_AdminSidebar>
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.58),
+          color: s.dark
+              ? Colors.white.withValues(alpha: 0.07)
+              : const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _kSideBorder.withValues(alpha: 0.50)),
+          border: Border.all(
+            color: s.border.withValues(alpha: s.dark ? 0.80 : 0.50)),
           boxShadow: [BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
+            color: Colors.black.withValues(alpha: s.dark ? 0.18 : 0.04),
+            blurRadius: 8, offset: const Offset(0, 2))],
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12),
@@ -488,12 +612,12 @@ class _AdminSidebarState extends State<_AdminSidebar>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(_name ?? 'Administrator',
-                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                                fontWeight: FontWeight.w700, color: _kNavText),
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                                fontWeight: FontWeight.w700, color: s.navText),
                             maxLines: 1, overflow: TextOverflow.ellipsis),
                           const SizedBox(height: 1),
-                          const Text('System Admin',
-                            style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5, color: _kNavIcon)),
+                          Text('System Admin',
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5, color: s.navIcon)),
                         ],
                       ),
                     ),
@@ -535,13 +659,26 @@ class _AdminNavItemState extends State<_AdminNavItem> {
 
   @override
   Widget build(BuildContext context) {
+    final s      = _STk(Theme.of(context).brightness == Brightness.dark);
     final active = widget.isActive;
-    final Color itemBg     = active ? _kAccent.withValues(alpha: 0.13)
-        : _hovered ? Colors.white.withValues(alpha: 0.46) : Colors.transparent;
-    final Color itemBorder = active ? _kAccent.withValues(alpha: 0.24)
-        : _hovered ? _kSideBorder.withValues(alpha: 0.26) : Colors.transparent;
-    final Color iconColor  = active ? _kAccent : _hovered ? _kNavText : _kNavIcon;
-    final Color labelColor = active ? Colors.white : _hovered ? _kNavText : _kNavIcon;
+    final Color itemBg     = active
+        ? _kAccent.withValues(alpha: s.dark ? 0.18 : 0.13)
+        : _hovered
+            ? (s.dark
+                ? Colors.white.withValues(alpha: 0.07)
+                : const Color(0xFFF1F5F9))
+            : Colors.transparent;
+    final Color itemBorder = active
+        ? _kAccent.withValues(alpha: s.dark ? 0.32 : 0.24)
+        : _hovered
+            ? (s.dark
+                ? Colors.white.withValues(alpha: 0.13)
+                : s.border.withValues(alpha: 0.26))
+            : Colors.transparent;
+    final Color iconColor  = active ? _kAccent : _hovered ? s.navText : s.navIcon;
+    final Color labelColor = active
+        ? (s.dark ? Colors.white : kText)
+        : _hovered ? s.navText : s.navIcon;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 3),
@@ -619,33 +756,44 @@ class _AdminNavItemState extends State<_AdminNavItem> {
 // ─── Sign-out buttons ──────────────────────────────────────────────────────
 
 class _SignOutIconBtn extends StatefulWidget {
-  final VoidCallback onTap; final Color borderColor;
-  const _SignOutIconBtn({required this.onTap, required this.borderColor});
+  final VoidCallback onTap;
+  const _SignOutIconBtn({required this.onTap});
   @override State<_SignOutIconBtn> createState() => _SignOutIconBtnState();
 }
 class _SignOutIconBtnState extends State<_SignOutIconBtn> {
   bool _h = false;
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    onEnter: (_) => setState(() => _h = true),
-    onExit:  (_) => setState(() => _h = false),
-    child: GestureDetector(
-      onTap: widget.onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: 32, height: 32,
-        decoration: BoxDecoration(
-          color: _h ? const Color(0xFFFEF2F2) : Colors.white.withValues(alpha: 0.55),
-          borderRadius: BorderRadius.circular(9),
-          border: Border.all(
-            color: _h ? const Color(0xFFFCA5A5) : widget.borderColor.withValues(alpha: 0.45)),
+  Widget build(BuildContext context) {
+    final s = _STk(Theme.of(context).brightness == Brightness.dark);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _h = true),
+      onExit:  (_) => setState(() => _h = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          width: 32, height: 32,
+          decoration: BoxDecoration(
+            color: _h
+                ? const Color(0xFFFEE2E2)
+                : s.dark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : const Color(0xFFFEF2F2),
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(
+              color: _h
+                  ? const Color(0xFFFCA5A5)
+                  : s.dark
+                      ? Colors.white.withValues(alpha: 0.15)
+                      : const Color(0xFFFECACA)),
+          ),
+          child: Icon(Icons.logout_rounded, size: 15,
+              color: s.dark && !_h ? s.navIcon : const Color(0xFFEF4444)),
         ),
-        child: Icon(Icons.logout_rounded, size: 15,
-            color: _h ? const Color(0xFFEF4444) : _kNavIcon),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _InlineSignOutBtn extends StatefulWidget {
@@ -656,25 +804,36 @@ class _InlineSignOutBtn extends StatefulWidget {
 class _InlineSignOutBtnState extends State<_InlineSignOutBtn> {
   bool _h = false;
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    onEnter: (_) => setState(() => _h = true),
-    onExit:  (_) => setState(() => _h = false),
-    child: GestureDetector(
-      onTap: widget.onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        width: 30, height: 30,
-        decoration: BoxDecoration(
-          color: _h ? const Color(0xFFFEF2F2) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _h ? const Color(0xFFFCA5A5) : Colors.transparent),
+  Widget build(BuildContext context) {
+    final s = _STk(Theme.of(context).brightness == Brightness.dark);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _h = true),
+      onExit:  (_) => setState(() => _h = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Tooltip(
+          message: 'Sign out',
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            width: 30, height: 30,
+            decoration: BoxDecoration(
+              color: _h
+                  ? const Color(0xFFFEE2E2)
+                  : s.dark ? Colors.transparent : const Color(0xFFFEF2F2),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _h
+                    ? const Color(0xFFFCA5A5)
+                    : s.dark ? Colors.transparent : const Color(0xFFFECACA)),
+            ),
+            child: Icon(Icons.logout_rounded, size: 14,
+                color: s.dark && !_h ? s.navIcon : const Color(0xFFEF4444)),
+          ),
         ),
-        child: Icon(Icons.logout_rounded, size: 14,
-            color: _h ? const Color(0xFFEF4444) : _kNavIcon),
       ),
-    ),
-  );
+    );
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -693,22 +852,25 @@ class _AdminTopBar extends StatelessWidget {
   });
 
   String _label() => switch (page) {
-    AdminPage.overview      => 'Dashboard',
-    AdminPage.students      => 'Students',
-    AdminPage.organizers    => 'Organizers',
-    AdminPage.events        => 'Events',
-    AdminPage.registrations => 'Registrations',
-    AdminPage.logs          => 'Logs',
+    AdminPage.overview       => 'Dashboard',
+    AdminPage.students       => 'Students',
+    AdminPage.organizers     => 'Organizers',
+    AdminPage.events         => 'Events',
+    AdminPage.registrations  => 'Registrations',
+    AdminPage.announcements  => 'Announcements',
+    AdminPage.logs           => 'Logs',
   };
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Container(
     height: kWebTopH,
     padding: const EdgeInsets.symmetric(horizontal: 20),
-    decoration: const BoxDecoration(
-      color: Colors.white,
-      border: Border(bottom: BorderSide(color: kCardBorder)),
-      boxShadow: [BoxShadow(color: Color(0x06000000), blurRadius: 8, offset: Offset(0, 2))],
+    decoration: BoxDecoration(
+      color: t.card,
+      border: Border(bottom: BorderSide(color: t.border)),
+      boxShadow: [BoxShadow(color: t.shadow, blurRadius: 8, offset: const Offset(0, 2))],
     ),
     child: Row(children: [
       _TopIconBtn(
@@ -716,15 +878,15 @@ class _AdminTopBar extends StatelessWidget {
         onTap: onMenuTap,
       ),
       const SizedBox(width: 14),
-      const Text('Admin',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kMuted, fontWeight: FontWeight.w500)),
-      const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 6),
-        child: Icon(Icons.chevron_right_rounded, size: 16, color: kMuted),
+      Text('Admin',
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.muted, fontWeight: FontWeight.w500)),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Icon(Icons.chevron_right_rounded, size: 16, color: t.muted),
       ),
       Text(_label(),
-        style: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
-            fontWeight: FontWeight.w700, color: kText)),
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+            fontWeight: FontWeight.w700, color: t.text)),
       const Spacer(),
       // System Admin badge
       Container(
@@ -749,6 +911,7 @@ class _AdminTopBar extends StatelessWidget {
       _TopIconBtn(icon: Icons.logout_rounded, onTap: onSignOut, danger: true),
     ]),
   );
+}
 }
 
 class _TopIconBtn extends StatefulWidget {
@@ -998,20 +1161,21 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
     if (_loading) return const Center(child: CircularProgressIndicator(color: _kAccent));
-    if (_dashError) return _buildDashError();
+    if (_dashError) return _buildDashError(t);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(kWebPad),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _buildHeader(),
+        _buildHeader(t),
         const SizedBox(height: 20),
-        _buildKpiRow(),
+        _buildKpiRow(t),
         const SizedBox(height: 20),
-        _buildChartsRow(),
+        _buildChartsRow(t),
         const SizedBox(height: 20),
-        _buildBottomRow(),
+        _buildBottomRow(t),
         const SizedBox(height: 20),
-        _buildRecentRegs(),
+        _buildRecentRegs(t),
         const SizedBox(height: 16),
       ]),
     );
@@ -1022,25 +1186,25 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
   // ── Header ─────────────────────────────────────────────────────────────────
 
-  Widget _buildHeader() {
-    return const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget _buildHeader(AdminTk t) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Dashboard Overview',
         style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
-            fontWeight: FontWeight.w800, color: kText)),
-      SizedBox(height: 2),
+            fontWeight: FontWeight.w800, color: t.text)),
+      const SizedBox(height: 2),
       Text('J-Jireh EventHub  ·  Administration',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kMuted)),
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted)),
     ]);
   }
 
   // ── KPI row ────────────────────────────────────────────────────────────────
 
-  Widget _buildKpiRow() => Row(children: [
+  Widget _buildKpiRow(AdminTk t) => Row(children: [
     Expanded(child: _KpiCard(
       icon: Icons.people_rounded, color: _kAccent,
       label: 'Total Students', value: '$_studentTotal',
       sub1: '$_studentActive Active', sub2: '${_studentTotal - _studentActive} Inactive',
-      sub1Color: const Color(0xFF10B981), sub2Color: kMuted,
+      sub1Color: const Color(0xFF10B981), sub2Color: t.muted,
       onTap: () => widget.onNavigate(AdminPage.students),
     )),
     const SizedBox(width: 14),
@@ -1048,7 +1212,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       icon: Icons.badge_rounded, color: kGold,
       label: 'Organizers', value: '$_orgTotal',
       sub1: '$_orgActive Active', sub2: '${_orgTotal - _orgActive} Inactive',
-      sub1Color: const Color(0xFF10B981), sub2Color: kMuted,
+      sub1Color: const Color(0xFF10B981), sub2Color: t.muted,
       onTap: () => widget.onNavigate(AdminPage.organizers),
     )),
     const SizedBox(width: 14),
@@ -1057,7 +1221,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       label: 'Total Events', value: '$_eventTotal',
       sub1: '$_eventUpcoming Upcoming / Ongoing',
       sub2: '${_statusCounts['completed'] ?? 0} Completed',
-      sub1Color: _kAccent, sub2Color: kMuted,
+      sub1Color: _kAccent, sub2Color: t.muted,
       onTap: () => widget.onNavigate(AdminPage.events),
     )),
     const SizedBox(width: 14),
@@ -1071,7 +1235,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
           : _checkInRate >= 40
               ? const Color(0xFFF59E0B)
               : const Color(0xFFEF4444),
-      sub2Color: _regNeedsReview > 0 ? const Color(0xFF8B5CF6) : kMuted,
+      sub2Color: _regNeedsReview > 0 ? const Color(0xFF8B5CF6) : t.muted,
       onTap: () => widget.onNavigate(AdminPage.registrations),
     )),
   ]);
@@ -1081,7 +1245,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
   // ── Charts row ─────────────────────────────────────────────────────────────
 
-  Widget _buildChartsRow() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget _buildChartsRow(AdminTk t) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Expanded(
       flex: 3,
       child: WebCard(
@@ -1091,12 +1255,12 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
             child: Row(children: [
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Registration Trend',
+                Text('Registration Trend',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
-                      fontWeight: FontWeight.w700, color: kText)),
+                      fontWeight: FontWeight.w700, color: t.text)),
                 const SizedBox(height: 2),
                 Text('Daily sign-ups · Last ${_chartDays == 7 ? '7 days' : '30 days'}',
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub)),
               ])),
               _ChartWindowToggle(
                 selected: _chartDays,
@@ -1121,12 +1285,12 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       child: WebCard(
         padding: const EdgeInsets.all(22),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Events This Week',
+          Text('Events This Week',
             style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
-                fontWeight: FontWeight.w700, color: kText)),
+                fontWeight: FontWeight.w700, color: t.text)),
           const SizedBox(height: 2),
-          const Text('Daily event distribution over the last 7 days',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
+          Text('Daily event distribution over the last 7 days',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub)),
           const SizedBox(height: 16),
           SizedBox(height: 220, child: _EventsTrendChart(
             dailyEvents: _weeklyEvents,
@@ -1140,7 +1304,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
   // ── Bottom row ─────────────────────────────────────────────────────────────
 
-  Widget _buildBottomRow() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget _buildBottomRow(AdminTk t) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Expanded(
       flex: 3,
       child: WebCard(
@@ -1148,12 +1312,12 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Top Events by Registrations',
+              Text('Top Events by Registrations',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
-                    fontWeight: FontWeight.w700, color: kText)),
+                    fontWeight: FontWeight.w700, color: t.text)),
               const SizedBox(height: 3),
-              const Text('Most registered events across all organizers',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
+              Text('Most registered events across all organizers',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub)),
             ])),
             MouseRegion(
               cursor: SystemMouseCursors.click,
@@ -1183,9 +1347,9 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
             child: Row(children: [
-              const Expanded(child: Text('Upcoming Events',
+              Expanded(child: Text('Upcoming Events',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
-                    fontWeight: FontWeight.w700, color: kText))),
+                    fontWeight: FontWeight.w700, color: t.text))),
               MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: GestureDetector(
@@ -1199,7 +1363,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
               ),
             ]),
           ),
-          const Divider(height: 1, color: kCardBorder),
+          Divider(height: 1, color: t.border),
           _upcomingEvents.isEmpty
               ? const Padding(
                   padding: EdgeInsets.all(32),
@@ -1218,19 +1382,19 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
   // ── Recent registrations ───────────────────────────────────────────────────
 
-  Widget _buildRecentRegs() => WebCard(
+  Widget _buildRecentRegs(AdminTk t) => WebCard(
     padding: EdgeInsets.zero,
     child: Column(children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
         child: Row(children: [
-          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Recent Registrations',
               style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
-                  fontWeight: FontWeight.w700, color: kText)),
-            SizedBox(height: 2),
+                  fontWeight: FontWeight.w700, color: t.text)),
+            const SizedBox(height: 2),
             Text('Latest sign-ups across all events',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub)),
           ])),
           MouseRegion(
             cursor: SystemMouseCursors.click,
@@ -1245,19 +1409,19 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
           ),
         ]),
       ),
-      const Divider(height: 1, color: kCardBorder),
+      Divider(height: 1, color: t.border),
       if (_recentRegs.isEmpty)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 40),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 40),
           child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.how_to_reg_rounded, size: 36, color: kCardBorder),
-            SizedBox(height: 12),
+            Icon(Icons.how_to_reg_rounded, size: 36, color: t.border),
+            const SizedBox(height: 12),
             Text('No registrations yet',
               style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                  fontWeight: FontWeight.w600, color: kText)),
-            SizedBox(height: 4),
+                  fontWeight: FontWeight.w600, color: t.text)),
+            const SizedBox(height: 4),
             Text('Sign-ups will appear here as students register for events.',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: kSubText)),
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.sub)),
           ])),
         )
       else
@@ -1265,7 +1429,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: _recentRegs.length,
-          separatorBuilder: (_, _) => const Divider(height: 1, color: kCardBorder),
+          separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
           itemBuilder: (_, i) {
             final r      = _recentRegs[i];
             final status = r['status'] as String? ?? '';
@@ -1294,18 +1458,18 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
                   const SizedBox(width: 12),
                   Expanded(flex: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(r['student_name'] as String? ?? '—',
-                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                          fontWeight: FontWeight.w600, color: kText),
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                          fontWeight: FontWeight.w600, color: t.text),
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                     Text(r['event_title'] as String? ?? '—',
-                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText),
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub),
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   ])),
                   const SizedBox(width: 12),
                   WebStatusBadge(label: webStatusLabel(status), color: sc),
                   const SizedBox(width: 16),
                   Text(webTimeAgo(r['registered_at'] as String?),
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: kMuted)),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted)),
                 ]),
               ),
             );
@@ -1314,7 +1478,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
     ]),
   );
 
-  Widget _buildDashError() => Center(
+  Widget _buildDashError(AdminTk t) => Center(
     child: Column(mainAxisSize: MainAxisSize.min, children: [
       Container(
         width: 68, height: 68,
@@ -1325,12 +1489,12 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
         child: const Icon(Icons.cloud_off_rounded, color: Color(0xFFEF4444), size: 32),
       ),
       const SizedBox(height: 18),
-      const Text('Could not load dashboard data',
+      Text('Could not load dashboard data',
         style: TextStyle(fontFamily: 'Poppins', fontSize: 16,
-            fontWeight: FontWeight.w800, color: kText)),
+            fontWeight: FontWeight.w800, color: t.text)),
       const SizedBox(height: 8),
-      const Text('Check your connection and try again.',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kSubText)),
+      Text('Check your connection and try again.',
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub)),
       const SizedBox(height: 24),
       WebBtn(label: 'Retry', icon: Icons.refresh_rounded, onTap: () {
         setState(() => _dashError = false);
@@ -1366,81 +1530,84 @@ class _KpiCardState extends State<_KpiCard> {
   bool _hovered = false;
 
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
-    onEnter: (_) => setState(() => _hovered = true),
-    onExit:  (_) => setState(() => _hovered = false),
-    child: GestureDetector(
-      onTap: widget.onTap,
-      child: AnimatedScale(
-        scale:    _hovered ? 1.016 : 1.0,
-        duration: const Duration(milliseconds: 140),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 12, offset: const Offset(0, 2),
-            )],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: kCardBorder),
-              ),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Container(height: 3, color: widget.color),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 15, 18, 18),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Expanded(child: Text(widget.label,
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                            color: kMuted, fontWeight: FontWeight.w500))),
-                      Container(
-                        width: 34, height: 34,
-                        decoration: BoxDecoration(
-                          color: widget.color.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(widget.icon, color: widget.color, size: 18),
-                      ),
-                    ]),
-                    const SizedBox(height: 8),
-                    Text(widget.value,
-                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 30,
-                          fontWeight: FontWeight.w800, color: kText, height: 1.0)),
-                    const SizedBox(height: 14),
-                    const Divider(height: 1, color: kCardBorder),
-                    const SizedBox(height: 10),
-                    Row(children: [
-                      Container(
-                        width: 7, height: 7,
-                        decoration: BoxDecoration(
-                            color: widget.sub1Color, shape: BoxShape.circle),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(child: Text(widget.sub1,
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                            fontWeight: FontWeight.w600, color: widget.sub1Color),
-                        overflow: TextOverflow.ellipsis)),
-                      const SizedBox(width: 8),
-                      Text(widget.sub2,
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                            color: widget.sub2Color)),
-                    ]),
-                  ]),
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return MouseRegion(
+      cursor: widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit:  (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale:    _hovered ? 1.016 : 1.0,
+          duration: const Duration(milliseconds: 140),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(
+                color: t.shadow,
+                blurRadius: 12, offset: const Offset(0, 2),
+              )],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: t.card,
+                  border: Border.all(color: t.border),
                 ),
-              ]),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Container(height: 3, color: widget.color),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 15, 18, 18),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Expanded(child: Text(widget.label,
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                              color: t.muted, fontWeight: FontWeight.w500))),
+                        Container(
+                          width: 34, height: 34,
+                          decoration: BoxDecoration(
+                            color: widget.color.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(widget.icon, color: widget.color, size: 18),
+                        ),
+                      ]),
+                      const SizedBox(height: 8),
+                      Text(widget.value,
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 30,
+                            fontWeight: FontWeight.w800, color: t.text, height: 1.0)),
+                      const SizedBox(height: 14),
+                      Divider(height: 1, color: t.border),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        Container(
+                          width: 7, height: 7,
+                          decoration: BoxDecoration(
+                              color: widget.sub1Color, shape: BoxShape.circle),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(child: Text(widget.sub1,
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                              fontWeight: FontWeight.w600, color: widget.sub1Color),
+                          overflow: TextOverflow.ellipsis)),
+                        const SizedBox(width: 8),
+                        Text(widget.sub2,
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                              color: widget.sub2Color)),
+                      ]),
+                    ]),
+                  ),
+                ]),
+              ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 // ─── Registration trend line chart ────────────────────────────────────────────
@@ -1452,15 +1619,16 @@ class _RegTrendChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t      = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final n      = dailyRegs.length;
     final rawMax = dailyRegs.reduce((a, b) => a > b ? a : b);
     if (rawMax < 1) {
-      return const Center(
+      return Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.show_chart_rounded, size: 32, color: kCardBorder),
-          SizedBox(height: 10),
+          Icon(Icons.show_chart_rounded, size: 32, color: t.border),
+          const SizedBox(height: 10),
           Text('No registrations in this period',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: kMuted)),
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.muted)),
         ]),
       );
     }
@@ -1485,7 +1653,7 @@ class _RegTrendChart extends StatelessWidget {
             show: true,
             drawVerticalLine: false,
             getDrawingHorizontalLine: (_) => FlLine(
-              color: Colors.grey.withValues(alpha: 0.10),
+              color: t.border.withValues(alpha: 0.35),
               strokeWidth: 1,
               dashArray: [4, 4],
             ),
@@ -1502,7 +1670,7 @@ class _RegTrendChart extends StatelessWidget {
                   return SideTitleWidget(
                     meta: meta,
                     child: Text(value.toInt().toString(),
-                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 9, color: kMuted)),
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 9, color: t.muted)),
                   );
                 },
               ),
@@ -1522,7 +1690,7 @@ class _RegTrendChart extends StatelessWidget {
                       style: TextStyle(
                         fontFamily: 'Poppins', fontSize: 10,
                         fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
-                        color: isToday ? _kAccent : kMuted,
+                        color: isToday ? _kAccent : t.muted,
                       )),
                   );
                 },
@@ -1600,15 +1768,16 @@ class _EventsTrendChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t      = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final n      = dailyEvents.length;
     final rawMax = dailyEvents.reduce((a, b) => a > b ? a : b);
     if (rawMax < 1) {
-      return const Center(
+      return Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.bar_chart_rounded, size: 32, color: kCardBorder),
-          SizedBox(height: 10),
+          Icon(Icons.bar_chart_rounded, size: 32, color: t.border),
+          const SizedBox(height: 10),
           Text('No events in this period',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: kMuted)),
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.muted)),
         ]),
       );
     }
@@ -1630,7 +1799,7 @@ class _EventsTrendChart extends StatelessWidget {
             show: true,
             drawVerticalLine: false,
             getDrawingHorizontalLine: (_) => FlLine(
-              color: Colors.grey.withValues(alpha: 0.10),
+              color: t.border.withValues(alpha: 0.35),
               strokeWidth: 1,
               dashArray: [4, 4],
             ),
@@ -1647,8 +1816,8 @@ class _EventsTrendChart extends StatelessWidget {
                   return SideTitleWidget(
                     meta: meta,
                     child: Text(value.toInt().toString(),
-                      style: const TextStyle(
-                          fontFamily: 'Poppins', fontSize: 9, color: kMuted)),
+                      style: TextStyle(
+                          fontFamily: 'Poppins', fontSize: 9, color: t.muted)),
                   );
                 },
               ),
@@ -1668,7 +1837,7 @@ class _EventsTrendChart extends StatelessWidget {
                       style: TextStyle(
                         fontFamily: 'Poppins', fontSize: 10,
                         fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
-                        color: isToday ? _kEventColor : kMuted,
+                        color: isToday ? _kEventColor : t.muted,
                       )),
                   );
                 },
@@ -1729,20 +1898,21 @@ class _ChartWindowToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
     return Container(
       height: 28,
       decoration: BoxDecoration(
-        color: kCardBorder.withValues(alpha: 0.50),
+        color: t.border.withValues(alpha: 0.50),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        _tab(7,  '7D'),
-        _tab(30, '30D'),
+        _tab(t, 7,  '7D'),
+        _tab(t, 30, '30D'),
       ]),
     );
   }
 
-  Widget _tab(int days, String label) {
+  Widget _tab(AdminTk t, int days, String label) {
     final active = selected == days;
     return GestureDetector(
       onTap: () => onSelect(days),
@@ -1750,10 +1920,10 @@ class _ChartWindowToggle extends StatelessWidget {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
         decoration: BoxDecoration(
-          color:        active ? Colors.white : Colors.transparent,
+          color:        active ? t.card : Colors.transparent,
           borderRadius: BorderRadius.circular(7),
           boxShadow: active
-              ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06),
+              ? [BoxShadow(color: t.shadow,
                            blurRadius: 4, offset: const Offset(0, 1))]
               : null,
         ),
@@ -1762,7 +1932,7 @@ class _ChartWindowToggle extends StatelessWidget {
             fontFamily:  'Poppins',
             fontSize:    11,
             fontWeight:  active ? FontWeight.w700 : FontWeight.w500,
-            color:       active ? _kAccent : kMuted,
+            color:       active ? _kAccent : t.muted,
           )),
       ),
     );
@@ -1777,6 +1947,7 @@ class _TopEventsChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
     return Column(
       children: events.asMap().entries.map((entry) {
         final idx      = entry.key;
@@ -1808,8 +1979,8 @@ class _TopEventsChart extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Expanded(child: Text(e.title,
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                    fontWeight: FontWeight.w600, color: kText),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                    fontWeight: FontWeight.w600, color: t.text),
                 maxLines: 1, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: 10),
               Text(
@@ -1826,7 +1997,7 @@ class _TopEventsChart extends StatelessWidget {
                 Container(
                   height: 6, width: constraints.maxWidth,
                   decoration: BoxDecoration(
-                    color: kCardBorder, borderRadius: BorderRadius.circular(6)),
+                    color: t.border, borderRadius: BorderRadius.circular(6)),
                 ),
                 if (barWidth > 0)
                   Container(
@@ -1863,6 +2034,7 @@ class _UpcomingEventTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t       = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final title   = event['title']         as String? ?? '—';
     final dStr    = event['event_date']    as String?;
     final status  = (event['event_status'] as String? ?? '').toLowerCase();
@@ -1945,13 +2117,13 @@ class _UpcomingEventTile extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(title,
-              style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
-                  fontWeight: FontWeight.w600, color: kText),
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
+                  fontWeight: FontWeight.w600, color: t.text),
               maxLines: 1, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 2),
             Text(
               timeLabel.isNotEmpty ? '$timeLabel  ·  by $orgName' : 'by $orgName',
-              style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted),
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted),
               maxLines: 1, overflow: TextOverflow.ellipsis),
           ])),
           const SizedBox(width: 8),
@@ -1962,7 +2134,7 @@ class _UpcomingEventTile extends StatelessWidget {
           WebStatusBadge(label: webEventStatusLabel(status), color: sc),
         ]),
       ),
-      if (!isLast) const Divider(height: 1, color: kCardBorder),
+      if (!isLast) Divider(height: 1, color: t.border),
     ]);
   }
 }
@@ -1973,10 +2145,13 @@ class _PlaceholderNote extends StatelessWidget {
   final String text;
   const _PlaceholderNote({required this.text});
   @override
-  Widget build(BuildContext context) => Center(
-    child: Text(text,
-      style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: kMuted)),
-  );
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Center(
+      child: Text(text,
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.muted)),
+    );
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -2223,6 +2398,7 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final totalCount        = _all.length;
     final activeCount       = _all.where((s) => s['is_active'] == true).length;
     final inactiveCount     = totalCount - activeCount;
@@ -2252,16 +2428,16 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
       // ── Page header ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
-        color: Colors.white,
+        color: t.card,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Students',
+              Text('Students',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
-                    fontWeight: FontWeight.w800, color: kText)),
+                    fontWeight: FontWeight.w800, color: t.text)),
               const SizedBox(height: 2),
               Text('$totalCount enrolled · $activeCount active · $noAuthCount unlinked',
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText)),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub)),
             ])),
             WebBtn(label: 'Add Student', icon: Icons.add_rounded, onTap: _addStudent),
           ]),
@@ -2321,7 +2497,7 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
             ),
             const SizedBox(width: 16),
             Container(width: 1, height: 58,
-                margin: const EdgeInsets.only(top: 14), color: kCardBorder),
+                margin: const EdgeInsets.only(top: 14), color: t.border),
             const SizedBox(width: 16),
             Expanded(
               flex: 2,
@@ -2349,20 +2525,20 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
       // ── Filter bar ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
-        decoration: const BoxDecoration(
-          color: Color(0xFFFAFBFC),
-          border: Border(bottom: BorderSide(color: kCardBorder)),
+        decoration: BoxDecoration(
+          color: t.bg,
+          border: Border(bottom: BorderSide(color: t.border)),
         ),
         child: Row(children: [
           WebSearchField(
             controller: _searchCtrl, hint: 'Search name or LRN…',
             onChanged: (v) { _search = v; _applyFilter(); }, width: 200),
           const SizedBox(width: 14),
-          Container(width: 1, height: 18, color: kCardBorder),
+          Container(width: 1, height: 18, color: t.border),
           const SizedBox(width: 14),
-          const Text('Status:',
+          Text('Status:',
             style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w600, color: kText)),
+                fontWeight: FontWeight.w600, color: t.text)),
           const SizedBox(width: 8),
           for (final f in ['All', 'Active', 'Inactive', 'No Auth', 'No Regs']) ...[
             WebFilterChip(
@@ -2383,11 +2559,11 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
           ],
           if (yearOpts.length > 1) ...[
             const SizedBox(width: 12),
-            Container(width: 1, height: 18, color: kCardBorder),
+            Container(width: 1, height: 18, color: t.border),
             const SizedBox(width: 12),
-            const Text('Grade:',
+            Text('Grade:',
               style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                  fontWeight: FontWeight.w600, color: kText)),
+                  fontWeight: FontWeight.w600, color: t.text)),
             const SizedBox(width: 8),
             Container(
               height: 28,
@@ -2395,12 +2571,12 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
               decoration: BoxDecoration(
                 color: _yearFilter != 'All'
                     ? _kAccent.withValues(alpha: 0.07)
-                    : Colors.white,
+                    : t.card,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
                   color: _yearFilter != 'All'
                       ? _kAccent.withValues(alpha: 0.45)
-                      : kCardBorder,
+                      : t.border,
                   width: _yearFilter != 'All' ? 1.5 : 1.0,
                 ),
               ),
@@ -2409,7 +2585,7 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
                   value: yearOpts.contains(_yearFilter) ? _yearFilter : 'All',
                   isDense: true,
                   icon: Icon(Icons.keyboard_arrow_down_rounded, size: 14,
-                      color: _yearFilter != 'All' ? _kAccent : kMuted),
+                      color: _yearFilter != 'All' ? _kAccent : t.muted),
                   onChanged: (v) {
                     if (v != null) { _yearFilter = v; _applyFilter(); }
                   },
@@ -2418,7 +2594,7 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
                       style: TextStyle(
                         fontFamily: 'Poppins', fontSize: 11.5,
                         fontWeight: FontWeight.w600,
-                        color: _yearFilter != 'All' ? _kAccent : kText,
+                        color: _yearFilter != 'All' ? _kAccent : t.text,
                       )),
                   )).toList(),
                   items: yearOpts.map((y) {
@@ -2434,7 +2610,7 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
                         style: TextStyle(
                           fontFamily: 'Poppins', fontSize: 12,
                           fontWeight: y == _yearFilter ? FontWeight.w700 : FontWeight.w400,
-                          color: y == _yearFilter ? _kAccent : kText,
+                          color: y == _yearFilter ? _kAccent : t.text,
                         )),
                     );
                   }).toList(),
@@ -2452,11 +2628,11 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
                   _searchCtrl.clear();
                   _applyFilter();
                 },
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.close_rounded, size: 13, color: kMuted),
-                  SizedBox(width: 4),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.close_rounded, size: 13, color: t.muted),
+                  const SizedBox(width: 4),
                   Text('Clear filters', style: TextStyle(fontFamily: 'Poppins',
-                      fontSize: 11.5, fontWeight: FontWeight.w600, color: kMuted)),
+                      fontSize: 11.5, fontWeight: FontWeight.w600, color: t.muted)),
                 ]),
               ),
             ),
@@ -2498,7 +2674,7 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: _filtered.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1, color: kCardBorder),
+                  separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
                   itemBuilder: (_, i) => _StudentRow(
                     student:  _filtered[i],
                     regCount: _regCounts[_filtered[i]['lrn'] as String? ?? ''] ?? 0,
@@ -2513,14 +2689,14 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: const BoxDecoration(
-                    border: Border(top: BorderSide(color: kCardBorder))),
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: t.border))),
                   child: Text(
                     hasFilter
                         ? 'Showing ${_filtered.length} of $totalCount students'
                         : '${_filtered.length} students total',
-                    style: const TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11.5, color: kMuted)),
+                    style: TextStyle(fontFamily: 'Poppins',
+                        fontSize: 11.5, color: t.muted)),
                 ),
               ]),
             ),
@@ -2541,13 +2717,14 @@ class _StudentRowState extends State<_StudentRow> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
+    final t           = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final s           = widget.student;
     final active      = s['is_active'] == true;
     final linked      = s['user_id'] != null;
     final yr          = s['year_level'] as int?;
     final initials    = (s['full_name'] as String? ?? '?').trim().split(' ')
         .where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase()).take(2).join();
-    final avatarColor = active ? _kAccent : kMuted;
+    final avatarColor = active ? _kAccent : t.muted;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _h = true),
@@ -2557,7 +2734,7 @@ class _StudentRowState extends State<_StudentRow> {
         color: _h ? _kAccent.withValues(alpha: 0.03) : Colors.transparent,
         child: IntrinsicHeight(
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Container(width: 3, color: active ? Colors.transparent : kMuted.withValues(alpha: 0.30)),
+            Container(width: 3, color: active ? Colors.transparent : t.muted.withValues(alpha: 0.30)),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -2580,7 +2757,7 @@ class _StudentRowState extends State<_StudentRow> {
             Text(s['full_name'] as String? ?? '—',
               style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: active ? kText : kMuted),
+                  color: active ? t.text : t.muted),
               maxLines: 1, overflow: TextOverflow.ellipsis),
             if (!linked)
               const Text('No auth account',
@@ -2589,7 +2766,7 @@ class _StudentRowState extends State<_StudentRow> {
           ])),
           // LRN
           Expanded(flex: 2, child: Text(formatLrn(s['lrn'] as String? ?? '—'),
-            style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText),
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub),
             maxLines: 1, overflow: TextOverflow.ellipsis)),
           // Year level badge
           Expanded(child: yr != null
@@ -2603,7 +2780,7 @@ class _StudentRowState extends State<_StudentRow> {
                 child: Text('G$yr',
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 11,
                       fontWeight: FontWeight.w700, color: Color(0xFF6D28D9))))
-            : const Text('—', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kMuted))),
+            : Text('—', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted))),
           // Registration count
           Expanded(child: widget.regCount > 0
               ? Container(
@@ -2624,16 +2801,16 @@ class _StudentRowState extends State<_StudentRow> {
               : Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: kMuted.withValues(alpha: 0.07),
+                    color: t.muted.withValues(alpha: 0.07),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: const Text('0',
+                  child: Text('0',
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                        fontWeight: FontWeight.w500, color: kMuted)))),
+                        fontWeight: FontWeight.w500, color: t.muted)))),
           // Status badge
           Expanded(child: WebStatusBadge(
             label: active ? 'Active' : 'Inactive',
-            color: active ? const Color(0xFF10B981) : kMuted)),
+            color: active ? const Color(0xFF10B981) : t.muted)),
           // Account link status — amber when unlinked
           Expanded(child: Row(children: [
             Container(width: 7, height: 7,
@@ -2648,7 +2825,7 @@ class _StudentRowState extends State<_StudentRow> {
           ])),
           // Created date
           Expanded(flex: 2, child: Text(webFmtDate(s['created_at'] as String?),
-            style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: kMuted))),
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted))),
           // Actions — fade in on row hover
           AnimatedOpacity(
             opacity: _h ? 1.0 : 0.0,
@@ -2692,32 +2869,35 @@ class _MiniStat extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.07),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: color.withValues(alpha: 0.18)),
-    ),
-    child: Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(
-        width: 28, height: 28,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.13),
-          borderRadius: BorderRadius.circular(7),
-        ),
-        child: Icon(icon, size: 15, color: color),
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
-      const SizedBox(width: 9),
-      Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-        Text(value,
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 18,
-              fontWeight: FontWeight.w800, color: color, height: 1.0)),
-        Text(label,
-          style: const TextStyle(fontFamily: 'Poppins', fontSize: 9.5, color: kSubText)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 28, height: 28,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.13),
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Icon(icon, size: 15, color: color),
+        ),
+        const SizedBox(width: 9),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(value,
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 18,
+                fontWeight: FontWeight.w800, color: color, height: 1.0)),
+          Text(label,
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5, color: t.sub)),
+        ]),
       ]),
-    ]),
-  );
+    );
+  }
 }
 
 // ─── Student stat card (Students tab — full-width Expanded KPI style) ─────────
@@ -2732,56 +2912,59 @@ class _StudentStatCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Expanded(
-    child: Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8, offset: const Offset(0, 1))],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: kCardBorder),
-          ),
-          child: IntrinsicHeight(
-            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Container(width: 3, color: color),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-                child: Row(children: [
-                  Container(
-                    width: 34, height: 34,
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(9),
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Expanded(
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [BoxShadow(color: t.shadow,
+              blurRadius: 8, offset: const Offset(0, 1))],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: t.card,
+              border: Border.all(color: t.border),
+            ),
+            child: IntrinsicHeight(
+              child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Container(width: 3, color: color),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+                  child: Row(children: [
+                    Container(
+                      width: 34, height: 34,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Icon(icon, size: 17, color: color),
                     ),
-                    child: Icon(icon, size: 17, color: color),
-                  ),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(value,
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 20,
-                            fontWeight: FontWeight.w800, color: kText, height: 1.0)),
-                      const SizedBox(height: 2),
-                      Text(label,
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                            color: kSubText)),
-                    ],
-                  ),
-                ]),
-              ),
-            ]),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(value,
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 20,
+                              fontWeight: FontWeight.w800, color: t.text, height: 1.0)),
+                        const SizedBox(height: 2),
+                        Text(label,
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
+                              color: t.sub)),
+                      ],
+                    ),
+                  ]),
+                ),
+              ]),
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 // ─── Grade breakdown chip (used in the per-grade strip) ──────────────────────
@@ -2834,31 +3017,34 @@ class _StudentTableHeader extends StatelessWidget {
     ),
   );
 
-  Widget _staticCol(String label, {int flex = 1}) => Expanded(
+  Widget _staticCol(String label, Color color, {int flex = 1}) => Expanded(
     flex: flex,
-    child: Text(label, style: const TextStyle(fontFamily: 'Poppins',
-        fontSize: 10.5, fontWeight: FontWeight.w700, color: kSubText, letterSpacing: 0.8)),
+    child: Text(label, style: TextStyle(fontFamily: 'Poppins',
+        fontSize: 10.5, fontWeight: FontWeight.w700, color: color, letterSpacing: 0.8)),
   );
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
-    decoration: const BoxDecoration(
-      color: Color(0xFFF0F3F7),
-      border: Border(bottom: BorderSide(color: kCardBorder)),
-    ),
-    child: Row(children: [
-      const SizedBox(width: 52),
-      _sortCol('FULL NAME',  'full_name',  flex: 3),
-      _sortCol('LRN',        'lrn',        flex: 2),
-      _sortCol('GRADE',      'year_level'),
-      _sortCol('REGS',       'reg_count'),
-      _sortCol('STATUS',     'is_active'),
-      _staticCol('AUTH'),
-      _sortCol('CREATED',    'created_at', flex: 2),
-      const SizedBox(width: 108),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Container(
+      padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
+      decoration: BoxDecoration(
+        color: t.bg,
+        border: Border(bottom: BorderSide(color: t.border)),
+      ),
+      child: Row(children: [
+        const SizedBox(width: 52),
+        _sortCol('FULL NAME',  'full_name',  flex: 3),
+        _sortCol('LRN',        'lrn',        flex: 2),
+        _sortCol('GRADE',      'year_level'),
+        _sortCol('REGS',       'reg_count'),
+        _sortCol('STATUS',     'is_active'),
+        _staticCol('AUTH',     t.sub),
+        _sortCol('CREATED',    'created_at', flex: 2),
+        const SizedBox(width: 108),
+      ]),
+    );
+  }
 }
 
 class _SortColBtn extends StatefulWidget {
@@ -2873,30 +3059,33 @@ class _SortColBtn extends StatefulWidget {
 class _SortColBtnState extends State<_SortColBtn> {
   bool _h = false;
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    onEnter: (_) => setState(() => _h = true),
-    onExit:  (_) => setState(() => _h = false),
-    child: GestureDetector(
-      onTap: () => widget.onSort(widget.field),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(widget.label,
-          style: TextStyle(
-            fontFamily: 'Poppins', fontSize: 10.5,
-            fontWeight: FontWeight.w700, letterSpacing: 0.8,
-            color: widget.active ? _kAccent : _h ? kText : kSubText,
-          )),
-        const SizedBox(width: 3),
-        Icon(
-          widget.active
-              ? (widget.asc ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded)
-              : Icons.unfold_more_rounded,
-          size: 11,
-          color: widget.active ? _kAccent : _h ? kSubText : kCardBorder,
-        ),
-      ]),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _h = true),
+      onExit:  (_) => setState(() => _h = false),
+      child: GestureDetector(
+        onTap: () => widget.onSort(widget.field),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(widget.label,
+            style: TextStyle(
+              fontFamily: 'Poppins', fontSize: 10.5,
+              fontWeight: FontWeight.w700, letterSpacing: 0.8,
+              color: widget.active ? _kAccent : _h ? t.text : t.sub,
+            )),
+          const SizedBox(width: 3),
+          Icon(
+            widget.active
+                ? (widget.asc ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded)
+                : Icons.unfold_more_rounded,
+            size: 11,
+            color: widget.active ? _kAccent : _h ? t.sub : t.border,
+          ),
+        ]),
+      ),
+    );
+  }
 }
 
 // ─── Student dialog ────────────────────────────────────────────────────────
@@ -2993,7 +3182,9 @@ class _StudentDialogState extends State<_StudentDialog>
         backgroundColor: Colors.red));
 
   @override
-  Widget build(BuildContext context) => FadeTransition(
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return FadeTransition(
     opacity: _fade,
     child: ScaleTransition(
       scale: _scale,
@@ -3015,25 +3206,25 @@ class _StudentDialogState extends State<_StudentDialog>
                   enabled: !_saving,
                   keyboardType: TextInputType.number,
                   inputFormatters: [_LrnFormatter()],
-                  decoration: webInputDeco('e.g. 123456 - 26 - 1234', icon: Icons.badge_outlined),
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText)),
+                  decoration: webInputDeco('e.g. 123456 - 26 - 1234', icon: Icons.badge_outlined, dark: t.dark),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text)),
                 const SizedBox(height: 12),
               ],
               TextField(
                 controller: _nameCtrl,
                 enabled: !_saving,
-                decoration: webInputDeco('Full Name', icon: Icons.person_outline_rounded),
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText)),
+                decoration: webInputDeco('Full Name', icon: Icons.person_outline_rounded, dark: t.dark),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text)),
               const SizedBox(height: 12),
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Grade Level',
+                Text('Grade Level',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                      fontWeight: FontWeight.w600, color: kSubText)),
+                      fontWeight: FontWeight.w600, color: t.sub)),
                 const SizedBox(height: 10),
                 // Junior High School row
-                const Text('Junior High School',
+                Text('Junior High School',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                      fontWeight: FontWeight.w600, color: kMuted, letterSpacing: 0.4)),
+                      fontWeight: FontWeight.w600, color: t.muted, letterSpacing: 0.4)),
                 const SizedBox(height: 6),
                 Row(children: [
                   for (final y in [7, 8, 9, 10]) ...[
@@ -3047,10 +3238,10 @@ class _StudentDialogState extends State<_StudentDialog>
                           decoration: BoxDecoration(
                             color: _selectedYear == y
                                 ? _kAccent.withValues(alpha: 0.10)
-                                : const Color(0xFFF8F9FC),
+                                : t.inputBg,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: _selectedYear == y ? _kAccent : kCardBorder,
+                              color: _selectedYear == y ? _kAccent : t.border,
                               width: _selectedYear == y ? 1.5 : 1.0,
                             ),
                           ),
@@ -3060,7 +3251,7 @@ class _StudentDialogState extends State<_StudentDialog>
                               fontFamily: 'Poppins', fontSize: 12,
                               fontWeight: _selectedYear == y
                                   ? FontWeight.w700 : FontWeight.w400,
-                              color: _selectedYear == y ? _kAccent : kSubText,
+                              color: _selectedYear == y ? _kAccent : t.sub,
                             )),
                         ),
                       ),
@@ -3070,9 +3261,9 @@ class _StudentDialogState extends State<_StudentDialog>
                 ]),
                 const SizedBox(height: 10),
                 // Senior High School row
-                const Text('Senior High School',
+                Text('Senior High School',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                      fontWeight: FontWeight.w600, color: kMuted, letterSpacing: 0.4)),
+                      fontWeight: FontWeight.w600, color: t.muted, letterSpacing: 0.4)),
                 const SizedBox(height: 6),
                 Row(children: [
                   for (final y in [11, 12]) ...[
@@ -3086,10 +3277,10 @@ class _StudentDialogState extends State<_StudentDialog>
                           decoration: BoxDecoration(
                             color: _selectedYear == y
                                 ? _kAccent.withValues(alpha: 0.10)
-                                : const Color(0xFFF8F9FC),
+                                : t.inputBg,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: _selectedYear == y ? _kAccent : kCardBorder,
+                              color: _selectedYear == y ? _kAccent : t.border,
                               width: _selectedYear == y ? 1.5 : 1.0,
                             ),
                           ),
@@ -3099,7 +3290,7 @@ class _StudentDialogState extends State<_StudentDialog>
                               fontFamily: 'Poppins', fontSize: 12,
                               fontWeight: _selectedYear == y
                                   ? FontWeight.w700 : FontWeight.w400,
-                              color: _selectedYear == y ? _kAccent : kSubText,
+                              color: _selectedYear == y ? _kAccent : t.sub,
                             )),
                         ),
                       ),
@@ -3127,16 +3318,16 @@ class _StudentDialogState extends State<_StudentDialog>
                   controller: _pwCtrl,
                   obscureText: _pwHidden,
                   enabled: !_saving,
-                  decoration: webInputDeco('Password', icon: Icons.lock_outline_rounded).copyWith(
+                  decoration: webInputDeco('Password', icon: Icons.lock_outline_rounded, dark: t.dark).copyWith(
                     suffixIcon: IconButton(
                       icon: Icon(
                         _pwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                        size: 18, color: kSubText,
+                        size: 18, color: t.sub,
                       ),
                       onPressed: () => setState(() => _pwHidden = !_pwHidden),
                     ),
                   ),
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
                 ),
                 ValueListenableBuilder<TextEditingValue>(
                   valueListenable: _pwCtrl,
@@ -3147,16 +3338,16 @@ class _StudentDialogState extends State<_StudentDialog>
                   controller: _confirmPwCtrl,
                   obscureText: _confirmPwHidden,
                   enabled: !_saving,
-                  decoration: webInputDeco('Confirm Password', icon: Icons.lock_outline_rounded).copyWith(
+                  decoration: webInputDeco('Confirm Password', icon: Icons.lock_outline_rounded, dark: t.dark).copyWith(
                     suffixIcon: IconButton(
                       icon: Icon(
                         _confirmPwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                        size: 18, color: kSubText,
+                        size: 18, color: t.sub,
                       ),
                       onPressed: () => setState(() => _confirmPwHidden = !_confirmPwHidden),
                     ),
                   ),
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
                 ),
               ],
             ]),
@@ -3168,6 +3359,7 @@ class _StudentDialogState extends State<_StudentDialog>
       ),
     ),
   );
+}
 }
 
 // ─── LRN auto-formatter ───────────────────────────────────────────────────────
@@ -3437,6 +3629,7 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
 
   @override
   Widget build(BuildContext context) {
+    final t             = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final totalCount    = _all.length;
     final activeCount   = _all.where((o) => o['is_active'] == true).length;
     final inactiveCount = totalCount - activeCount;
@@ -3464,16 +3657,16 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
       // ── Page header ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
-        color: Colors.white,
+        color: t.card,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Organizers',
+              Text('Organizers',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
-                    fontWeight: FontWeight.w800, color: kText)),
+                    fontWeight: FontWeight.w800, color: t.text)),
               const SizedBox(height: 2),
               Text('$totalCount total · $activeCount active · $noAuthCount unlinked',
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText)),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub)),
             ])),
             WebBtn(label: 'Add Organizer', icon: Icons.add_rounded, onTap: _addOrganizer),
           ]),
@@ -3489,7 +3682,7 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
             _StudentStatCard(
               label: 'Inactive',
               value: '$inactiveCount',
-              color: inactiveCount > 0 ? kMuted : const Color(0xFF10B981),
+              color: inactiveCount > 0 ? t.muted : const Color(0xFF10B981),
               icon: Icons.person_off_outlined,
             ),
             const SizedBox(width: 10),
@@ -3512,20 +3705,20 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
       // ── Filter bar ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
-        decoration: const BoxDecoration(
-          color: Color(0xFFFAFBFC),
-          border: Border(bottom: BorderSide(color: kCardBorder)),
+        decoration: BoxDecoration(
+          color: t.inputBg,
+          border: Border(bottom: BorderSide(color: t.border)),
         ),
         child: Row(children: [
           WebSearchField(
             controller: _searchCtrl, hint: 'Search name, ID, or org…',
             onChanged: (v) { _search = v; _applyFilter(); }, width: 200),
           const SizedBox(width: 14),
-          Container(width: 1, height: 18, color: kCardBorder),
+          Container(width: 1, height: 18, color: t.border),
           const SizedBox(width: 14),
-          const Text('Status:',
+          Text('Status:',
             style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w600, color: kText)),
+                fontWeight: FontWeight.w600, color: t.text)),
           const SizedBox(width: 8),
           for (final f in ['All', 'Active', 'Inactive', 'No Auth', '0 Events']) ...[
             WebFilterChip(
@@ -3538,7 +3731,7 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
                    :                    noEventsCount,
               selectedColor: f == 'No Auth'   ? const Color(0xFFF59E0B)
                            : f == '0 Events'  ? _kAccent
-                           : f == 'Inactive'  ? kMuted
+                           : f == 'Inactive'  ? t.muted
                            : f == 'Active'    ? const Color(0xFF10B981)
                            :                    kGold,
             ),
@@ -3554,11 +3747,11 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
                   _searchCtrl.clear();
                   _applyFilter();
                 },
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.close_rounded, size: 13, color: kMuted),
-                  SizedBox(width: 4),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.close_rounded, size: 13, color: t.muted),
+                  const SizedBox(width: 4),
                   Text('Clear filters', style: TextStyle(fontFamily: 'Poppins',
-                      fontSize: 11.5, fontWeight: FontWeight.w600, color: kMuted)),
+                      fontSize: 11.5, fontWeight: FontWeight.w600, color: t.muted)),
                 ]),
               ),
             ),
@@ -3600,7 +3793,7 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: _filtered.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1, color: kCardBorder),
+                  separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
                   itemBuilder: (_, i) {
                     final o  = _filtered[i];
                     final id = o['organizer_id'] as String? ?? '';
@@ -3615,14 +3808,14 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: const BoxDecoration(
-                    border: Border(top: BorderSide(color: kCardBorder))),
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: t.border))),
                   child: Text(
                     hasFilter
                         ? 'Showing ${_filtered.length} of $totalCount organizers'
                         : '${_filtered.length} organizers total',
-                    style: const TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11.5, color: kMuted)),
+                    style: TextStyle(fontFamily: 'Poppins',
+                        fontSize: 11.5, color: t.muted)),
                 ),
               ]),
             ),
@@ -3651,30 +3844,33 @@ class _OrganizerTableHeader extends StatelessWidget {
     ),
   );
 
-  Widget _staticCol(String label, {int flex = 1}) => Expanded(
+  Widget _staticCol(String label, Color subColor, {int flex = 1}) => Expanded(
     flex: flex,
-    child: Text(label, style: const TextStyle(fontFamily: 'Poppins',
-        fontSize: 10.5, fontWeight: FontWeight.w700, color: kSubText, letterSpacing: 0.8)),
+    child: Text(label, style: TextStyle(fontFamily: 'Poppins',
+        fontSize: 10.5, fontWeight: FontWeight.w700, color: subColor, letterSpacing: 0.8)),
   );
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
-    decoration: const BoxDecoration(
-      color: Color(0xFFF0F3F7),
-      border: Border(bottom: BorderSide(color: kCardBorder)),
-    ),
-    child: Row(children: [
-      const SizedBox(width: 52),
-      _sortCol('FULL NAME',  'full_name',    flex: 3),
-      _sortCol('ORG ID',     'organizer_id'),
-      _sortCol('EVENTS',     'event_count'),
-      _sortCol('STATUS',     'is_active'),
-      _staticCol('AUTH'),
-      _sortCol('CREATED',    'created_at',   flex: 2),
-      const SizedBox(width: 108),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Container(
+      padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
+      decoration: BoxDecoration(
+        color: t.bg,
+        border: Border(bottom: BorderSide(color: t.border)),
+      ),
+      child: Row(children: [
+        const SizedBox(width: 52),
+        _sortCol('FULL NAME',  'full_name',    flex: 3),
+        _sortCol('ORG ID',     'organizer_id'),
+        _sortCol('EVENTS',     'event_count'),
+        _sortCol('STATUS',     'is_active'),
+        _staticCol('AUTH', t.sub),
+        _sortCol('CREATED',    'created_at',   flex: 2),
+        const SizedBox(width: 108),
+      ]),
+    );
+  }
 }
 
 class _OrganizerRow extends StatefulWidget {
@@ -3690,6 +3886,7 @@ class _OrganizerRowState extends State<_OrganizerRow> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
+    final t           = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final o           = widget.org;
     final active      = o['is_active'] == true;
     final linked      = o['user_id'] != null;
@@ -3697,7 +3894,7 @@ class _OrganizerRowState extends State<_OrganizerRow> {
     final orgId       = o['organizer_id'] as String? ?? '—';
     final initials    = (o['full_name'] as String? ?? '?').trim().split(' ')
         .where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase()).take(2).join();
-    final avatarColor = active ? kGold : kMuted;
+    final avatarColor = active ? kGold : t.muted;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _h = true),
@@ -3707,7 +3904,7 @@ class _OrganizerRowState extends State<_OrganizerRow> {
         color: _h ? kGold.withValues(alpha: 0.04) : Colors.transparent,
         child: IntrinsicHeight(
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Container(width: 3, color: active ? Colors.transparent : kMuted.withValues(alpha: 0.30)),
+            Container(width: 3, color: active ? Colors.transparent : t.muted.withValues(alpha: 0.30)),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -3733,12 +3930,12 @@ class _OrganizerRowState extends State<_OrganizerRow> {
                     children: [
                       Text(o['full_name'] as String? ?? '—',
                         style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                            fontWeight: FontWeight.w600, color: active ? kText : kMuted),
+                            fontWeight: FontWeight.w600, color: active ? t.text : t.muted),
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                       if (orgName != null && orgName.isNotEmpty)
                         Text(orgName,
-                          style: const TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
-                              color: kSubText),
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
+                              color: t.sub),
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                       if (!linked)
                         const Text('No auth account',
@@ -3783,15 +3980,15 @@ class _OrganizerRowState extends State<_OrganizerRow> {
                     : Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: kMuted.withValues(alpha: 0.07),
+                          color: t.muted.withValues(alpha: 0.07),
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        child: const Text('0', style: TextStyle(fontFamily: 'Poppins',
-                            fontSize: 11, fontWeight: FontWeight.w500, color: kMuted)))),
+                        child: Text('0', style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 11, fontWeight: FontWeight.w500, color: t.muted)))),
                   // Status badge
                   Expanded(child: WebStatusBadge(
                     label: active ? 'Active' : 'Inactive',
-                    color: active ? const Color(0xFF10B981) : kMuted)),
+                    color: active ? const Color(0xFF10B981) : t.muted)),
                   // Account link status
                   Expanded(child: Row(children: [
                     Container(width: 7, height: 7,
@@ -3806,7 +4003,7 @@ class _OrganizerRowState extends State<_OrganizerRow> {
                   ])),
                   // Created date
                   Expanded(flex: 2, child: Text(webFmtDate(o['created_at'] as String?),
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: kMuted))),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted))),
                   // Actions — fade in on row hover
                   AnimatedOpacity(
                     opacity: _h ? 1.0 : 0.0,
@@ -3943,105 +4140,108 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
         backgroundColor: Colors.red));
 
   @override
-  Widget build(BuildContext context) => FadeTransition(
-    opacity: _fade,
-    child: ScaleTransition(
-      scale: _scale,
-      child: Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 440, maxHeight: 680),
-          child: _dialogShell(
-            icon: Icons.badge_rounded, iconColor: kGold,
-            title: _isEdit ? 'Edit Organizer' : 'Add Organizer',
-            loading: _saving,
-            body: Column(children: [
-              if (_isEdit) ...[
-                _InfoNote(widget.eventCount > 0
-                    ? 'This organizer has ${widget.eventCount} event${widget.eventCount == 1 ? '' : 's'}. Name and organization changes apply immediately.'
-                    : 'This organizer has no events yet.'),
-                const SizedBox(height: 12),
-              ],
-              if (!_isEdit) ...[
-                _InfoNote('Admin-provisioned account. The organizer will log in using their ID in lowercase (e.g. org0001) as their username.'),
-                const SizedBox(height: 14),
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return FadeTransition(
+      opacity: _fade,
+      child: ScaleTransition(
+        scale: _scale,
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440, maxHeight: 680),
+            child: _dialogShell(
+              icon: Icons.badge_rounded, iconColor: kGold,
+              title: _isEdit ? 'Edit Organizer' : 'Add Organizer',
+              loading: _saving,
+              body: Column(children: [
+                if (_isEdit) ...[
+                  _InfoNote(widget.eventCount > 0
+                      ? 'This organizer has ${widget.eventCount} event${widget.eventCount == 1 ? '' : 's'}. Name and organization changes apply immediately.'
+                      : 'This organizer has no events yet.'),
+                  const SizedBox(height: 12),
+                ],
+                if (!_isEdit) ...[
+                  _InfoNote('Admin-provisioned account. The organizer will log in using their ID in lowercase (e.g. org0001) as their username.'),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _idCtrl,
+                    enabled: !_saving,
+                    decoration: webInputDeco('Organizer ID (e.g. Org0001)', icon: Icons.tag_rounded, dark: t.dark),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text)),
+                  const SizedBox(height: 12),
+                ],
                 TextField(
-                  controller: _idCtrl,
+                  controller: _nameCtrl,
                   enabled: !_saving,
-                  decoration: webInputDeco('Organizer ID (e.g. Org0001)', icon: Icons.tag_rounded),
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText)),
-                const SizedBox(height: 12),
-              ],
-              TextField(
-                controller: _nameCtrl,
-                enabled: !_saving,
-                decoration: webInputDeco('Full Name', icon: Icons.person_outline_rounded),
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _orgCtrl,
-                enabled: !_saving,
-                decoration: webInputDeco('Organization / Department (optional)', icon: Icons.business_outlined),
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText)),
-              if (!_isEdit) ...[
-                const SizedBox(height: 14),
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _idCtrl,
-                  builder: (_, v, __) {
-                    final id = v.text.trim().toLowerCase();
-                    return _CredentialPreview(
-                      username: id.isEmpty ? '—' : id,
-                      isReady:  RegExp(r'^org\d{4}$').hasMatch(id),
-                    );
-                  },
-                ),
+                  decoration: webInputDeco('Full Name', icon: Icons.person_outline_rounded, dark: t.dark),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text)),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: _pwCtrl,
-                  obscureText: _pwHidden,
+                  controller: _orgCtrl,
                   enabled: !_saving,
-                  decoration: webInputDeco('Password', icon: Icons.lock_outline_rounded).copyWith(
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _pwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                        size: 18, color: kSubText,
-                      ),
-                      onPressed: () => setState(() => _pwHidden = !_pwHidden),
-                    ),
+                  decoration: webInputDeco('Organization / Department (optional)', icon: Icons.business_outlined, dark: t.dark),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text)),
+                if (!_isEdit) ...[
+                  const SizedBox(height: 14),
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _idCtrl,
+                    builder: (_, v, __) {
+                      final id = v.text.trim().toLowerCase();
+                      return _CredentialPreview(
+                        username: id.isEmpty ? '—' : id,
+                        isReady:  RegExp(r'^org\d{4}$').hasMatch(id),
+                      );
+                    },
                   ),
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
-                ),
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _pwCtrl,
-                  builder: (_, v, __) => _PasswordStrengthBar(password: v.text),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _confirmPwCtrl,
-                  obscureText: _confirmPwHidden,
-                  enabled: !_saving,
-                  decoration: webInputDeco('Confirm Password', icon: Icons.lock_outline_rounded).copyWith(
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _confirmPwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                        size: 18, color: kSubText,
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _pwCtrl,
+                    obscureText: _pwHidden,
+                    enabled: !_saving,
+                    decoration: webInputDeco('Password', icon: Icons.lock_outline_rounded, dark: t.dark).copyWith(
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _pwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                          size: 18, color: t.sub,
+                        ),
+                        onPressed: () => setState(() => _pwHidden = !_pwHidden),
                       ),
-                      onPressed: () => setState(() => _confirmPwHidden = !_confirmPwHidden),
                     ),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
                   ),
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
-                ),
-              ],
-            ]),
-            confirmLabel: _isEdit ? 'Save Changes' : 'Add Organizer',
-            confirmColor: kGold,
-            onConfirm: _submit,
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _pwCtrl,
+                    builder: (_, v, __) => _PasswordStrengthBar(password: v.text),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _confirmPwCtrl,
+                    obscureText: _confirmPwHidden,
+                    enabled: !_saving,
+                    decoration: webInputDeco('Confirm Password', icon: Icons.lock_outline_rounded, dark: t.dark).copyWith(
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _confirmPwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                          size: 18, color: t.sub,
+                        ),
+                        onPressed: () => setState(() => _confirmPwHidden = !_confirmPwHidden),
+                      ),
+                    ),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
+                  ),
+                ],
+              ]),
+              confirmLabel: _isEdit ? 'Save Changes' : 'Add Organizer',
+              confirmColor: kGold,
+              onConfirm: _submit,
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -4213,6 +4413,7 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final t              = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final totalCount     = _all.length;
     final upcomingCount  = _all.where((e) => _resolveDisplayStatus(e) == 'upcoming').length;
     final ongoingCount   = _all.where((e) => _resolveDisplayStatus(e) == 'ongoing').length;
@@ -4250,16 +4451,16 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
       // ── Page header ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
-        color: Colors.white,
+        color: t.card,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Events',
+              Text('Events',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
-                    fontWeight: FontWeight.w800, color: kText)),
+                    fontWeight: FontWeight.w800, color: t.text)),
               const SizedBox(height: 2),
               Text('$totalCount total · $upcomingCount upcoming · $ongoingCount ongoing',
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText)),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub)),
             ])),
           ]),
           const SizedBox(height: 16),
@@ -4289,9 +4490,9 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
       // ── Filter bar ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 10, kWebPad, 10),
-        decoration: const BoxDecoration(
-          color: Color(0xFFFAFBFC),
-          border: Border(bottom: BorderSide(color: kCardBorder)),
+        decoration: BoxDecoration(
+          color: t.inputBg,
+          border: Border(bottom: BorderSide(color: t.border)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Status filter row
@@ -4300,11 +4501,11 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
               controller: _searchCtrl, hint: 'Search title, organizer, or type…',
               onChanged: (v) { _search = v; _applyFilter(); }, width: 200),
             const SizedBox(width: 14),
-            Container(width: 1, height: 18, color: kCardBorder),
+            Container(width: 1, height: 18, color: t.border),
             const SizedBox(width: 14),
-            const Text('Status:',
+            Text('Status:',
               style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                  fontWeight: FontWeight.w600, color: kText)),
+                  fontWeight: FontWeight.w600, color: t.text)),
             const SizedBox(width: 8),
             WebFilterChip(
               label: 'All', selected: _statusFilter == 'All',
@@ -4333,91 +4534,91 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
                     _searchCtrl.clear();
                     _applyFilter();
                   },
-                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.close_rounded, size: 13, color: kMuted),
-                    SizedBox(width: 4),
-                    Text('Clear filters', style: TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11.5, fontWeight: FontWeight.w600, color: kMuted)),
-                  ]),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.close_rounded, size: 13, color: t.muted),
+                  const SizedBox(width: 4),
+                  Text('Clear filters', style: TextStyle(fontFamily: 'Poppins',
+                      fontSize: 11.5, fontWeight: FontWeight.w600, color: t.muted)),
+                ]),
+              ),
+            ),
+          ],
+        ]),
+        // Type + Capacity — single compact row
+        if (typeOpts.length > 1 || atCapacityCount > 0) ...[
+          const SizedBox(height: 8),
+          Row(children: [
+            if (typeOpts.length > 1) ...[
+              Text('Type:',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                    fontWeight: FontWeight.w600, color: t.text)),
+              const SizedBox(width: 8),
+              Container(
+                height: 28,
+                padding: const EdgeInsets.only(left: 10, right: 6),
+                decoration: BoxDecoration(
+                  color: _typeFilter != 'All'
+                      ? _eventTypeColor(_typeFilter).withValues(alpha: 0.07)
+                      : t.card,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: _typeFilter != 'All'
+                        ? _eventTypeColor(_typeFilter).withValues(alpha: 0.45)
+                        : t.border,
+                    width: _typeFilter != 'All' ? 1.5 : 1.0,
+                  ),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: typeOpts.contains(_typeFilter) ? _typeFilter : 'All',
+                    isDense: true,
+                    icon: Icon(Icons.keyboard_arrow_down_rounded, size: 14,
+                        color: _typeFilter != 'All'
+                            ? _eventTypeColor(_typeFilter) : t.muted),
+                    onChanged: (v) {
+                      if (v != null) { _typeFilter = v; _applyFilter(); }
+                    },
+                    selectedItemBuilder: (ctx) => typeOpts.map((typ) => Center(
+                      child: Text(
+                        typ == 'All' ? 'All Types'
+                            : '${typ[0].toUpperCase()}${typ.substring(1)}',
+                        style: TextStyle(
+                          fontFamily: 'Poppins', fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: _typeFilter != 'All'
+                              ? _eventTypeColor(_typeFilter) : t.text,
+                        )),
+                    )).toList(),
+                    items: typeOpts.map((typ) {
+                      final cnt = typ == 'All' ? totalCount
+                          : _all.where((e) =>
+                              (e['event_type'] as String? ?? '') == typ).length;
+                      final lbl = typ == 'All' ? 'All Types'
+                          : '${typ[0].toUpperCase()}${typ.substring(1)}';
+                      return DropdownMenuItem<String>(
+                        value: typ,
+                        child: Text('$lbl ($cnt)',
+                          style: TextStyle(
+                            fontFamily: 'Poppins', fontSize: 12,
+                            fontWeight: typ == _typeFilter
+                                ? FontWeight.w700 : FontWeight.w400,
+                            color: typ == 'All' ? t.text : _eventTypeColor(typ),
+                          )),
+                      );
+                    }).toList(),
+                  ),
                 ),
               ),
             ],
-          ]),
-          // Type + Capacity — single compact row
-          if (typeOpts.length > 1 || atCapacityCount > 0) ...[
-            const SizedBox(height: 8),
-            Row(children: [
-              if (typeOpts.length > 1) ...[
-                const Text('Type:',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                      fontWeight: FontWeight.w600, color: kText)),
-                const SizedBox(width: 8),
-                Container(
-                  height: 28,
-                  padding: const EdgeInsets.only(left: 10, right: 6),
-                  decoration: BoxDecoration(
-                    color: _typeFilter != 'All'
-                        ? _eventTypeColor(_typeFilter).withValues(alpha: 0.07)
-                        : Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: _typeFilter != 'All'
-                          ? _eventTypeColor(_typeFilter).withValues(alpha: 0.45)
-                          : kCardBorder,
-                      width: _typeFilter != 'All' ? 1.5 : 1.0,
-                    ),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: typeOpts.contains(_typeFilter) ? _typeFilter : 'All',
-                      isDense: true,
-                      icon: Icon(Icons.keyboard_arrow_down_rounded, size: 14,
-                          color: _typeFilter != 'All'
-                              ? _eventTypeColor(_typeFilter) : kMuted),
-                      onChanged: (v) {
-                        if (v != null) { _typeFilter = v; _applyFilter(); }
-                      },
-                      selectedItemBuilder: (ctx) => typeOpts.map((t) => Center(
-                        child: Text(
-                          t == 'All' ? 'All Types'
-                              : '${t[0].toUpperCase()}${t.substring(1)}',
-                          style: TextStyle(
-                            fontFamily: 'Poppins', fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                            color: _typeFilter != 'All'
-                                ? _eventTypeColor(_typeFilter) : kText,
-                          )),
-                      )).toList(),
-                      items: typeOpts.map((t) {
-                        final cnt = t == 'All' ? totalCount
-                            : _all.where((e) =>
-                                (e['event_type'] as String? ?? '') == t).length;
-                        final lbl = t == 'All' ? 'All Types'
-                            : '${t[0].toUpperCase()}${t.substring(1)}';
-                        return DropdownMenuItem<String>(
-                          value: t,
-                          child: Text('$lbl ($cnt)',
-                            style: TextStyle(
-                              fontFamily: 'Poppins', fontSize: 12,
-                              fontWeight: t == _typeFilter
-                                  ? FontWeight.w700 : FontWeight.w400,
-                              color: t == 'All' ? kText : _eventTypeColor(t),
-                            )),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-              ],
-              if (typeOpts.length > 1 && atCapacityCount > 0) ...[
-                const SizedBox(width: 12),
-                Container(width: 1, height: 18, color: kCardBorder),
-                const SizedBox(width: 12),
-              ],
-              if (atCapacityCount > 0) ...[
-                const Text('Capacity:',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                      fontWeight: FontWeight.w600, color: kText)),
+            if (typeOpts.length > 1 && atCapacityCount > 0) ...[
+              const SizedBox(width: 12),
+              Container(width: 1, height: 18, color: t.border),
+              const SizedBox(width: 12),
+            ],
+            if (atCapacityCount > 0) ...[
+              Text('Capacity:',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                    fontWeight: FontWeight.w600, color: t.text)),
                 const SizedBox(width: 8),
                 WebFilterChip(
                   label: 'At Capacity',
@@ -4469,7 +4670,7 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: _filtered.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1, color: kCardBorder),
+                  separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
                   itemBuilder: (_, i) {
                     final e           = _filtered[i];
                     final dispStatus  = _resolveDisplayStatus(e);
@@ -4485,14 +4686,14 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: const BoxDecoration(
-                    border: Border(top: BorderSide(color: kCardBorder))),
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: t.border))),
                   child: Text(
                     hasFilter
                         ? 'Showing ${_filtered.length} of $totalCount events'
                         : '${_filtered.length} events total',
-                    style: const TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11.5, color: kMuted)),
+                    style: TextStyle(fontFamily: 'Poppins',
+                        fontSize: 11.5, color: t.muted)),
                 ),
               ]),
             ),
@@ -4589,22 +4790,25 @@ class _EventTableHeader extends StatelessWidget {
   );
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
-    decoration: const BoxDecoration(
-      color: Color(0xFFF0F3F7),
-      border: Border(bottom: BorderSide(color: kCardBorder)),
-    ),
-    child: Row(children: [
-      const SizedBox(width: 52),
-      _sortCol('EVENT',     'title',          flex: 3),
-      _sortCol('ORGANIZER', 'organizer_name', flex: 2),
-      _sortCol('DATE',      'event_date',     flex: 2),
-      _sortCol('STATUS',    'event_status'),
-      _sortCol('FILL RATE', 'fill_rate',      flex: 2),
-      const SizedBox(width: 44),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Container(
+      padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
+      decoration: BoxDecoration(
+        color: t.bg,
+        border: Border(bottom: BorderSide(color: t.border)),
+      ),
+      child: Row(children: [
+        const SizedBox(width: 52),
+        _sortCol('EVENT',     'title',          flex: 3),
+        _sortCol('ORGANIZER', 'organizer_name', flex: 2),
+        _sortCol('DATE',      'event_date',     flex: 2),
+        _sortCol('STATUS',    'event_status'),
+        _sortCol('FILL RATE', 'fill_rate',      flex: 2),
+        const SizedBox(width: 44),
+      ]),
+    );
+  }
 }
 
 class _EventRow extends StatefulWidget {
@@ -4630,9 +4834,10 @@ class _EventRowState extends State<_EventRow> {
     final isFull       = max > 0 && cur >= max;
     final isAlmostFull = !isFull && pct >= 0.8;
     final isCancelled  = dbStatus == 'cancelled';
-    final typeColor    = type.isEmpty ? kMuted : _eventTypeColor(type);
+    final t            = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final typeColor    = type.isEmpty ? t.muted : _eventTypeColor(type);
     final timeStr      = _fmtEventTime(e['start_time'] as String?);
-    final barColor     = isCancelled  ? kMuted
+    final barColor     = isCancelled  ? t.muted
                        : isFull       ? const Color(0xFFEF4444)
                        : isAlmostFull ? const Color(0xFFF59E0B)
                        :                const Color(0xFF10B981);
@@ -4678,7 +4883,7 @@ class _EventRowState extends State<_EventRow> {
                       Text(e['title'] as String? ?? '—',
                         style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: isCancelled ? kMuted : kText),
+                            color: isCancelled ? t.muted : t.text),
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                       if (type.isNotEmpty) ...[
                         const SizedBox(height: 3),
@@ -4702,13 +4907,13 @@ class _EventRowState extends State<_EventRow> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(orgName,
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                            fontWeight: FontWeight.w500, color: kSubText),
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                            fontWeight: FontWeight.w500, color: t.sub),
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                       if (orgSub != null && orgSub.isNotEmpty)
                         Text(orgSub,
-                          style: const TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
-                              color: kMuted),
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
+                              color: t.muted),
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                     ],
                   )),
@@ -4719,10 +4924,10 @@ class _EventRowState extends State<_EventRow> {
                     children: [
                       Text(webFmtDate(e['event_date'] as String?),
                         style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                            color: isCancelled ? kMuted : kSubText)),
+                            color: isCancelled ? t.muted : t.sub)),
                       if (timeStr.isNotEmpty)
-                        Text(timeStr, style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 10.5, color: kMuted)),
+                        Text(timeStr, style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 10.5, color: t.muted)),
                     ],
                   )),
                   // Status badge
@@ -4738,7 +4943,7 @@ class _EventRowState extends State<_EventRow> {
                         Text(max > 0 ? '$cur / $max' : '$cur / ∞',
                           style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
                               fontWeight: FontWeight.w600,
-                              color: isCancelled ? kMuted : kText)),
+                              color: isCancelled ? t.muted : t.text)),
                         const SizedBox(width: 6),
                         if (isFull)
                           Container(
@@ -4770,7 +4975,7 @@ class _EventRowState extends State<_EventRow> {
                         height: 4,
                         clipBehavior: Clip.hardEdge,
                         decoration: BoxDecoration(
-                          color: kCardBorder,
+                          color: t.border,
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: pct > 0
@@ -4991,6 +5196,7 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final t              = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final totalCount     = _all.length;
     final pendingCount   = _all.where((r) => r['status'] == 'pending').length;
     final checkedInCount = _all.where((r) => r['status'] == 'checked_in').length;
@@ -5022,16 +5228,16 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
       // ── Page header ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
-        color: Colors.white,
+        color: t.card,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Registrations',
+              Text('Registrations',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
-                    fontWeight: FontWeight.w800, color: kText)),
+                    fontWeight: FontWeight.w800, color: t.text)),
               const SizedBox(height: 2),
               Text('$totalCount total · $checkedInCount checked in · $checkInRate% rate',
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kSubText)),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub)),
             ])),
           ]),
           const SizedBox(height: 16),
@@ -5083,7 +5289,7 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
                   Flexible(
                     flex: (totalCount - checkedInCount - needsReview - pendingCount - rejectedCount)
                         .clamp(0, totalCount),
-                    child: Container(color: kCardBorder),
+                    child: Container(color: t.border),
                   ),
                 ]),
               ),
@@ -5127,8 +5333,8 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
                         '$needsReview ${needsReview == 1 ? 'registration needs' : 'registrations need'} photo review',
                         style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
                             fontWeight: FontWeight.w700, color: Color(0xFF8B5CF6))),
-                      const Text('Tap to filter and review submitted selfies',
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: kSubText)),
+                      Text('Tap to filter and review submitted selfies',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.sub)),
                     ])),
                     const SizedBox(width: 10),
                     Container(
@@ -5150,9 +5356,9 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
       // ── Filter bar ───────────────────────────────────────────────────
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
-        decoration: const BoxDecoration(
-          color: Color(0xFFFAFBFC),
-          border: Border(bottom: BorderSide(color: kCardBorder)),
+        decoration: BoxDecoration(
+          color: t.inputBg,
+          border: Border(bottom: BorderSide(color: t.border)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Status filter row
@@ -5161,11 +5367,11 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
               controller: _searchCtrl, hint: 'Search student, LRN, or event…',
               onChanged: (v) { _search = v; _applyFilter(); }, width: 200),
             const SizedBox(width: 14),
-            Container(width: 1, height: 18, color: kCardBorder),
+            Container(width: 1, height: 18, color: t.border),
             const SizedBox(width: 14),
-            const Text('Status:',
+            Text('Status:',
               style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                  fontWeight: FontWeight.w600, color: kText)),
+                  fontWeight: FontWeight.w600, color: t.text)),
             const SizedBox(width: 8),
             Expanded(
               child: SingleChildScrollView(
@@ -5198,11 +5404,11 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
                     _searchCtrl.clear();
                     _applyFilter();
                   },
-                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.close_rounded, size: 13, color: kMuted),
-                    SizedBox(width: 4),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.close_rounded, size: 13, color: t.muted),
+                    const SizedBox(width: 4),
                     Text('Clear filters', style: TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11.5, fontWeight: FontWeight.w600, color: kMuted)),
+                        fontSize: 11.5, fontWeight: FontWeight.w600, color: t.muted)),
                   ]),
                 ),
               ),
@@ -5212,20 +5418,20 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
           if (eventOpts.length > 1) ...[
             const SizedBox(height: 8),
             Row(children: [
-              const Text('Event:',
+              Text('Event:',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                    fontWeight: FontWeight.w600, color: kText)),
+                    fontWeight: FontWeight.w600, color: t.text)),
               const SizedBox(width: 8),
               Container(
                 height: 28,
                 padding: const EdgeInsets.only(left: 10, right: 6),
                 decoration: BoxDecoration(
                   color: _eventFilter != 'All'
-                      ? _kAccent.withValues(alpha: 0.07) : Colors.white,
+                      ? _kAccent.withValues(alpha: 0.07) : t.card,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: _eventFilter != 'All'
-                        ? _kAccent.withValues(alpha: 0.45) : kCardBorder,
+                        ? _kAccent.withValues(alpha: 0.45) : t.border,
                     width: _eventFilter != 'All' ? 1.5 : 1.0,
                   ),
                 ),
@@ -5233,28 +5439,28 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
                   child: DropdownButton<String>(
                     value: eventOpts.contains(_eventFilter) ? _eventFilter : 'All',
                     isDense: true,
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                        fontWeight: FontWeight.w600, color: kText),
-                    selectedItemBuilder: (_) => eventOpts.map((t) => Align(
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                        fontWeight: FontWeight.w600, color: t.text),
+                    selectedItemBuilder: (_) => eventOpts.map((opt) => Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        t == 'All' ? 'All Events' : t,
+                        opt == 'All' ? 'All Events' : opt,
                         style: TextStyle(
                           fontFamily: 'Poppins', fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: _eventFilter != 'All' ? _kAccent : kText,
+                          color: _eventFilter != 'All' ? _kAccent : t.text,
                         ),
                         maxLines: 1, overflow: TextOverflow.ellipsis,
                       ),
                     )).toList(),
-                    items: eventOpts.map((t) {
-                      final lbl = t == 'All' ? 'All Events' : t;
-                      final cnt = t == 'All'
+                    items: eventOpts.map((opt) {
+                      final lbl = opt == 'All' ? 'All Events' : opt;
+                      final cnt = opt == 'All'
                           ? totalCount
                           : _all.where((r) =>
-                              (r['event_title'] as String? ?? '') == t).length;
+                              (r['event_title'] as String? ?? '') == opt).length;
                       return DropdownMenuItem<String>(
-                        value: t,
+                        value: opt,
                         child: Text('$lbl  ($cnt)',
                           style: const TextStyle(
                             fontFamily: 'Poppins', fontSize: 11)),
@@ -5305,7 +5511,7 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: _filtered.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1, color: kCardBorder),
+                  separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
                   itemBuilder: (_, i) {
                     final r             = _filtered[i];
                     final isNeedsReview = r['status'] == 'photo_submitted';
@@ -5317,14 +5523,14 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: const BoxDecoration(
-                    border: Border(top: BorderSide(color: kCardBorder))),
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: t.border))),
                   child: Text(
                     hasFilter
                         ? 'Showing ${_filtered.length} of $totalCount registrations'
                         : '${_filtered.length} of up to 300 most recent registrations',
-                    style: const TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11.5, color: kMuted)),
+                    style: TextStyle(fontFamily: 'Poppins',
+                        fontSize: 11.5, color: t.muted)),
                 ),
               ]),
             ),
@@ -5341,12 +5547,15 @@ class _RegLegend extends StatelessWidget {
   final String label;
   const _RegLegend({required this.color, required this.label});
   @override
-  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-    Container(width: 7, height: 7,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-    const SizedBox(width: 4),
-    Text(label, style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kSubText)),
-  ]);
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(width: 7, height: 7,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+      const SizedBox(width: 4),
+      Text(label, style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.sub)),
+    ]);
+  }
 }
 
 class _ReviewBtn extends StatefulWidget {
@@ -5403,25 +5612,28 @@ class _RegTableHeader extends StatelessWidget {
 
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
-    decoration: const BoxDecoration(
-      color: Color(0xFFF0F3F7),
-      border: Border(bottom: BorderSide(color: kCardBorder)),
-    ),
-    child: Row(children: [
-      const SizedBox(width: 52), // 3(rail strip) + 20(padding) + 40(avatar) + 12(gap) - 23(left inset) = 52
-      _sortCol('STUDENT',    'student_name',  flex: 4),
-      _sortCol('EVENT',      'event_title',   flex: 3),
-      _sortCol('STATUS',     'status',        flex: 2),
-      _sortCol('REGISTERED', 'registered_at', flex: 2),
-      _sortCol('CHECKED IN', 'checked_in_at', flex: 2),
-      SizedBox(width: 76, child: Text('ACTION',
-        style: const TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
-            fontWeight: FontWeight.w700, color: kSubText, letterSpacing: 0.8),
-        textAlign: TextAlign.center)),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Container(
+      padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
+      decoration: BoxDecoration(
+        color: t.bg,
+        border: Border(bottom: BorderSide(color: t.border)),
+      ),
+      child: Row(children: [
+        const SizedBox(width: 52), // 3(rail strip) + 20(padding) + 40(avatar) + 12(gap) - 23(left inset) = 52
+        _sortCol('STUDENT',    'student_name',  flex: 4),
+        _sortCol('EVENT',      'event_title',   flex: 3),
+        _sortCol('STATUS',     'status',        flex: 2),
+        _sortCol('REGISTERED', 'registered_at', flex: 2),
+        _sortCol('CHECKED IN', 'checked_in_at', flex: 2),
+        SizedBox(width: 76, child: Text('ACTION',
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
+              fontWeight: FontWeight.w700, color: t.sub, letterSpacing: 0.8),
+          textAlign: TextAlign.center)),
+      ]),
+    );
+  }
 }
 
 class _RegistrationRow extends StatefulWidget {
@@ -5444,6 +5656,7 @@ class _RegistrationRowState extends State<_RegistrationRow> {
     final initials    = name.trim().split(' ')
         .where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase()).take(2).join();
 
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final avatarColor = switch (status) {
       'checked_in'      => const Color(0xFF10B981),
       'photo_submitted' => const Color(0xFF8B5CF6),
@@ -5451,7 +5664,7 @@ class _RegistrationRowState extends State<_RegistrationRow> {
       'pending'         => const Color(0xFF3B82F6),
       'qr_scanned'      => const Color(0xFFF59E0B),
       'photo_required'  => const Color(0xFFF59E0B),
-      _                 => kMuted,
+      _                 => t.muted,
     };
     final railColor = switch (status) {
       'photo_submitted' => const Color(0xFF8B5CF6).withValues(alpha: 0.45),
@@ -5498,23 +5711,23 @@ class _RegistrationRowState extends State<_RegistrationRow> {
                       Text(name,
                         style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: isRejected ? kMuted : kText),
+                            color: isRejected ? t.muted : t.text),
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                       const SizedBox(height: 3),
                       Row(mainAxisSize: MainAxisSize.min, children: [
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                           decoration: BoxDecoration(
-                            color: kMuted.withValues(alpha: 0.08),
+                            color: t.muted.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Text('LRN',
+                          child: Text('LRN',
                             style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                                fontWeight: FontWeight.w700, color: kMuted, letterSpacing: 0.5)),
+                                fontWeight: FontWeight.w700, color: t.muted, letterSpacing: 0.5)),
                         ),
                         const SizedBox(width: 5),
                         Flexible(child: Text(lrn,
-                          style: const TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: kSubText),
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.sub),
                           overflow: TextOverflow.ellipsis)),
                       ]),
                     ],
@@ -5522,11 +5735,11 @@ class _RegistrationRowState extends State<_RegistrationRow> {
                   // Event title
                   Expanded(flex: 3, child: Row(children: [
                     Icon(Icons.calendar_today_rounded, size: 11,
-                        color: isRejected ? kMuted.withValues(alpha: 0.4) : kMuted.withValues(alpha: 0.55)),
+                        color: isRejected ? t.muted.withValues(alpha: 0.4) : t.muted.withValues(alpha: 0.55)),
                     const SizedBox(width: 5),
                     Flexible(child: Text(r['event_title'] as String? ?? '—',
                       style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                          color: isRejected ? kMuted : kSubText),
+                          color: isRejected ? t.muted : t.sub),
                       maxLines: 1, overflow: TextOverflow.ellipsis)),
                   ])),
                   // Status badge
@@ -5534,7 +5747,7 @@ class _RegistrationRowState extends State<_RegistrationRow> {
                     label: webStatusLabel(status), color: webStatusColor(status))),
                   // Registered date
                   Expanded(flex: 2, child: Text(webFmtDate(r['registered_at'] as String?),
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: kMuted))),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted))),
                   // Check-in date — green with time if checked in
                   Expanded(flex: 2, child: isCheckedIn && checkedInAt != null
                     ? Column(
@@ -5550,11 +5763,11 @@ class _RegistrationRowState extends State<_RegistrationRow> {
                                   color: Color(0xFF10B981), fontWeight: FontWeight.w600)),
                           ]),
                           Text(_fmtIsoTime(checkedInAt),
-                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kMuted)),
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
                         ],
                       )
-                    : const Text('—', style: TextStyle(
-                        fontFamily: 'Poppins', fontSize: 11.5, color: kMuted))),
+                    : Text('—', style: TextStyle(
+                        fontFamily: 'Poppins', fontSize: 11.5, color: t.muted))),
                   // Review Photo action
                   SizedBox(
                     width: 76,
@@ -5585,29 +5798,32 @@ class _ActBtn extends StatefulWidget {
 class _ActBtnState extends State<_ActBtn> {
   bool _h = false;
   @override
-  Widget build(BuildContext context) => Tooltip(
-    message: widget.tip,
-    child: MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _h = true),
-      onExit:  (_) => setState(() => _h = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 130),
-          width: 32, height: 32,
-          decoration: BoxDecoration(
-            color: _h ? widget.color.withValues(alpha: 0.10) : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: _h ? widget.color.withValues(alpha: 0.25) : Colors.transparent),
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Tooltip(
+      message: widget.tip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _h = true),
+        onExit:  (_) => setState(() => _h = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 130),
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: _h ? widget.color.withValues(alpha: 0.10) : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _h ? widget.color.withValues(alpha: 0.25) : Colors.transparent),
+            ),
+            child: Icon(widget.icon, size: 16,
+                color: _h ? widget.color : t.muted.withValues(alpha: 0.70)),
           ),
-          child: Icon(widget.icon, size: 16,
-              color: _h ? widget.color : kMuted.withValues(alpha: 0.70)),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 // Error state
@@ -5616,33 +5832,36 @@ class _ErrorState extends StatelessWidget {
   const _ErrorState({required this.message, required this.onRetry});
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          width: 68, height: 68,
-          decoration: BoxDecoration(
-            color: const Color(0xFFFEF2F2), shape: BoxShape.circle,
-            border: Border.all(color: const Color(0xFFFCA5A5), width: 1.5),
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 68, height: 68,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF2F2), shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFFFCA5A5), width: 1.5),
+            ),
+            child: const Icon(Icons.lock_outline_rounded, color: Color(0xFFEF4444), size: 30),
           ),
-          child: const Icon(Icons.lock_outline_rounded, color: Color(0xFFEF4444), size: 30),
-        ),
-        const SizedBox(height: 16),
-        const Text('Permission Required',
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 15,
-              fontWeight: FontWeight.w700, color: kText)),
-        const SizedBox(height: 8),
-        const Text(
-          'Run the admin RLS policies SQL in Supabase to grant\nthe admin account read access to this table.',
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-              color: kSubText, height: 1.6),
-          textAlign: TextAlign.center),
-        const SizedBox(height: 20),
-        WebBtn(label: 'Retry', icon: Icons.refresh_rounded, onTap: onRetry),
-      ]),
-    ),
-  );
+          const SizedBox(height: 16),
+          Text('Permission Required',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 15,
+                fontWeight: FontWeight.w700, color: t.text)),
+          const SizedBox(height: 8),
+          Text(
+            'Run the admin RLS policies SQL in Supabase to grant\nthe admin account read access to this table.',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                color: t.sub, height: 1.6),
+            textAlign: TextAlign.center),
+          const SizedBox(height: 20),
+          WebBtn(label: 'Retry', icon: Icons.refresh_rounded, onTap: onRetry),
+        ]),
+      ),
+    );
+  }
 }
 
 // Info note box used inside dialogs
@@ -5654,33 +5873,40 @@ class _CredentialPreview extends StatelessWidget {
   const _CredentialPreview({required this.username, required this.isReady});
 
   @override
-  Widget build(BuildContext context) => AnimatedContainer(
-    duration: const Duration(milliseconds: 200),
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-    decoration: BoxDecoration(
-      color: isReady ? const Color(0xFFF0FDF4) : const Color(0xFFFAFAFA),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
         color: isReady
-            ? const Color(0xFF10B981).withValues(alpha: 0.35)
-            : kCardBorder,
+            ? (t.dark
+                ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                : const Color(0xFFF0FDF4))
+            : t.card,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isReady
+              ? const Color(0xFF10B981).withValues(alpha: 0.35)
+              : t.border,
+        ),
       ),
-    ),
-    child: Row(children: [
-      Icon(Icons.login_rounded, size: 13,
-          color: isReady ? const Color(0xFF10B981) : kMuted),
-      const SizedBox(width: 8),
-      const Text('Login ID ',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
-      Text(username,
-        style: TextStyle(
-          fontFamily: 'Poppins', fontSize: 11,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.5,
-          color: isReady ? const Color(0xFF10B981) : kMuted,
-        )),
-    ]),
-  );
+      child: Row(children: [
+        Icon(Icons.login_rounded, size: 13,
+            color: isReady ? const Color(0xFF10B981) : t.muted),
+        const SizedBox(width: 8),
+        Text('Login ID ',
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub)),
+        Text(username,
+          style: TextStyle(
+            fontFamily: 'Poppins', fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
+            color: isReady ? const Color(0xFF10B981) : t.muted,
+          )),
+      ]),
+    );
+  }
 }
 
 // ─── Password strength bar ────────────────────────────────────────────────────
@@ -5691,6 +5917,7 @@ class _PasswordStrengthBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
     if (password.isEmpty) return const SizedBox(height: 4);
     int score = 0;
     if (password.length >= 6)  score++;
@@ -5712,7 +5939,7 @@ class _PasswordStrengthBar extends StatelessWidget {
             duration: const Duration(milliseconds: 220),
             height: 3,
             decoration: BoxDecoration(
-              color: i < score ? color : kCardBorder,
+              color: i < score ? color : t.border,
               borderRadius: BorderRadius.circular(2),
             ),
           )),
@@ -5731,21 +5958,25 @@ class _InfoNote extends StatelessWidget {
   const _InfoNote(this.text);
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: const Color(0xFFF0F9FF),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: const Color(0xFF0EA5E9).withValues(alpha: 0.25)),
-    ),
-    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Icon(Icons.info_outline_rounded, size: 15, color: Color(0xFF0EA5E9)),
-      const SizedBox(width: 8),
-      Expanded(child: Text(text,
-        style: const TextStyle(fontFamily: 'Poppins', fontSize: 11,
-            color: Color(0xFF0369A1), height: 1.5))),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: t.inputBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF0EA5E9).withValues(alpha: 0.25)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Icon(Icons.info_outline_rounded, size: 15, color: Color(0xFF0EA5E9)),
+        const SizedBox(width: 8),
+        Expanded(child: Text(text,
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+              color: t.dark ? const Color(0xFF7DD3FC) : const Color(0xFF0369A1),
+              height: 1.5))),
+      ]),
+    );
+  }
 }
 
 // Shared dialog chrome (header + form body + buttons)
@@ -5759,70 +5990,73 @@ Widget _dialogShell({
   required VoidCallback? onConfirm,
   bool loading = false,
 }) {
-  return Container(
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(20),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withValues(alpha: 0.14),
-          blurRadius: 40, offset: const Offset(0, 14)),
-      ],
-    ),
-    child: Column(mainAxisSize: MainAxisSize.max, children: [
-      // Header
-      Container(
-        padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: kCardBorder))),
-        child: _DialogHeader(icon: icon, iconColor: iconColor, title: title),
+  return Builder(builder: (context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Container(
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.14),
+            blurRadius: 40, offset: const Offset(0, 14)),
+        ],
       ),
-      // Body (scrollable so tall content never overflows)
-      Flexible(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: body,
+      child: Column(mainAxisSize: MainAxisSize.max, children: [
+        // Header
+        Container(
+          padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: t.border))),
+          child: _DialogHeader(icon: icon, iconColor: iconColor, title: title),
         ),
-      ),
-      // Buttons
-      const Divider(height: 1, color: kCardBorder),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
-        child: Row(children: [
-          Expanded(
-            child: Builder(builder: (ctx) => OutlinedButton(
-              onPressed: loading ? null : () => Navigator.of(ctx).pop(),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: kCardBorder),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(vertical: 13),
-              ),
-              child: const Text('Cancel',
-                style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, color: kSubText)),
-            )),
+        // Body (scrollable so tall content never overflows)
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: body,
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: ElevatedButton(
-              onPressed: loading ? null : onConfirm,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: confirmColor, foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(vertical: 13),
-              ),
-              child: loading
-                ? const SizedBox(
-                    width: 18, height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : Text(confirmLabel,
-                    style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+        ),
+        // Buttons
+        Divider(height: 1, color: t.border),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
+          child: Row(children: [
+            Expanded(
+              child: Builder(builder: (ctx) => OutlinedButton(
+                onPressed: loading ? null : () => Navigator.of(ctx).pop(),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: t.border),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                ),
+                child: Text('Cancel',
+                  style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, color: t.sub)),
+              )),
             ),
-          ),
-        ]),
-      ),
-    ]),
-  );
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: loading ? null : onConfirm,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: confirmColor, foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                ),
+                child: loading
+                  ? const SizedBox(
+                      width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Text(confirmLabel,
+                      style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  });
 }
 
 // Dialog header row
@@ -5831,32 +6065,35 @@ class _DialogHeader extends StatelessWidget {
   const _DialogHeader({required this.icon, required this.iconColor, required this.title});
 
   @override
-  Widget build(BuildContext context) => Row(children: [
-    Container(
-      width: 38, height: 38,
-      decoration: BoxDecoration(
-        color: iconColor.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Icon(icon, size: 19, color: iconColor),
-    ),
-    const SizedBox(width: 12),
-    Expanded(child: Text(title,
-      style: const TextStyle(fontFamily: 'Poppins', fontSize: 16,
-          fontWeight: FontWeight.w800, color: kText))),
-    Builder(builder: (ctx) => GestureDetector(
-      onTap: () => Navigator.of(ctx).pop(),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: Container(
-          width: 30, height: 30,
-          decoration: BoxDecoration(
-            color: Colors.transparent, borderRadius: BorderRadius.circular(8)),
-          child: const Icon(Icons.close_rounded, size: 18, color: kMuted),
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Row(children: [
+      Container(
+        width: 38, height: 38,
+        decoration: BoxDecoration(
+          color: iconColor.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(10),
         ),
+        child: Icon(icon, size: 19, color: iconColor),
       ),
-    )),
-  ]);
+      const SizedBox(width: 12),
+      Expanded(child: Text(title,
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 16,
+            fontWeight: FontWeight.w800, color: t.text))),
+      Builder(builder: (ctx) => GestureDetector(
+        onTap: () => Navigator.of(ctx).pop(),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: Container(
+            width: 30, height: 30,
+            decoration: BoxDecoration(
+              color: Colors.transparent, borderRadius: BorderRadius.circular(8)),
+            child: Icon(Icons.close_rounded, size: 18, color: t.muted),
+          ),
+        ),
+      )),
+    ]);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -5912,6 +6149,7 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
 
   @override
   Widget build(BuildContext context) {
+    final t           = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final reg         = widget.reg;
     final studentName = reg['student_name']      as String? ?? '—';
     final lrn         = reg['student_school_id'] as String? ?? '—';
@@ -5929,7 +6167,7 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
             constraints: const BoxConstraints(maxWidth: 520),
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: t.card,
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
@@ -5941,8 +6179,8 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
                 // Header
                 Container(
                   padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
-                  decoration: const BoxDecoration(
-                    border: Border(bottom: BorderSide(color: kCardBorder))),
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: t.border))),
                   child: _DialogHeader(
                     icon:      Icons.photo_camera_outlined,
                     iconColor: const Color(0xFF8B5CF6),
@@ -5955,25 +6193,25 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
                   child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text(studentName,
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 15,
-                            fontWeight: FontWeight.w700, color: kText)),
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 15,
+                            fontWeight: FontWeight.w700, color: t.text)),
                       const SizedBox(height: 3),
                       Row(children: [
-                        const Text('LRN ',
+                        Text('LRN ',
                           style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                              fontWeight: FontWeight.w700, color: kMuted, letterSpacing: 0.5)),
+                              fontWeight: FontWeight.w700, color: t.muted, letterSpacing: 0.5)),
                         Text(lrn,
-                          style: const TextStyle(fontFamily: 'Poppins',
-                              fontSize: 11.5, color: kSubText)),
+                          style: TextStyle(fontFamily: 'Poppins',
+                              fontSize: 11.5, color: t.sub)),
                       ]),
                       const SizedBox(height: 4),
                       Text(eventTitle,
-                        style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 12, color: kSubText),
+                        style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 12, color: t.sub),
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                       Text('Registered $regDate',
-                        style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 11, color: kMuted)),
+                        style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 11, color: t.muted)),
                     ])),
                     const SizedBox(width: 12),
                     WebStatusBadge(label: 'Needs Review', color: const Color(0xFF8B5CF6)),
@@ -5987,7 +6225,7 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
                     child: Container(
                       width: double.infinity,
                       constraints: const BoxConstraints(maxHeight: 340),
-                      color: const Color(0xFFF8F9FC),
+                      color: t.inputBg,
                       child: _urlLoading
                           ? const SizedBox(
                               height: 200,
@@ -5995,33 +6233,33 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
                                 child: CircularProgressIndicator(
                                     color: Color(0xFF8B5CF6), strokeWidth: 2.5)))
                           : _urlError || _imageUrl == null
-                              ? const SizedBox(
+                              ? SizedBox(
                                   height: 160,
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Icon(Icons.broken_image_rounded,
-                                          size: 44, color: kMuted),
-                                      SizedBox(height: 10),
+                                          size: 44, color: t.muted),
+                                      const SizedBox(height: 10),
                                       Text('Photo unavailable',
                                         style: TextStyle(fontFamily: 'Poppins',
-                                            fontSize: 13, color: kMuted)),
+                                            fontSize: 13, color: t.muted)),
                                     ],
                                   ))
                               : Image.network(
                                   _imageUrl!,
                                   fit: BoxFit.contain,
-                                  errorBuilder: (_, _, _) => const SizedBox(
+                                  errorBuilder: (_, _, _) => SizedBox(
                                     height: 160,
                                     child: Column(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
                                         Icon(Icons.broken_image_rounded,
-                                            size: 44, color: kMuted),
-                                        SizedBox(height: 10),
+                                            size: 44, color: t.muted),
+                                        const SizedBox(height: 10),
                                         Text('Failed to load image',
                                           style: TextStyle(fontFamily: 'Poppins',
-                                              fontSize: 13, color: kMuted)),
+                                              fontSize: 13, color: t.muted)),
                                       ],
                                     )),
                                 ),
@@ -6029,7 +6267,7 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
                   ),
                 ),
                 // Action buttons
-                const Divider(height: 1, color: kCardBorder),
+                Divider(height: 1, color: t.border),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
                   child: Row(children: [
@@ -6037,14 +6275,14 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
                     Builder(builder: (ctx) => OutlinedButton(
                       onPressed: () => Navigator.of(ctx).pop(),
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: kCardBorder),
+                        side: BorderSide(color: t.border),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
                         padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 16),
                       ),
-                      child: const Text('Cancel',
+                      child: Text('Cancel',
                         style: TextStyle(fontFamily: 'Poppins',
-                            fontWeight: FontWeight.w600, color: kSubText)),
+                            fontWeight: FontWeight.w600, color: t.sub)),
                     )),
                     const SizedBox(width: 8),
                     // Reject
@@ -6167,6 +6405,623 @@ IconData _logActionIcon(String? action) => switch (action) {
   'deleted' => Icons.delete_outline_rounded,
   _         => Icons.event_note_outlined,
 };
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Announcements page
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _AdminAnnouncementsPage extends StatefulWidget {
+  const _AdminAnnouncementsPage();
+  @override State<_AdminAnnouncementsPage> createState() => _AdminAnnouncementsPageState();
+}
+
+class _AdminAnnouncementsPageState extends State<_AdminAnnouncementsPage> {
+  bool   _loading   = true;
+  bool   _error     = false;
+  String _search    = '';
+  String _orgFilter = 'All';
+  bool   _sortDesc  = true;
+  List<Map<String, dynamic>> _all      = [];
+  List<Map<String, dynamic>> _filtered = [];
+  final _searchCtrl = TextEditingController();
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _subscribeRealtime();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _debounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
+    super.dispose();
+  }
+
+  void _subscribeRealtime() {
+    _channel = SupabaseService.client.channel('admin-announcements')
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: 'announcements'),
+        (_, [_]) {
+          _debounce?.cancel();
+          _debounce = Timer(const Duration(milliseconds: 600), () {
+            if (mounted) _load(silent: true);
+          });
+        },
+      )
+      ..subscribe();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (mounted) setState(() { if (!silent) _loading = true; _error = false; });
+    try {
+      final rows = List<Map<String, dynamic>>.from(
+        await SupabaseService.client
+            .from('announcements')
+            .select('id, title, message, created_by, created_at')
+            .order('created_at', ascending: false),
+      );
+
+      // Batch-resolve organizer display names
+      final uids = rows
+          .map((r) => r['created_by'] as String?)
+          .whereType<String>()
+          .toSet()
+          .toList();
+      final Map<String, String> orgNames = {};
+      if (uids.isNotEmpty) {
+        final orgRows = List<Map<String, dynamic>>.from(
+          await SupabaseService.client
+              .from('organizers')
+              .select('user_id, full_name')
+              .filter('user_id', 'in', '(${uids.join(',')})'),
+        );
+        for (final o in orgRows) {
+          orgNames[o['user_id'] as String] = o['full_name'] as String? ?? '—';
+        }
+      }
+
+      final enriched = rows.map((r) => <String, dynamic>{
+        ...r,
+        '_org': orgNames[r['created_by'] as String? ?? ''] ?? '—',
+      }).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _all      = enriched;
+        _filtered = _apply(enriched);
+        _loading  = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() { _loading = false; _error = true; });
+    }
+  }
+
+  List<Map<String, dynamic>> _apply(List<Map<String, dynamic>> src) {
+    final q = _search.trim().toLowerCase();
+    var list = src.where((a) {
+      if (_orgFilter != 'All' && a['_org'] != _orgFilter) return false;
+      if (q.isEmpty) return true;
+      final title   = (a['title']   as String? ?? '').toLowerCase();
+      final message = (a['message'] as String? ?? '').toLowerCase();
+      final org     = (a['_org']    as String? ?? '').toLowerCase();
+      return title.contains(q) || message.contains(q) || org.contains(q);
+    }).toList();
+    return _sortDesc ? list : list.reversed.toList();
+  }
+
+  Future<void> _delete(Map<String, dynamic> ann) async {
+    final ok = await WebAlert.confirm(
+      context:      context,
+      title:        'Delete Announcement?',
+      message:      'This announcement will be permanently removed and will '
+                    'no longer be visible to students. This cannot be undone.',
+      confirmLabel: 'Delete',
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await SupabaseService.client
+          .from('announcements')
+          .delete()
+          .eq('id', ann['id'] as int);
+      SupabaseService.announcementsVersion.value++;
+      await _load(silent: true);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Failed to delete announcement.',
+              style: TextStyle(fontFamily: 'Poppins')),
+          backgroundColor: Color(0xFFEF4444),
+        ));
+      }
+    }
+  }
+
+  String _timeAgo(String? iso) {
+    if (iso == null) return '—';
+    try {
+      final dt   = DateTime.parse(iso).toLocal();
+      final diff = DateTime.now().difference(dt);
+      if (diff.inSeconds < 60)  return 'just now';
+      if (diff.inMinutes < 60)  return '${diff.inMinutes}m ago';
+      if (diff.inHours   < 24)  return '${diff.inHours}h ago';
+      if (diff.inDays    < 30)  return '${diff.inDays}d ago';
+      const mn = ['Jan','Feb','Mar','Apr','May','Jun',
+                  'Jul','Aug','Sep','Oct','Nov','Dec'];
+      return '${mn[dt.month - 1]} ${dt.day}, ${dt.year}';
+    } catch (_) { return iso; }
+  }
+
+  void _clearFilters() {
+    _searchCtrl.clear();
+    setState(() { _search = ''; _orgFilter = 'All'; _filtered = _apply(_all); });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: _kAccent));
+    }
+    if (_error) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.cloud_off_rounded, size: 44, color: Color(0xFFEF4444)),
+          const SizedBox(height: 16),
+          Text('Failed to load announcements',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 15,
+                fontWeight: FontWeight.w800, color: t.text)),
+          const SizedBox(height: 12),
+          WebBtn(label: 'Retry', icon: Icons.refresh_rounded, onTap: _load),
+        ]),
+      );
+    }
+
+    // ── Computed stats ─────────────────────────────────────────────────────
+    final now        = DateTime.now();
+    final weekAgo    = now.subtract(const Duration(days: 7));
+    final thisWeek   = _all.where((a) {
+      final dt = DateTime.tryParse(a['created_at'] as String? ?? '')?.toLocal();
+      return dt != null && dt.isAfter(weekAgo);
+    }).length;
+    final activeOrgs = _all.map((a) => a['created_by']).toSet().length;
+    final hasFilter  = _search.isNotEmpty || _orgFilter != 'All';
+    final orgOpts    = <String>[
+      'All',
+      ..._all.map((a) => a['_org'] as String? ?? '—').toSet().toList()..sort(),
+    ];
+
+    return SingleChildScrollView(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+        // ══ Band 1: White header ════════════════════════════════════════════
+        Container(
+          color: t.card,
+          padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            // Title row
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Announcements',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
+                    fontWeight: FontWeight.w800, color: t.text)),
+              const SizedBox(height: 2),
+              Text(
+                '${_all.length} total · broadcast to all registered students',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub),
+              ),
+            ]),
+            const SizedBox(height: 16),
+            // Stat tiles — same widget as Students / Registrations / Events
+            Row(children: [
+              _StudentStatCard(
+                label: 'Total Posted',
+                value: '${_all.length}',
+                color: _kAccent,
+                icon:  Icons.campaign_rounded,
+              ),
+              const SizedBox(width: 10),
+              _StudentStatCard(
+                label: 'This Week',
+                value: '$thisWeek',
+                color: const Color(0xFF8B5CF6),
+                icon:  Icons.today_rounded,
+              ),
+              const SizedBox(width: 10),
+              _StudentStatCard(
+                label: 'Active Organizers',
+                value: '$activeOrgs',
+                color: const Color(0xFF10B981),
+                icon:  Icons.people_rounded,
+              ),
+            ]),
+          ]),
+        ),
+
+        // ══ Band 2: Filter bar ══════════════════════════════════════════════
+        Container(
+          padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
+          decoration: BoxDecoration(
+            color: t.bg,
+            border: Border(bottom: BorderSide(color: t.border)),
+          ),
+          child: Row(children: [
+            // Search
+            WebSearchField(
+              controller: _searchCtrl,
+              hint: 'Search title, message or organizer…',
+              onChanged: (v) => setState(() { _search = v; _filtered = _apply(_all); }),
+              width: 240,
+            ),
+            const SizedBox(width: 14),
+            Container(width: 1, height: 18, color: t.border),
+            const SizedBox(width: 14),
+
+            // Organizer filter
+            Text('Organizer:',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                  fontWeight: FontWeight.w600, color: t.text)),
+            const SizedBox(width: 8),
+            Container(
+              height: 28,
+              padding: const EdgeInsets.only(left: 10, right: 6),
+              decoration: BoxDecoration(
+                color: _orgFilter != 'All'
+                    ? _kAccent.withValues(alpha: 0.07)
+                    : t.card,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: _orgFilter != 'All'
+                      ? _kAccent.withValues(alpha: 0.45)
+                      : t.border,
+                  width: _orgFilter != 'All' ? 1.5 : 1.0,
+                ),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: orgOpts.contains(_orgFilter) ? _orgFilter : 'All',
+                  isDense: true,
+                  icon: Icon(Icons.keyboard_arrow_down_rounded, size: 14,
+                      color: _orgFilter != 'All' ? _kAccent : t.muted),
+                  onChanged: (v) {
+                    if (v != null) setState(() { _orgFilter = v; _filtered = _apply(_all); });
+                  },
+                  selectedItemBuilder: (ctx) => orgOpts.map((n) => Center(
+                    child: Text(n == 'All' ? 'All Organizers' : n,
+                      style: TextStyle(
+                        fontFamily: 'Poppins', fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: _orgFilter != 'All' ? _kAccent : t.text,
+                      )),
+                  )).toList(),
+                  items: orgOpts.map((n) => DropdownMenuItem<String>(
+                    value: n,
+                    child: Text(n == 'All' ? 'All Organizers' : n,
+                      style: TextStyle(
+                        fontFamily: 'Poppins', fontSize: 12,
+                        fontWeight: n == _orgFilter ? FontWeight.w700 : FontWeight.w400,
+                        color: n == _orgFilter ? _kAccent : t.text,
+                      )),
+                  )).toList(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Container(width: 1, height: 18, color: t.border),
+            const SizedBox(width: 14),
+
+            // Sort toggle
+            Text('Sort:',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                  fontWeight: FontWeight.w600, color: t.text)),
+            const SizedBox(width: 8),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () => setState(() { _sortDesc = !_sortDesc; _filtered = _apply(_all); }),
+                child: Container(
+                  height: 28,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color:        t.card,
+                    borderRadius: BorderRadius.circular(20),
+                    border:       Border.all(color: t.border),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(
+                      _sortDesc ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                      size: 12, color: t.sub,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(_sortDesc ? 'Newest first' : 'Oldest first',
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                          fontWeight: FontWeight.w600, color: t.sub)),
+                  ]),
+                ),
+              ),
+            ),
+
+            // Clear filters
+            if (hasFilter) ...[
+              const Spacer(),
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: _clearFilters,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.close_rounded, size: 13, color: t.muted),
+                    const SizedBox(width: 4),
+                    Text('Clear filters',
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                          fontWeight: FontWeight.w600, color: t.muted)),
+                  ]),
+                ),
+              ),
+            ],
+          ]),
+        ),
+
+        // ══ Band 3: Body ════════════════════════════════════════════════════
+        if (_filtered.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(kWebPad),
+            child: WebEmptyState(
+              icon:     Icons.campaign_outlined,
+              title:    hasFilter ? 'No results found' : 'No announcements yet',
+              subtitle: hasFilter
+                  ? 'Try adjusting your search or organizer filter.'
+                  : 'Organizers have not posted any announcements yet.',
+              action: hasFilter
+                  ? TextButton(
+                      onPressed: _clearFilters,
+                      child: const Text('Clear all filters',
+                        style: TextStyle(fontFamily: 'Poppins',
+                            fontWeight: FontWeight.w600, color: _kAccent)),
+                    )
+                  : null,
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.all(kWebPad),
+            child: WebCard(
+              padding: EdgeInsets.zero,
+              child: Column(children: [
+
+                // Card section header
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+                  child: Row(children: [
+                    Container(
+                      width: 32, height: 32,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFC2410C), _kAccent, Color(0xFFF97316)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: const Icon(Icons.campaign_rounded, size: 15, color: Colors.white),
+                    ),
+                    const SizedBox(width: 12),
+                    Text('All Announcements',
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5,
+                          fontWeight: FontWeight.w700, color: t.text)),
+                    if (hasFilter) ...[
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color:        t.divider,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text('${_filtered.length} of ${_all.length}',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                              fontWeight: FontWeight.w600, color: t.sub)),
+                      ),
+                    ],
+                  ]),
+                ),
+                Divider(height: 1, color: t.border),
+
+                // Rows
+                ListView.separated(
+                  shrinkWrap:  true,
+                  physics:     const NeverScrollableScrollPhysics(),
+                  itemCount:   _filtered.length,
+                  separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
+                  itemBuilder: (_, i) => _AdminAnnRow(
+                    ann:      _filtered[i],
+                    timeAgo:  _timeAgo(_filtered[i]['created_at'] as String?),
+                    onDelete: () => _delete(_filtered[i]),
+                  ),
+                ),
+
+                // Footer count row — matches Organizers/Registrations pattern
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: t.border))),
+                  child: Text(
+                    hasFilter
+                        ? 'Showing ${_filtered.length} of ${_all.length} announcements'
+                        : '${_all.length} announcements total',
+                    style: TextStyle(fontFamily: 'Poppins',
+                        fontSize: 11.5, color: t.muted)),
+                ),
+              ]),
+            ),
+          ),
+      ]),
+    );
+  }
+}
+
+// ── Announcement row ──────────────────────────────────────────────────────────
+
+class _AdminAnnRow extends StatefulWidget {
+  final Map<String, dynamic> ann;
+  final String               timeAgo;
+  final VoidCallback         onDelete;
+  const _AdminAnnRow({
+    required this.ann,
+    required this.timeAgo,
+    required this.onDelete,
+  });
+  @override State<_AdminAnnRow> createState() => _AdminAnnRowState();
+}
+
+class _AdminAnnRowState extends State<_AdminAnnRow> {
+  bool _hover    = false;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final t       = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final title   = widget.ann['title']   as String? ?? '';
+    final message = widget.ann['message'] as String? ?? '';
+    final org     = widget.ann['_org']    as String? ?? '—';
+    final isLong  = message.length > 160;
+    final preview = isLong ? '${message.substring(0, 160)}…' : message;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit:  (_) => setState(() => _hover = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        color: _hover ? _kAccent.withValues(alpha: 0.03) : Colors.transparent,
+        child: IntrinsicHeight(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // Left accent bar
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: 3,
+              color: _hover ? _kAccent : _kAccent.withValues(alpha: 0.28),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  // Organizer initial avatar
+                  Container(
+                    width: 38, height: 38,
+                    decoration: BoxDecoration(
+                      color:        _kAccent.withValues(alpha: 0.11),
+                      borderRadius: BorderRadius.circular(10),
+                      border:       Border.all(color: _kAccent.withValues(alpha: 0.22)),
+                    ),
+                    child: Center(
+                      child: Text(
+                        org.isNotEmpty ? org[0].toUpperCase() : '?',
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 16,
+                            fontWeight: FontWeight.w800, color: _kAccent),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+
+                  // Content
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(title,
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5,
+                            fontWeight: FontWeight.w700, color: t.text),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 5),
+                      Text(_expanded ? message : preview,
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
+                            color: t.sub, height: 1.55)),
+                      if (isLong) ...[
+                        const SizedBox(height: 4),
+                        GestureDetector(
+                          onTap: () => setState(() => _expanded = !_expanded),
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: Text(
+                              _expanded ? 'Show less' : 'Read more',
+                              style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                                  fontWeight: FontWeight.w600, color: _kAccent),
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      // Meta row
+                      Row(children: [
+                        Icon(Icons.person_outline_rounded, size: 12, color: t.muted),
+                        const SizedBox(width: 4),
+                        Text(org,
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                              fontWeight: FontWeight.w500, color: t.sub)),
+                        Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 8),
+                          width: 3, height: 3,
+                          decoration: BoxDecoration(
+                              color: t.muted, shape: BoxShape.circle),
+                        ),
+                        Icon(Icons.access_time_rounded, size: 11, color: t.muted),
+                        const SizedBox(width: 4),
+                        Text(widget.timeAgo,
+                          style: TextStyle(fontFamily: 'Poppins',
+                              fontSize: 11, color: t.muted)),
+                        const Spacer(),
+                      ]),
+                    ]),
+                  ),
+
+                  // Delete button
+                  const SizedBox(width: 12),
+                  _AnnDeleteBtn(onTap: widget.onDelete),
+                ]),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _AnnDeleteBtn extends StatefulWidget {
+  final VoidCallback onTap;
+  const _AnnDeleteBtn({required this.onTap});
+  @override State<_AnnDeleteBtn> createState() => _AnnDeleteBtnState();
+}
+
+class _AnnDeleteBtnState extends State<_AnnDeleteBtn> {
+  bool _h = false;
+  @override
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return MouseRegion(
+      cursor:  SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _h = true),
+      onExit:  (_) => setState(() => _h = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          width: 34, height: 34,
+          decoration: BoxDecoration(
+            color:        _h ? const Color(0xFFFEF2F2) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border:       Border.all(
+              color: _h ? const Color(0xFFFCA5A5) : Colors.transparent),
+          ),
+          child: Icon(Icons.delete_outline_rounded, size: 16,
+            color: _h ? const Color(0xFFEF4444) : t.muted),
+        ),
+      ),
+    );
+  }
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Logs page
@@ -6406,6 +7261,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
 
   @override
   Widget build(BuildContext context) {
+    final t             = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final loginFiltered = _loginFiltered.length;
     final eventFiltered = _eventFiltered.length;
     final loginTotal    = _loginAll.length;
@@ -6414,7 +7270,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       // ── Header ───────────────────────────────────────────────────────────
       Container(
-        color: Colors.white,
+        color: t.card,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Title row + stat chips
           Padding(
@@ -6422,15 +7278,15 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
             child: Row(children: [
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Logs',
+                  Text('Logs',
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
-                        fontWeight: FontWeight.w800, color: kText)),
+                        fontWeight: FontWeight.w800, color: t.text)),
                   const SizedBox(height: 2),
                   Row(children: [
                     Text(
                       '${loginTotal + eventTotal} total entries · real-time audit trail',
-                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                          color: kSubText)),
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                          color: t.sub)),
                     const SizedBox(width: 8),
                     AnimatedBuilder(
                       animation: _pulseCtrl,
@@ -6478,22 +7334,22 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                     : 'Search event or organizer…',
                 onChanged: (_) {}, width: 220),
               const SizedBox(width: 14),
-              Container(width: 1, height: 18, color: kCardBorder),
+              Container(width: 1, height: 18, color: t.border),
               const SizedBox(width: 14),
-              const Text('Period:',
+              Text('Period:',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                    fontWeight: FontWeight.w600, color: kText)),
+                    fontWeight: FontWeight.w600, color: t.text)),
               const SizedBox(width: 8),
               Container(
                 height: 28,
                 padding: const EdgeInsets.only(left: 10, right: 6),
                 decoration: BoxDecoration(
                   color: _dateRange != 'all'
-                      ? _kAccent.withValues(alpha: 0.07) : Colors.white,
+                      ? _kAccent.withValues(alpha: 0.07) : t.card,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: _dateRange != 'all'
-                        ? _kAccent.withValues(alpha: 0.45) : kCardBorder,
+                        ? _kAccent.withValues(alpha: 0.45) : t.border,
                     width: _dateRange != 'all' ? 1.5 : 1.0,
                   ),
                 ),
@@ -6501,8 +7357,8 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                   child: DropdownButton<String>(
                     value: _dateRange,
                     isDense: true,
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                        fontWeight: FontWeight.w600, color: kText),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                        fontWeight: FontWeight.w600, color: t.text),
                     selectedItemBuilder: (_) => [
                       for (final (label, _) in [
                         ('Today', 'today'), ('Last 7 days', '7d'),
@@ -6514,7 +7370,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                             style: TextStyle(
                               fontFamily: 'Poppins', fontSize: 11,
                               fontWeight: FontWeight.w600,
-                              color: _dateRange != 'all' ? _kAccent : kText,
+                              color: _dateRange != 'all' ? _kAccent : t.text,
                             ),
                           ),
                         ),
@@ -6540,13 +7396,13 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
           ),
           // Tab bar
           Container(
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: kCardBorder)),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: t.border)),
             ),
             child: TabBar(
               controller: _tab,
               labelColor:          _kAccent,
-              unselectedLabelColor: kSubText,
+              unselectedLabelColor: t.sub,
               labelStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
                   fontWeight: FontWeight.w700),
               unselectedLabelStyle: const TextStyle(fontFamily: 'Poppins',
@@ -6590,6 +7446,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
   // ── Login tab ─────────────────────────────────────────────────────────────
 
   Widget _buildLoginTab(int filtered, int total) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
     const roles = ['All', 'Admin', 'Organizer', 'Student'];
     const plats = ['All', 'Web', 'Mobile'];
 
@@ -6626,14 +7483,14 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
       // Filter bar
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
-        decoration: const BoxDecoration(
-          color: Color(0xFFFAFBFC),
-          border: Border(bottom: BorderSide(color: kCardBorder)),
+        decoration: BoxDecoration(
+          color: t.bg,
+          border: Border(bottom: BorderSide(color: t.border)),
         ),
         child: Row(children: [
-          const Text('Role:',
+          Text('Role:',
             style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w600, color: kText)),
+                fontWeight: FontWeight.w600, color: t.text)),
           const SizedBox(width: 8),
           for (final r in roles) ...[
             WebFilterChip(
@@ -6652,11 +7509,11 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
             const SizedBox(width: 6),
           ],
           const SizedBox(width: 12),
-          Container(width: 1, height: 18, color: kCardBorder),
+          Container(width: 1, height: 18, color: t.border),
           const SizedBox(width: 12),
-          const Text('Platform:',
+          Text('Platform:',
             style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w600, color: kText)),
+                fontWeight: FontWeight.w600, color: t.text)),
           const SizedBox(width: 8),
           for (final p in plats) ...[
             WebFilterChip(
@@ -6680,11 +7537,11 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                   setState(() { _loginRole = 'All'; _loginPlat = 'All'; });
                   _applyLogin();
                 },
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.close_rounded, size: 13, color: kMuted),
-                  SizedBox(width: 4),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.close_rounded, size: 13, color: t.muted),
+                  const SizedBox(width: 4),
                   Text('Clear', style: TextStyle(fontFamily: 'Poppins',
-                      fontSize: 11.5, fontWeight: FontWeight.w600, color: kMuted)),
+                      fontSize: 11.5, fontWeight: FontWeight.w600, color: t.muted)),
                 ]),
               ),
             ),
@@ -6695,9 +7552,9 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
       if (_loginFiltered.isNotEmpty)
         Container(
           padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
-          decoration: const BoxDecoration(
-            color: Color(0xFFF8FAFC),
-            border: Border(bottom: BorderSide(color: kCardBorder)),
+          decoration: BoxDecoration(
+            color: t.inputBg,
+            border: Border(bottom: BorderSide(color: t.border)),
           ),
           child: Row(children: [
             _LogKpiChip(
@@ -6718,7 +7575,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
               color: const Color(0xFF0D9488),
             ),
             const SizedBox(width: 16),
-            Container(width: 1, height: 14, color: kCardBorder),
+            Container(width: 1, height: 14, color: t.border),
             const SizedBox(width: 16),
             _LogKpiChip(
               icon: Icons.admin_panel_settings_rounded,
@@ -6758,9 +7615,9 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                   Container(
                     padding: const EdgeInsets.only(
                         left: 23, right: 20, top: 10, bottom: 10),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFF0F3F7),
-                      border: Border(bottom: BorderSide(color: kCardBorder)),
+                    decoration: BoxDecoration(
+                      color: t.bg,
+                      border: Border(bottom: BorderSide(color: t.border)),
                     ),
                     child: const Row(children: [
                       SizedBox(width: 52),
@@ -6776,7 +7633,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: _loginFiltered.length,
                     separatorBuilder: (_, _) =>
-                        const Divider(height: 1, color: kCardBorder),
+                        Divider(height: 1, color: t.border),
                     itemBuilder: (_, i) =>
                         _LoginLogRow(log: _loginFiltered[i]),
                   ),
@@ -6784,15 +7641,15 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 20, vertical: 10),
-                    decoration: const BoxDecoration(
-                        border: Border(top: BorderSide(color: kCardBorder))),
+                    decoration: BoxDecoration(
+                        border: Border(top: BorderSide(color: t.border))),
                     child: Row(children: [
                       Text(
                         filtered == total
                             ? '$total login events'
                             : 'Showing $filtered of $total login events',
-                        style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 11.5, color: kSubText)),
+                        style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 11.5, color: t.sub)),
                       if (total >= 500) ...[
                         const SizedBox(width: 10),
                         Container(
@@ -6823,6 +7680,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
   // ── Event tab ─────────────────────────────────────────────────────────────
 
   Widget _buildEventTab(int filtered, int total) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
     const actions = ['All', 'Created', 'Updated', 'Deleted'];
 
     if (_eventLoading) {
@@ -6869,14 +7727,14 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
       // Action filter bar
       Container(
         padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
-        decoration: const BoxDecoration(
-          color: Color(0xFFFAFBFC),
-          border: Border(bottom: BorderSide(color: kCardBorder)),
+        decoration: BoxDecoration(
+          color: t.bg,
+          border: Border(bottom: BorderSide(color: t.border)),
         ),
         child: Row(children: [
-          const Text('Action:',
+          Text('Action:',
             style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w600, color: kText)),
+                fontWeight: FontWeight.w600, color: t.text)),
           const SizedBox(width: 8),
           for (final a in actions) ...[
             WebFilterChip(
@@ -6903,11 +7761,11 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                   setState(() { _eventAction = 'All'; _eventOrg = 'All'; });
                   _applyEvent();
                 },
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.close_rounded, size: 13, color: kMuted),
-                  SizedBox(width: 4),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.close_rounded, size: 13, color: t.muted),
+                  const SizedBox(width: 4),
                   Text('Clear', style: TextStyle(fontFamily: 'Poppins',
-                      fontSize: 11.5, fontWeight: FontWeight.w600, color: kMuted)),
+                      fontSize: 11.5, fontWeight: FontWeight.w600, color: t.muted)),
                 ]),
               ),
             ),
@@ -6918,14 +7776,14 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
       if (orgNames.length > 1)
         Container(
           padding: const EdgeInsets.fromLTRB(kWebPad, 6, kWebPad, 6),
-          decoration: const BoxDecoration(
-            color: Color(0xFFFAFBFC),
-            border: Border(bottom: BorderSide(color: kCardBorder)),
+          decoration: BoxDecoration(
+            color: t.bg,
+            border: Border(bottom: BorderSide(color: t.border)),
           ),
           child: Row(children: [
-            const Text('Organizer:',
+            Text('Organizer:',
               style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                  fontWeight: FontWeight.w600, color: kText)),
+                  fontWeight: FontWeight.w600, color: t.text)),
             const SizedBox(width: 8),
             Container(
               height: 28,
@@ -6933,12 +7791,12 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
               decoration: BoxDecoration(
                 color: _eventOrg != 'All'
                     ? const Color(0xFF7C3AED).withValues(alpha: 0.07)
-                    : Colors.white,
+                    : t.card,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
                   color: _eventOrg != 'All'
                       ? const Color(0xFF7C3AED).withValues(alpha: 0.45)
-                      : kCardBorder,
+                      : t.border,
                   width: _eventOrg != 'All' ? 1.5 : 1.0,
                 ),
               ),
@@ -6947,8 +7805,8 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                   value: ['All', ...orgNames].contains(_eventOrg)
                       ? _eventOrg : 'All',
                   isDense: true,
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                      fontWeight: FontWeight.w600, color: kText),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                      fontWeight: FontWeight.w600, color: t.text),
                   selectedItemBuilder: (_) =>
                       ['All', ...orgNames].map((nm) => Align(
                         alignment: Alignment.centerLeft,
@@ -6958,7 +7816,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                             fontFamily: 'Poppins', fontSize: 11,
                             fontWeight: FontWeight.w600,
                             color: _eventOrg != 'All'
-                                ? const Color(0xFF7C3AED) : kText,
+                                ? const Color(0xFF7C3AED) : t.text,
                           ),
                           maxLines: 1, overflow: TextOverflow.ellipsis,
                         ),
@@ -6990,9 +7848,9 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
       if (_eventFiltered.isNotEmpty)
         Container(
           padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
-          decoration: const BoxDecoration(
-            color: Color(0xFFF8FAFC),
-            border: Border(bottom: BorderSide(color: kCardBorder)),
+          decoration: BoxDecoration(
+            color: t.inputBg,
+            border: Border(bottom: BorderSide(color: t.border)),
           ),
           child: Row(children: [
             _LogKpiChip(
@@ -7013,7 +7871,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
               color: const Color(0xFFEF4444),
             ),
             const SizedBox(width: 16),
-            Container(width: 1, height: 14, color: kCardBorder),
+            Container(width: 1, height: 14, color: t.border),
             const SizedBox(width: 16),
             _LogKpiChip(
               icon: Icons.badge_rounded,
@@ -7041,9 +7899,9 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                   Container(
                     padding: const EdgeInsets.only(
                         left: 23, right: 20, top: 10, bottom: 10),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFF0F3F7),
-                      border: Border(bottom: BorderSide(color: kCardBorder)),
+                    decoration: BoxDecoration(
+                      color: t.bg,
+                      border: Border(bottom: BorderSide(color: t.border)),
                     ),
                     child: const Row(children: [
                       SizedBox(width: 52),
@@ -7060,7 +7918,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: _eventFiltered.length,
                     separatorBuilder: (_, _) =>
-                        const Divider(height: 1, color: kCardBorder),
+                        Divider(height: 1, color: t.border),
                     itemBuilder: (_, i) =>
                         _EventLogRow(log: _eventFiltered[i]),
                   ),
@@ -7068,15 +7926,15 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 20, vertical: 10),
-                    decoration: const BoxDecoration(
-                        border: Border(top: BorderSide(color: kCardBorder))),
+                    decoration: BoxDecoration(
+                        border: Border(top: BorderSide(color: t.border))),
                     child: Row(children: [
                       Text(
                         filtered == total
                             ? '$total event log entries'
                             : 'Showing $filtered of $total event log entries',
-                        style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 11.5, color: kSubText)),
+                        style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 11.5, color: t.sub)),
                       if (total >= 500) ...[
                         const SizedBox(width: 10),
                         Container(
@@ -7161,9 +8019,12 @@ class _LogColLabel extends StatelessWidget {
   final String text;
   const _LogColLabel(this.text);
   @override
-  Widget build(BuildContext context) => Text(text,
-    style: const TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
-        fontWeight: FontWeight.w700, color: kSubText, letterSpacing: 0.8));
+  Widget build(BuildContext context) {
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    return Text(text,
+      style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
+          fontWeight: FontWeight.w700, color: t.sub, letterSpacing: 0.8));
+  }
 }
 
 class _LogKpiChip extends StatelessWidget {
@@ -7200,6 +8061,7 @@ class _LoginLogRowState extends State<_LoginLogRow> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
+    final t        = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final r        = widget.log;
     final role     = r['user_role']  as String? ?? '';
     final name     = r['full_name']  as String? ?? '—';
@@ -7242,13 +8104,13 @@ class _LoginLogRowState extends State<_LoginLogRow> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(name,
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                            fontWeight: FontWeight.w600, color: kText),
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                            fontWeight: FontWeight.w600, color: t.text),
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                       const SizedBox(height: 2),
                       Text(ident,
-                        style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 11, color: kSubText),
+                        style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 11, color: t.sub),
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                     ],
                   )),
@@ -7262,12 +8124,12 @@ class _LoginLogRowState extends State<_LoginLogRow> {
                     preferBelow: false,
                     waitDuration: const Duration(milliseconds: 400),
                     child: Row(children: [
-                      const Icon(Icons.access_time_rounded,
-                          size: 12, color: kMuted),
+                      Icon(Icons.access_time_rounded,
+                          size: 12, color: t.muted),
                       const SizedBox(width: 5),
                       Flexible(child: Text(_logRelTime(ts),
-                        style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 12, color: kSubText),
+                        style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 12, color: t.sub),
                         maxLines: 1, overflow: TextOverflow.ellipsis)),
                     ]),
                   )),
@@ -7292,6 +8154,7 @@ class _EventLogRowState extends State<_EventLogRow> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
+    final t      = AdminTk(Theme.of(context).brightness == Brightness.dark);
     final r      = widget.log;
     final title  = r['event_title']    as String? ?? '—';
     final orgId  = r['organizer_id']   as String? ?? '';
@@ -7328,8 +8191,8 @@ class _EventLogRowState extends State<_EventLogRow> {
                   const SizedBox(width: 12),
                   // Event title
                   Expanded(flex: 4, child: Text(title,
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                        fontWeight: FontWeight.w600, color: kText),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                        fontWeight: FontWeight.w600, color: t.text),
                     maxLines: 2, overflow: TextOverflow.ellipsis)),
                   // Organizer
                   Expanded(flex: 3, child: Column(
@@ -7338,15 +8201,15 @@ class _EventLogRowState extends State<_EventLogRow> {
                     children: [
                       if (orgNm.isNotEmpty)
                         Text(orgNm,
-                          style: const TextStyle(fontFamily: 'Poppins',
+                          style: TextStyle(fontFamily: 'Poppins',
                               fontSize: 12.5, fontWeight: FontWeight.w500,
-                              color: kText),
+                              color: t.text),
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                       if (orgId.isNotEmpty)
                         Text(orgId,
                           style: TextStyle(
                             fontFamily: 'Poppins', fontSize: 11,
-                            color: orgNm.isEmpty ? kText : kSubText),
+                            color: orgNm.isEmpty ? t.text : t.sub),
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                     ],
                   )),
@@ -7354,8 +8217,8 @@ class _EventLogRowState extends State<_EventLogRow> {
                   Expanded(flex: 2, child: _LogActionBadge(action: action)),
                   // Details
                   Expanded(flex: 3, child: Text(detail,
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                        color: kSubText, height: 1.4),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                        color: t.sub, height: 1.4),
                     maxLines: 2, overflow: TextOverflow.ellipsis)),
                   // Time with tooltip
                   Expanded(flex: 2, child: Tooltip(
@@ -7363,12 +8226,12 @@ class _EventLogRowState extends State<_EventLogRow> {
                     preferBelow: false,
                     waitDuration: const Duration(milliseconds: 400),
                     child: Row(children: [
-                      const Icon(Icons.access_time_rounded,
-                          size: 12, color: kMuted),
+                      Icon(Icons.access_time_rounded,
+                          size: 12, color: t.muted),
                       const SizedBox(width: 5),
                       Flexible(child: Text(_logRelTime(ts),
-                        style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 12, color: kSubText),
+                        style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 12, color: t.sub),
                         maxLines: 1, overflow: TextOverflow.ellipsis)),
                     ]),
                   )),
@@ -7389,7 +8252,9 @@ class _LogRoleBadge extends StatelessWidget {
   const _LogRoleBadge({this.role});
   @override
   Widget build(BuildContext context) {
-    final color = _logRoleColor(role);
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final isKnown = const ['admin', 'organizer', 'student'].contains(role);
+    final color = isKnown ? _logRoleColor(role) : t.muted;
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -7444,7 +8309,9 @@ class _LogActionBadge extends StatelessWidget {
   const _LogActionBadge({this.action});
   @override
   Widget build(BuildContext context) {
-    final color = _logActionColor(action);
+    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final isKnown = const ['created', 'updated', 'deleted'].contains(action);
+    final color = isKnown ? _logActionColor(action) : t.muted;
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

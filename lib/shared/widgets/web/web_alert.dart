@@ -101,6 +101,11 @@ class _WebAlertDialogState extends State<_WebAlertDialog>
   @override
   Widget build(BuildContext context) {
     final isConfirm = widget.kind == _WebAlertKind.confirm;
+    final dark      = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = dark ? const Color(0xFF12151B) : Colors.white;
+    final borderCol = dark ? const Color(0xFF232833) : kCardBorder;
+    final titleCol  = dark ? const Color(0xFFE7EAEE) : kText;
+    final subCol    = dark ? const Color(0xFF9AA3B2) : kSubText;
     return FadeTransition(
       opacity: _fade,
       child: ScaleTransition(
@@ -113,10 +118,15 @@ class _WebAlertDialogState extends State<_WebAlertDialog>
             constraints: const BoxConstraints(maxWidth: 380),
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: cardColor,
                 borderRadius: BorderRadius.circular(22),
+                border: dark ? Border.all(color: borderCol) : null,
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.16), blurRadius: 40, offset: const Offset(0, 14)),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: dark ? 0.55 : 0.16),
+                    blurRadius: 40,
+                    offset: const Offset(0, 14),
+                  ),
                 ],
               ),
               child: Column(
@@ -136,8 +146,8 @@ class _WebAlertDialogState extends State<_WebAlertDialog>
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 28),
                     child: Text(widget.title,
-                      style: const TextStyle(
-                        fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w800, color: kText, height: 1.2,
+                      style: TextStyle(
+                        fontFamily: 'Poppins', fontSize: 17, fontWeight: FontWeight.w800, color: titleCol, height: 1.2,
                       ),
                       textAlign: TextAlign.center),
                   ),
@@ -146,14 +156,14 @@ class _WebAlertDialogState extends State<_WebAlertDialog>
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 28),
                       child: Text(widget.message,
-                        style: const TextStyle(
-                          fontFamily: 'Poppins', fontSize: 12.5, color: kSubText, height: 1.6,
+                        style: TextStyle(
+                          fontFamily: 'Poppins', fontSize: 12.5, color: subCol, height: 1.6,
                         ),
                         textAlign: TextAlign.center),
                     ),
                   ],
                   const SizedBox(height: 28),
-                  const Divider(height: 1, color: kCardBorder),
+                  Divider(height: 1, color: borderCol),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
                     child: isConfirm
@@ -162,12 +172,12 @@ class _WebAlertDialogState extends State<_WebAlertDialog>
                             child: OutlinedButton(
                               onPressed: () => Navigator.of(context).pop(false),
                               style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: kCardBorder),
+                                side: BorderSide(color: borderCol),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                 padding: const EdgeInsets.symmetric(vertical: 13),
                               ),
                               child: Text(widget.cancelLabel ?? 'Cancel',
-                                style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, color: kSubText)),
+                                style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, color: subCol)),
                             ),
                           ),
                           const SizedBox(width: 10),

@@ -165,26 +165,6 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     }
   }
 
-  Future<void> _confirmStatusRevert(String targetKey) async {
-    final targetDisplay  = _statusDisplay(targetKey);
-    final currentDisplay = _statusDisplay(_currentStatus);
-    bool confirmed = false;
-    await AppAlert.confirm(
-      context,
-      title: 'Change Status?',
-      message: 'This event is currently "$currentDisplay". '
-          'Changing it to "$targetDisplay" will make it active again. '
-          'Are you sure?',
-      confirmText: 'Change to $targetDisplay',
-      cancelText:  'Keep as $currentDisplay',
-      onConfirm:   () => confirmed = true,
-    );
-    if (confirmed && mounted) {
-      setState(() => _currentStatus = targetKey);
-      _snack('Status set to $targetDisplay — save to apply');
-    }
-  }
-
   Future<void> _confirmCancelEvent() async {
     bool confirmed = false;
     await AppAlert.confirm(
@@ -244,29 +224,28 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     return Scaffold(
-      backgroundColor: kBackgroundAlt,
-      bottomNavigationBar: _buildBottomBar(),
+      backgroundColor: t.bg,
+      bottomNavigationBar: _buildBottomBar(t),
       body: Stack(
         children: [
           SafeArea(
             child: Column(
               children: [
-                _buildHeader(),
+                _buildHeader(t),
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                     child: Column(
                       children: [
-                        _buildStatsRow(),
+                        _buildStatsRow(t),
                         const SizedBox(height: 16),
-                        _buildEventInfoSection(),
+                        _buildEventInfoSection(t),
                         const SizedBox(height: 14),
-                        _buildScheduleSection(),
+                        _buildScheduleSection(t),
                         const SizedBox(height: 14),
-                        _buildDetailsSection(),
-                        const SizedBox(height: 14),
-                        _buildStatusSection(),
+                        _buildDetailsSection(t),
                         const SizedBox(height: 8),
                       ],
                     ),
@@ -283,7 +262,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
 
   // ── Header ─────────────────────────────────────────────────────────────────
 
-  Widget _buildHeader() {
+  Widget _buildHeader(AppTk t) {
     final statusColor = _statusColor(_currentStatus);
 
     return Padding(
@@ -297,20 +276,20 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: t.card,
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.07),
+                    color: t.shadow,
                     blurRadius: 10,
                     offset: const Offset(0, 3),
                   ),
                 ],
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.arrow_back_ios_new_rounded,
                 size: 18,
-                color: kText,
+                color: t.text,
               ),
             ),
           ),
@@ -321,13 +300,13 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Manage Event',
                   style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
-                    color: kText,
+                    color: t.text,
                     height: 1.1,
                   ),
                 ),
@@ -335,10 +314,10 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
                   _nameCtrl.text.isNotEmpty
                       ? _nameCtrl.text
                       : 'Edit event details',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 12,
-                    color: kSubText,
+                    color: t.sub,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -388,27 +367,28 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
 
   // ── Stats row ──────────────────────────────────────────────────────────────
 
-  Widget _buildStatsRow() {
+  Widget _buildStatsRow(AppTk t) {
     final cap    = int.tryParse(_capacityCtrl.text) ?? 0;
     final fillPct = cap > 0 ? ((_registered / cap) * 100).toInt() : 0;
 
     return Row(
       children: [
-        _statTile('$_registered', 'Registered', Icons.confirmation_num_outlined, kGold),
+        _statTile('$_registered', 'Registered', Icons.confirmation_num_outlined, kGold, t),
         const SizedBox(width: 10),
-        _statTile('$_checkedIn', 'Checked In', Icons.how_to_reg_rounded, const Color(0xFF16A34A)),
+        _statTile('$_checkedIn', 'Checked In', Icons.how_to_reg_rounded, const Color(0xFF16A34A), t),
         const SizedBox(width: 10),
         _statTile(
           cap > 0 ? '$fillPct%' : '—',
           'Attendance',
           Icons.bar_chart_rounded,
           const Color(0xFF2563EB),
+          t,
         ),
       ],
     );
   }
 
-  Widget _statTile(String value, String label, IconData icon, Color color) {
+  Widget _statTile(String value, String label, IconData icon, Color color, AppTk t) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 10),
@@ -434,10 +414,10 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
             const SizedBox(height: 2),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 10,
-                color: kMuted,
+                color: t.muted,
               ),
             ),
           ],
@@ -448,12 +428,13 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
 
   // ── Section: Event Info ────────────────────────────────────────────────────
 
-  Widget _buildEventInfoSection() {
+  Widget _buildEventInfoSection(AppTk t) {
     return _sectionCard(
       icon: Icons.event_note_rounded,
       iconBg: kGoldLight,
       iconColor: kGold,
       title: 'Event Info',
+      t: t,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -462,11 +443,12 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
             required: true,
             controller: _nameCtrl,
             icon: Icons.title_rounded,
+            t: t,
           ),
           const SizedBox(height: 18),
-          _fieldLabel('Event Type', required: true),
+          _fieldLabel('Event Type', required: true, t: t),
           const SizedBox(height: 10),
-          _buildTypeChips(),
+          _buildTypeChips(t),
           if (_selectedType == 'Other') ...[
             const SizedBox(height: 12),
             _inputField(
@@ -474,6 +456,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
               controller: _otherTypeCtrl,
               hint: 'e.g.  Cultural Night, Quiz Bee…',
               icon: Icons.edit_note_rounded,
+              t: t,
             ),
           ],
         ],
@@ -481,7 +464,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
   }
 
-  Widget _buildTypeChips() {
+  Widget _buildTypeChips(AppTk t) {
     return SizedBox(
       height: 80,
       child: ListView.separated(
@@ -498,10 +481,10 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
               duration: const Duration(milliseconds: 200),
               width: 74,
               decoration: BoxDecoration(
-                color: selected ? kGold : Colors.grey.shade50,
+                color: selected ? kGold : t.inputBg,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: selected ? kGold : Colors.grey.shade200,
+                  color: selected ? kGold : t.border,
                   width: 1.5,
                 ),
                 boxShadow: selected
@@ -525,7 +508,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
                       fontFamily: 'Poppins',
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
-                      color: selected ? Colors.white : kText,
+                      color: selected ? Colors.white : t.text,
                     ),
                   ),
                 ],
@@ -539,12 +522,13 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
 
   // ── Section: Schedule ──────────────────────────────────────────────────────
 
-  Widget _buildScheduleSection() {
+  Widget _buildScheduleSection(AppTk t) {
     return _sectionCard(
       icon: Icons.schedule_rounded,
       iconBg: const Color(0x1A2563EB),
       iconColor: const Color(0xFF2563EB),
       title: 'Schedule',
+      t: t,
       child: Column(
         children: [
           // Date read-only
@@ -552,6 +536,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
             icon: Icons.calendar_today_rounded,
             label: 'Event Date',
             value: _displayDate,
+            t: t,
           ),
           const SizedBox(height: 10),
           // Time read-only
@@ -559,6 +544,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
             icon: Icons.access_time_rounded,
             label: 'Time',
             value: _displayTime,
+            t: t,
           ),
           const SizedBox(height: 14),
           // Venue editable
@@ -567,6 +553,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
             required: true,
             controller: _venueCtrl,
             icon: Icons.location_on_outlined,
+            t: t,
           ),
         ],
       ),
@@ -577,17 +564,18 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     required IconData icon,
     required String label,
     required String value,
+    required AppTk t,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
+        color: t.inputBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200, width: 1.2),
+        border: Border.all(color: t.border, width: 1.2),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 17, color: kMuted),
+          Icon(icon, size: 17, color: t.muted),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -595,24 +583,24 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
               children: [
                 Text(
                   label,
-                  style: const TextStyle(
-                    fontFamily: 'Poppins', fontSize: 10, color: kMuted,
+                  style: TextStyle(
+                    fontFamily: 'Poppins', fontSize: 10, color: t.muted,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: kSubText,
+                    color: t.sub,
                   ),
                 ),
               ],
             ),
           ),
-          const Icon(Icons.lock_outline_rounded, size: 14, color: kMuted),
+          Icon(Icons.lock_outline_rounded, size: 14, color: t.muted),
         ],
       ),
     );
@@ -620,12 +608,13 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
 
   // ── Section: Description & Capacity ───────────────────────────────────────
 
-  Widget _buildDetailsSection() {
+  Widget _buildDetailsSection(AppTk t) {
     return _sectionCard(
       icon: Icons.tune_rounded,
       iconBg: const Color(0x1A16A34A),
       iconColor: const Color(0xFF16A34A),
       title: 'Details',
+      t: t,
       child: Column(
         children: [
           _inputField(
@@ -634,19 +623,20 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
             hint: 'Describe what this event is about…',
             icon: Icons.notes_rounded,
             maxLines: 4,
+            t: t,
           ),
           const SizedBox(height: 18),
-          _buildCapacityField(),
+          _buildCapacityField(t),
         ],
       ),
     );
   }
 
-  Widget _buildCapacityField() {
+  Widget _buildCapacityField(AppTk t) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _fieldLabel('Max Participants', optional: true),
+        _fieldLabel('Max Participants', optional: true, t: t),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -659,27 +649,27 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
                 textAlign: TextAlign.center,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 onChanged: (_) => setState(() {}),
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
-                  color: kText,
+                  color: t.text,
                 ),
                 decoration: InputDecoration(
                   hintText: '—',
-                  hintStyle: const TextStyle(
-                    fontFamily: 'Poppins', fontSize: 16, color: kMuted,
+                  hintStyle: TextStyle(
+                    fontFamily: 'Poppins', fontSize: 16, color: t.muted,
                   ),
                   filled: true,
-                  fillColor: Colors.grey.shade50,
+                  fillColor: t.inputBg,
                   contentPadding: const EdgeInsets.symmetric(vertical: 14),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade200),
+                    borderSide: BorderSide(color: t.border),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade200),
+                    borderSide: BorderSide(color: t.border),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -704,7 +694,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
                   child: LinearProgressIndicator(
                     value: (_registered / _capacity).clamp(0.0, 1.0),
                     minHeight: 5,
-                    backgroundColor: Colors.grey.shade200,
+                    backgroundColor: t.divider,
                     valueColor: AlwaysStoppedAnimation<Color>(
                       _registered >= _capacity ? Colors.red : kGold,
                     ),
@@ -714,11 +704,11 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
               const SizedBox(width: 10),
               Text(
                 '$_registered / $_capacity',
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  color: kSubText,
+                  color: t.sub,
                 ),
               ),
             ],
@@ -726,8 +716,8 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
         ] else
           Text(
             'Leave blank for unlimited participants',
-            style: const TextStyle(
-              fontFamily: 'Poppins', fontSize: 11, color: kMuted,
+            style: TextStyle(
+              fontFamily: 'Poppins', fontSize: 11, color: t.muted,
             ),
           ),
       ],
@@ -752,122 +742,18 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     );
   }
 
-  // ── Section: Event Status ──────────────────────────────────────────────────
-
-  Widget _buildStatusSection() {
-    return _sectionCard(
-      icon: Icons.toggle_on_rounded,
-      iconBg: _statusColor(_currentStatus).withValues(alpha: 0.12),
-      iconColor: _statusColor(_currentStatus),
-      title: 'Event Status',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Changing the status affects registration availability '
-            'and what students see in the app.',
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 12,
-              color: kMuted,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 14),
-          // 2 Ã— 2 status grid
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 2.8,
-            children: _kStatusData.map((s) {
-              final (key, display, icon, color) = s;
-              final selected = _currentStatus == key;
-              return GestureDetector(
-                onTap: () {
-                  if (key == _currentStatus) return;
-                  if (key == 'cancelled') {
-                    _confirmCancelEvent();
-                  } else if (_currentStatus == 'completed' ||
-                             _currentStatus == 'cancelled') {
-                    _confirmStatusRevert(key);
-                  } else if (_currentStatus == 'ongoing' &&
-                             key == 'upcoming') {
-                    _confirmStatusRevert(key);
-                  } else {
-                    setState(() => _currentStatus = key);
-                  }
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 0,
-                  ),
-                  decoration: BoxDecoration(
-                    color: selected ? color.withValues(alpha: 0.1) : Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: selected
-                          ? color.withValues(alpha: 0.45)
-                          : Colors.grey.shade200,
-                      width: selected ? 1.8 : 1.2,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        icon,
-                        size: 17,
-                        color: selected ? color : kMuted,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        display,
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 12,
-                          fontWeight: selected
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                          color: selected ? color : kSubText,
-                        ),
-                      ),
-                      if (selected) ...[
-                        const Spacer(),
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: color,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ── Bottom action bar ──────────────────────────────────────────────────────
 
-  Widget _buildBottomBar() {
+  Widget _buildBottomBar(AppTk t) {
     return SafeArea(
       top: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: t.card,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
+              color: t.shadow,
               blurRadius: 20,
               offset: const Offset(0, -4),
             ),
@@ -906,7 +792,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: _isSaving ? null : kGoldGradient,
-                  color:    _isSaving ? Colors.grey.shade300 : null,
+                  color:    _isSaving ? t.border : null,
                   borderRadius: BorderRadius.circular(14),
                   boxShadow: _isSaving
                       ? null
@@ -967,14 +853,15 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     required Color iconColor,
     required String title,
     required Widget child,
+    required AppTk t,
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: t.card,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: t.shadow,
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -999,18 +886,18 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
                 const SizedBox(width: 10),
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: kText,
+                    color: t.text,
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 12),
-          Divider(height: 1, thickness: 1, color: Colors.grey.shade100),
+          Divider(height: 1, thickness: 1, color: t.divider),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
             child: child,
@@ -1023,6 +910,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
   Widget _inputField({
     required String label,
     required TextEditingController controller,
+    required AppTk t,
     String? hint,
     IconData? icon,
     int maxLines  = 1,
@@ -1032,35 +920,35 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _fieldLabel(label, required: required),
+        _fieldLabel(label, required: required, t: t),
         const SizedBox(height: 7),
         TextFormField(
           controller: controller,
           maxLines: maxLines,
           keyboardType: keyboard,
-          style: const TextStyle(
-            fontFamily: 'Poppins', fontSize: 13, color: kText,
+          style: TextStyle(
+            fontFamily: 'Poppins', fontSize: 13, color: t.text,
           ),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(
-              fontFamily: 'Poppins', fontSize: 13, color: kMuted,
+            hintStyle: TextStyle(
+              fontFamily: 'Poppins', fontSize: 13, color: t.muted,
             ),
             prefixIcon: icon != null
                 ? Icon(icon, color: kGold, size: 18)
                 : null,
             filled: true,
-            fillColor: Colors.grey.shade50,
+            fillColor: t.inputBg,
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 14, vertical: 14,
             ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey.shade200),
+              borderSide: BorderSide(color: t.border),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey.shade200),
+              borderSide: BorderSide(color: t.border),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
@@ -1076,16 +964,17 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
     String label, {
     bool required = false,
     bool optional = false,
+    required AppTk t,
   }) {
     return Row(
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'Poppins',
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: kText,
+            color: t.text,
           ),
         ),
         if (required)
@@ -1099,12 +988,12 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
             ),
           ),
         if (optional)
-          const Text(
+          Text(
             '  (optional)',
             style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 11,
-              color: kMuted,
+              color: t.muted,
             ),
           ),
       ],

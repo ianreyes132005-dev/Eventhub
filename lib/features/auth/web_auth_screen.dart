@@ -7,6 +7,7 @@ import '../../core/services/supabase_service.dart';
 import '../../core/services/audit_service.dart';
 import '../../core/services/rate_limit_service.dart';
 import '../../core/app_colors.dart';
+import '../../core/theme_store.dart';
 import '../../shared/widgets/app_alert.dart';
 import '../organizer/web/web_shell.dart';
 import '../admin/admin_web_dashboard.dart';
@@ -154,6 +155,8 @@ class _WebAuthScreenState extends State<WebAuthScreen>
           .maybeSingle();
       if (!mounted) return;
       if (adminRow != null) {
+        await ThemeStore.loadForUser(user.id, 'admin');
+        if (!mounted) return;
         Navigator.of(context).pushReplacement(_adminRoute());
         return;
       }
@@ -165,6 +168,8 @@ class _WebAuthScreenState extends State<WebAuthScreen>
           .maybeSingle();
       if (!mounted) return;
       if (row != null) {
+        await ThemeStore.loadForUser(user.id, 'organizer');
+        if (!mounted) return;
         Navigator.of(context).pushReplacement(_dashRoute());
       } else {
         setState(() => _checkingSession = false);
@@ -383,6 +388,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
         await _clearRateLimit();
         unawaited(RateLimitService.clear(email));
         await _saveUsername(username);                    // BUG-01
+        await ThemeStore.loadForUser(user.id, 'admin');
         if (mounted) Navigator.of(context).pushReplacement(_adminRoute());
         return;
       }
@@ -417,6 +423,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
       await _clearRateLimit();
       unawaited(RateLimitService.clear(email));
       await _saveUsername(username);                      // BUG-01
+      await ThemeStore.loadForUser(user.id, 'organizer');
       if (mounted) Navigator.of(context).pushReplacement(_transitionRoute());
     } on AuthException catch (e) {
       await _recordFailure();

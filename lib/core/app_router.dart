@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:app_links/app_links.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/supabase_service.dart';
+import 'theme_store.dart';
 
 // Exposed so MaterialApp widgets in app.dart can reference it.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -40,7 +41,10 @@ void setupAuthStateListener() {
           .select('organizer_id')
           .eq('user_id', user.id)
           .maybeSingle();
-      final route = organizerRow != null ? '/organizer' : '/student';
+      final isOrg = organizerRow != null;
+      final route = isOrg ? '/organizer' : '/student';
+
+      await ThemeStore.loadForUser(user.id, isOrg ? 'organizer' : 'student');
 
       if (navigatorKey.currentContext != null) {
         navigatorKey.currentState?.pushNamedAndRemoveUntil(route, (r) => false);
