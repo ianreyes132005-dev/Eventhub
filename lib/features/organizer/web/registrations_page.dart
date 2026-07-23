@@ -286,7 +286,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     await _updateStatus(id, 'photo_required');
   }
 
-  void _viewSelfie(String url, String studentName) {
+  void _viewSelfie(String url, String studentName, WebTk t) {
     final initials = studentName
         .split(' ')
         .where((w) => w.isNotEmpty)
@@ -298,7 +298,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
       context: context,
       builder: (_) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        backgroundColor: Colors.white,
+        backgroundColor: t.card,
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: 400,
@@ -310,10 +310,10 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
               // Header
               Container(
                 padding: const EdgeInsets.fromLTRB(20, 18, 12, 18),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF8F9FC),
+                decoration: BoxDecoration(
+                  color: t.inputBg,
                   borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                  border: Border(bottom: BorderSide(color: kCardBorder)),
+                  border: Border(bottom: BorderSide(color: t.border)),
                 ),
                 child: Row(children: [
                   Container(
@@ -330,14 +330,14 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Check-in Selfie',
+                        Text('Check-in Selfie',
                           style: TextStyle(
                             fontFamily: 'Poppins', fontSize: 14,
-                            fontWeight: FontWeight.w700, color: kText,
+                            fontWeight: FontWeight.w700, color: t.text,
                           )),
                         Text(studentName,
-                          style: const TextStyle(
-                            fontFamily: 'Poppins', fontSize: 11, color: kSubText,
+                          style: TextStyle(
+                            fontFamily: 'Poppins', fontSize: 11, color: t.sub,
                           )),
                       ],
                     ),
@@ -349,10 +349,10 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                       child: Container(
                         width: 32, height: 32,
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
+                          color: t.divider,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.close_rounded, size: 16, color: kSubText),
+                        child: Icon(Icons.close_rounded, size: 16, color: t.sub),
                       ),
                     ),
                   ),
@@ -373,7 +373,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                       : Container(
                           height: 240,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF8F9FC),
+                            color: t.inputBg,
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: Center(
@@ -385,7 +385,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                                 Text('Loading selfie…',
                                   style: TextStyle(
                                     fontFamily: 'Poppins', fontSize: 12,
-                                    color: kMuted,
+                                    color: t.muted,
                                   )),
                               ],
                             ),
@@ -394,7 +394,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                     errorBuilder: (_, _, _) => Container(
                       height: 160,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF8F9FC),
+                        color: t.inputBg,
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: Center(
@@ -404,16 +404,16 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                             Container(
                               width: 44, height: 44,
                               decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
+                                color: t.divider,
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Icon(Icons.broken_image_outlined,
-                                size: 22, color: kMuted),
+                                size: 22, color: t.muted),
                             ),
                             const SizedBox(height: 10),
-                            const Text('Could not load image',
+                            Text('Could not load image',
                               style: TextStyle(
-                                fontFamily: 'Poppins', fontSize: 12, color: kMuted,
+                                fontFamily: 'Poppins', fontSize: 12, color: t.muted,
                               )),
                           ],
                         ),
@@ -429,9 +429,9 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF8F9FC),
+                    color: t.inputBg,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: kCardBorder),
+                    border: Border.all(color: t.border),
                   ),
                   child: Row(children: [
                     Container(
@@ -453,9 +453,9 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                     ),
                     const SizedBox(width: 10),
                     Text(studentName,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'Poppins', fontSize: 13,
-                        fontWeight: FontWeight.w600, color: kText,
+                        fontWeight: FontWeight.w600, color: t.text,
                       )),
                   ]),
                 ),
@@ -471,6 +471,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
 
   @override
   Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: kGold));
     }
@@ -479,9 +480,9 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildPageHeader(),
+          _buildPageHeader(t),
           const SizedBox(height: 20),
-          _stagger(_buildFilterBar(), start: 0.36, end: 0.66),
+          _stagger(_buildFilterBar(t), start: 0.36, end: 0.66),
           const SizedBox(height: 20),
           WebCard(
             padding: EdgeInsets.zero,
@@ -498,7 +499,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                   ),
                   start: 0.50, end: 0.85,
                 )
-              : _buildTable(),
+              : _buildTable(t),
           ),
           const SizedBox(height: 24),
         ],
@@ -508,63 +509,34 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
 
   // ── Page header ───────────────────────────────────────────────────────────────
 
-  Widget _buildPageHeader() {
-    final total       = _all.length;
-    final pending     = _all.where((r) => r['status'] == 'pending').length;
-    final needsReview = _all.where((r) => r['status'] == 'photo_submitted').length;
-    final checkedIn   = _all.where((r) => r['status'] == 'checked_in').length;
-
-    final statCards = [
-      WebStatCard(label: 'Total',        value: '$total',       icon: Icons.people_rounded,          color: kGold),
-      WebStatCard(label: 'Pending',      value: '$pending',     icon: Icons.hourglass_empty_rounded, color: const Color(0xFF6B7280)),
-      WebStatCard(label: 'Needs Review', value: '$needsReview', icon: Icons.rate_review_rounded,     color: const Color(0xFF8B5CF6)),
-      WebStatCard(label: 'Checked In',   value: '$checkedIn',   icon: Icons.how_to_reg_rounded,      color: const Color(0xFF10B981)),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _stagger(
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+  Widget _buildPageHeader(WebTk t) {
+    return _stagger(
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Registrations',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: kText,
-                      height: 1.1,
-                    )),
-                ],
-              ),
-              const Spacer(),
+              Text('Registrations',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: t.text,
+                  height: 1.1,
+                )),
             ],
           ),
-          start: 0.00, end: 0.35,
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: List.generate(statCards.length, (i) {
-            final s = 0.10 + i * 0.07;
-            return Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(left: i > 0 ? 12 : 0),
-                child: _stagger(statCards[i], start: s, end: (s + 0.35).clamp(0.0, 1.0)),
-              ),
-            );
-          }),
-        ),
-      ],
+          const Spacer(),
+        ],
+      ),
+      start: 0.00, end: 0.35,
     );
   }
 
   // ── Filter bar ────────────────────────────────────────────────────────────────
 
-  Widget _buildFilterBar() {
+  Widget _buildFilterBar(WebTk t) {
     // Counts per status — shown as live badges on each filter chip so the
     // organizer sees at a glance how many registrations are in each state
     // without having to click through each filter.
@@ -590,7 +562,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                 child: Row(
                   children: _statusFilters.map((f) => Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: _statusTab(f, counts[f] ?? 0),
+                    child: _statusTab(f, counts[f] ?? 0, t),
                   )).toList(),
                 ),
               ),
@@ -619,23 +591,23 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                 ),
               ),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 'Filter by Event',
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize:   11,
                   fontWeight: FontWeight.w700,
-                  color:      kSubText,
+                  color:      t.sub,
                   letterSpacing: 0.3,
                 ),
               ),
               const SizedBox(width: 6),
               Text(
                 '(${_eventTitles.length - 1})',   // -1 for the "All" entry
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize:   10,
-                  color:      kMuted,
+                  color:      t.muted,
                 ),
               ),
             ],
@@ -666,10 +638,18 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     );
   }
 
-  Widget _statusTab(String f, int count) {
+  Widget _statusTab(String f, int count, WebTk t) {
     final selected    = _statusFilter == f;
     final hovered     = _hoveredTab == f;
     final accent      = f == 'All' ? kGold : webStatusColor(_statusKeyMap[f]);
+
+    final unselectedBg = hovered
+        ? (t.dark ? t.divider : const Color(0xFFEEF2F7))
+        : t.inputBg;
+    final unselectedBorder = hovered
+        ? (t.dark ? const Color(0xFF2A3040) : const Color(0xFFD1D5DB))
+        : t.border;
+    final unselectedCountBg = t.dark ? const Color(0xFF20252E) : const Color(0xFFE5E7EB);
 
     return MouseRegion(
       cursor:  SystemMouseCursors.click,
@@ -687,16 +667,12 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           decoration: BoxDecoration(
             color: selected
                 ? accent.withValues(alpha: 0.08)
-                : hovered
-                    ? const Color(0xFFEEF2F7)
-                    : const Color(0xFFF8F9FC),
+                : unselectedBg,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: selected
                   ? accent.withValues(alpha: 0.35)
-                  : hovered
-                      ? const Color(0xFFD1D5DB)
-                      : kCardBorder,
+                  : unselectedBorder,
               width: selected ? 1.5 : 1.0,
             ),
           ),
@@ -719,7 +695,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                   fontFamily:  'Poppins',
                   fontSize:    12,
                   fontWeight:  selected ? FontWeight.w700 : FontWeight.w500,
-                  color:       selected ? accent : kSubText,
+                  color:       selected ? accent : t.sub,
                   letterSpacing: selected ? 0.1 : 0,
                 ),
               ),
@@ -731,7 +707,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                 decoration: BoxDecoration(
                   color: selected
                       ? accent.withValues(alpha: 0.15)
-                      : const Color(0xFFE5E7EB),
+                      : unselectedCountBg,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -740,7 +716,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                     fontFamily:  'Poppins',
                     fontSize:    10,
                     fontWeight:  FontWeight.w700,
-                    color:       selected ? accent : kMuted,
+                    color:       selected ? accent : t.muted,
                   ),
                 ),
               ),
@@ -753,7 +729,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
 
   // ── Table ─────────────────────────────────────────────────────────────────────
 
-  Widget _buildTable() {
+  Widget _buildTable(WebTk t) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -761,10 +737,10 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
         _stagger(
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
-            decoration: const BoxDecoration(
-              color: Color(0xFFF8F9FC),
+            decoration: BoxDecoration(
+              color: t.inputBg,
               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-              border: Border(bottom: BorderSide(color: kCardBorder)),
+              border: Border(bottom: BorderSide(color: t.border)),
             ),
             child: const Row(children: [
               Expanded(flex: 4, child: WebColHeader('STUDENT')),
@@ -835,9 +811,9 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(name,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontFamily: 'Poppins', fontSize: 13,
-                                fontWeight: FontWeight.w600, color: kText,
+                                fontWeight: FontWeight.w600, color: t.text,
                               ),
                               maxLines: 1, overflow: TextOverflow.ellipsis),
                             const SizedBox(height: 2),
@@ -846,14 +822,14 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 1),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F9),
+                                  color: t.inputBg,
                                   borderRadius: BorderRadius.circular(5),
                                 ),
                                 child: Text(lrn,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontFamily: 'Courier',
                                     fontSize: 10.5,
-                                    color: kSubText,
+                                    color: t.sub,
                                     letterSpacing: 0.3,
                                   )),
                               ),
@@ -878,9 +854,9 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                       ),
                       Expanded(
                         child: Text(reg['event_title'] as String? ?? '—',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'Poppins', fontSize: 12.5,
-                            fontWeight: FontWeight.w500, color: kText,
+                            fontWeight: FontWeight.w500, color: t.text,
                           ),
                           maxLines: 2, overflow: TextOverflow.ellipsis),
                       ),
@@ -904,14 +880,14 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(webTimeAgo(regAt),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'Poppins', fontSize: 12,
-                            fontWeight: FontWeight.w600, color: kText,
+                            fontWeight: FontWeight.w600, color: t.text,
                           )),
                         const SizedBox(height: 2),
                         Text(webFmtDate(regAt),
-                          style: const TextStyle(
-                            fontFamily: 'Poppins', fontSize: 10.5, color: kMuted,
+                          style: TextStyle(
+                            fontFamily: 'Poppins', fontSize: 10.5, color: t.muted,
                           )),
                       ],
                     ),
@@ -949,7 +925,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                                 icon:    Icons.photo_camera_rounded,
                                 color:   const Color(0xFF8B5CF6),
                                 tooltip: 'View selfie',
-                                onTap:   () => _viewSelfie(selfieUrl, name),
+                                onTap:   () => _viewSelfie(selfieUrl, name, t),
                               )
                             else
                               Tooltip(
@@ -1052,6 +1028,7 @@ class _StatusMenuState extends State<_StatusMenu> {
 
   @override
   Widget build(BuildContext context) {
+    final t            = WebTk(Theme.of(context).brightness == Brightness.dark);
     final current      = widget.currentStatus;
     final currentColor = webStatusColor(current);
 
@@ -1093,9 +1070,9 @@ class _StatusMenuState extends State<_StatusMenu> {
           widget.onSelect(s);
         },
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        color:     Colors.white,
+        color:     t.card,
         elevation: 8,
-        shadowColor: Colors.black.withValues(alpha: 0.12),
+        shadowColor: t.shadow,
         itemBuilder: (_) => [
           // ── Header — shows context before the organizer picks ──────────
           PopupMenuItem<String>(
@@ -1109,20 +1086,20 @@ class _StatusMenuState extends State<_StatusMenu> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Row(children: [
-                    const Icon(Icons.arrow_circle_right_rounded,
-                        size: 13, color: kText),
+                    Icon(Icons.arrow_circle_right_rounded,
+                        size: 13, color: t.text),
                     const SizedBox(width: 6),
-                    const Text('Advance Status',
+                    Text('Advance Status',
                       style: TextStyle(
                         fontFamily: 'Poppins', fontSize: 12,
-                        fontWeight: FontWeight.w700, color: kText,
+                        fontWeight: FontWeight.w700, color: t.text,
                       )),
                   ]),
                   const SizedBox(height: 6),
                   Row(children: [
-                    const Text('Current: ',
+                    Text('Current: ',
                       style: TextStyle(
-                        fontFamily: 'Poppins', fontSize: 10, color: kMuted)),
+                        fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 3),
@@ -1191,7 +1168,7 @@ class _StatusMenuState extends State<_StatusMenu> {
                             style: TextStyle(
                               fontFamily: 'Poppins', fontSize: 12.5,
                               fontWeight: FontWeight.w700,
-                              color: isTerminal ? c : kText,
+                              color: isTerminal ? c : t.text,
                             )),
                           if (isTerminal) ...[
                             const SizedBox(width: 6),
@@ -1216,10 +1193,10 @@ class _StatusMenuState extends State<_StatusMenu> {
                         if (desc.isNotEmpty) ...[
                           const SizedBox(height: 2),
                           Text(desc,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontFamily: 'Poppins',
                               fontSize:   10.5,
-                              color:      kMuted,
+                              color:      t.muted,
                             )),
                         ],
                       ],
@@ -1276,23 +1253,26 @@ class _RegHoverRowState extends State<_RegHoverRow> {
   bool _h = false;
 
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    onEnter: (_) => setState(() => _h = true),
-    onExit:  (_) => setState(() => _h = false),
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      decoration: BoxDecoration(
-        color: _h ? const Color(0xFFFFFBF0) : Colors.white,
-        borderRadius: widget.isLast
-          ? const BorderRadius.vertical(bottom: Radius.circular(16))
-          : BorderRadius.zero,
-        border: widget.isLast
-          ? null
-          : const Border(bottom: BorderSide(color: kCardBorder)),
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _h = true),
+      onExit:  (_) => setState(() => _h = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: _h ? const Color(0xFFFFFBF0) : t.card,
+          borderRadius: widget.isLast
+            ? const BorderRadius.vertical(bottom: Radius.circular(16))
+            : BorderRadius.zero,
+          border: widget.isLast
+            ? null
+            : Border(bottom: BorderSide(color: t.border)),
+        ),
+        child: widget.child,
       ),
-      child: widget.child,
-    ),
-  );
+    );
+  }
 }
 
 // ── Icon action button ────────────────────────────────────────────────────────

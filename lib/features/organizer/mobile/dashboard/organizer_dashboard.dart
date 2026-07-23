@@ -615,7 +615,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             ),
           ],
         ),
-        clipBehavior: Clip.antiAlias,
+        clipBehavior: Clip.antiAliasWithSaveLayer,
         child: (url != null && url.isNotEmpty)
             ? Image.network(url, fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => fallback)

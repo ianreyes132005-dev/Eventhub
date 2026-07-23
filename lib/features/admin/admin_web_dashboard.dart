@@ -13,32 +13,14 @@ import '../../shared/widgets/event_phase_pill.dart';
 // ─── Admin palette ────────────────────────────────────────────────────────────
 const _kAccent = Color(0xFFEA580C); // orange
 
-// ─── Admin web content tokens ──────────────────────────────────────────────────
-// A dedicated web dashboard theme — deliberately NOT the shared `AppTk` that
-// organizer/student mobile screens use for dark mode. Mobile dark mode is a
-// warm espresso/gold palette suited to a touch app; this is a cool graphite
-// "SaaS dashboard" dark theme (in the spirit of Linear/GitHub/Vercel), so the
-// admin web dark mode reads as its own product, not a reskinned mobile screen.
-// Light values intentionally mirror AppTk's light palette — only dark changes.
-class AdminTk {
-  final bool dark;
-  const AdminTk(this.dark);
-
-  Color get bg       => dark ? const Color(0xFF0B0D12) : kBackground;
-  Color get card     => dark ? const Color(0xFF12151B) : Colors.white;
-  Color get border   => dark ? const Color(0xFF232833) : const Color(0xFFF0E8D8);
-  Color get text     => dark ? const Color(0xFFE7EAEE) : kText;
-  Color get sub      => dark ? const Color(0xFF9AA3B2) : kSubText;
-  Color get muted    => dark ? const Color(0xFF666E7D) : kMuted;
-  Color get divider  => dark ? const Color(0xFF1B1F27) : const Color(0xFFF0EBE0);
-  Color get shadow   => dark
-      ? Colors.black.withValues(alpha: 0.55)
-      : Colors.black.withValues(alpha: 0.055);
-  Color get inputBg  => dark ? const Color(0xFF0E1116) : Colors.white;
-}
+// Admin web content now uses the shared `WebTk` token class (in
+// organizer/web/web_layout.dart, imported transitively via web_shared.dart
+// below) so the admin and organizer web dashboards render an identical dark
+// theme — a cool graphite "SaaS dashboard" look, deliberately different from
+// the warm espresso/gold `AppTk` dark mode used by the mobile apps.
 
 // Sidebar tokens — light mode is a pure-white panel with the organizer web's
-// nav styling; dark is the same cool graphite family as AdminTk, a shade
+// nav styling; dark is the same cool graphite family as WebTk, a shade
 // darker than the content canvas for a layered nav → page → card hierarchy.
 class _STk {
   final bool dark;
@@ -154,16 +136,16 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final t    = AdminTk(dark);
+    final t    = WebTk(dark);
     if (_loading) {
       return Scaffold(
-        backgroundColor: dark ? t.bg : kWebBg,
+        backgroundColor: t.bg,
         body: const Center(child: CircularProgressIndicator(color: _kAccent)),
       );
     }
     if (_error) {
       return Scaffold(
-        backgroundColor: dark ? t.bg : kWebBg,
+        backgroundColor: t.bg,
         body: Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(
@@ -192,7 +174,7 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
     }
 
     return Scaffold(
-      backgroundColor: dark ? t.bg : kWebBg,
+      backgroundColor: t.bg,
       body: Row(children: [
         FadeTransition(
           opacity: _sidebarFade,
@@ -863,7 +845,7 @@ class _AdminTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Container(
     height: kWebTopH,
     padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1161,7 +1143,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     if (_loading) return const Center(child: CircularProgressIndicator(color: _kAccent));
     if (_dashError) return _buildDashError(t);
     return SingleChildScrollView(
@@ -1186,7 +1168,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
   // ── Header ─────────────────────────────────────────────────────────────────
 
-  Widget _buildHeader(AdminTk t) {
+  Widget _buildHeader(WebTk t) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Dashboard Overview',
         style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
@@ -1199,7 +1181,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
   // ── KPI row ────────────────────────────────────────────────────────────────
 
-  Widget _buildKpiRow(AdminTk t) => Row(children: [
+  Widget _buildKpiRow(WebTk t) => Row(children: [
     Expanded(child: _KpiCard(
       icon: Icons.people_rounded, color: _kAccent,
       label: 'Total Students', value: '$_studentTotal',
@@ -1245,7 +1227,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
   // ── Charts row ─────────────────────────────────────────────────────────────
 
-  Widget _buildChartsRow(AdminTk t) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget _buildChartsRow(WebTk t) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Expanded(
       flex: 3,
       child: WebCard(
@@ -1304,7 +1286,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
   // ── Bottom row ─────────────────────────────────────────────────────────────
 
-  Widget _buildBottomRow(AdminTk t) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget _buildBottomRow(WebTk t) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Expanded(
       flex: 3,
       child: WebCard(
@@ -1382,7 +1364,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 
   // ── Recent registrations ───────────────────────────────────────────────────
 
-  Widget _buildRecentRegs(AdminTk t) => WebCard(
+  Widget _buildRecentRegs(WebTk t) => WebCard(
     padding: EdgeInsets.zero,
     child: Column(children: [
       Padding(
@@ -1478,7 +1460,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
     ]),
   );
 
-  Widget _buildDashError(AdminTk t) => Center(
+  Widget _buildDashError(WebTk t) => Center(
     child: Column(mainAxisSize: MainAxisSize.min, children: [
       Container(
         width: 68, height: 68,
@@ -1531,7 +1513,7 @@ class _KpiCardState extends State<_KpiCard> {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return MouseRegion(
       cursor: widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
       onEnter: (_) => setState(() => _hovered = true),
@@ -1619,7 +1601,7 @@ class _RegTrendChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t      = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t      = WebTk(Theme.of(context).brightness == Brightness.dark);
     final n      = dailyRegs.length;
     final rawMax = dailyRegs.reduce((a, b) => a > b ? a : b);
     if (rawMax < 1) {
@@ -1768,7 +1750,7 @@ class _EventsTrendChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t      = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t      = WebTk(Theme.of(context).brightness == Brightness.dark);
     final n      = dailyEvents.length;
     final rawMax = dailyEvents.reduce((a, b) => a > b ? a : b);
     if (rawMax < 1) {
@@ -1898,7 +1880,7 @@ class _ChartWindowToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Container(
       height: 28,
       decoration: BoxDecoration(
@@ -1912,7 +1894,7 @@ class _ChartWindowToggle extends StatelessWidget {
     );
   }
 
-  Widget _tab(AdminTk t, int days, String label) {
+  Widget _tab(WebTk t, int days, String label) {
     final active = selected == days;
     return GestureDetector(
       onTap: () => onSelect(days),
@@ -1947,7 +1929,7 @@ class _TopEventsChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Column(
       children: events.asMap().entries.map((entry) {
         final idx      = entry.key;
@@ -2034,7 +2016,7 @@ class _UpcomingEventTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t       = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t       = WebTk(Theme.of(context).brightness == Brightness.dark);
     final title   = event['title']         as String? ?? '—';
     final dStr    = event['event_date']    as String?;
     final status  = (event['event_status'] as String? ?? '').toLowerCase();
@@ -2146,7 +2128,7 @@ class _PlaceholderNote extends StatelessWidget {
   const _PlaceholderNote({required this.text});
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Center(
       child: Text(text,
         style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.muted)),
@@ -2398,7 +2380,7 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final totalCount        = _all.length;
     final activeCount       = _all.where((s) => s['is_active'] == true).length;
     final inactiveCount     = totalCount - activeCount;
@@ -2717,7 +2699,7 @@ class _StudentRowState extends State<_StudentRow> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
-    final t           = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t           = WebTk(Theme.of(context).brightness == Brightness.dark);
     final s           = widget.student;
     final active      = s['is_active'] == true;
     final linked      = s['user_id'] != null;
@@ -2870,7 +2852,7 @@ class _MiniStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       decoration: BoxDecoration(
@@ -2913,7 +2895,7 @@ class _StudentStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Expanded(
       child: Container(
         decoration: BoxDecoration(
@@ -3025,7 +3007,7 @@ class _StudentTableHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Container(
       padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
       decoration: BoxDecoration(
@@ -3060,7 +3042,7 @@ class _SortColBtnState extends State<_SortColBtn> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _h = true),
@@ -3183,7 +3165,7 @@ class _StudentDialogState extends State<_StudentDialog>
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return FadeTransition(
     opacity: _fade,
     child: ScaleTransition(
@@ -3629,7 +3611,7 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
 
   @override
   Widget build(BuildContext context) {
-    final t             = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t             = WebTk(Theme.of(context).brightness == Brightness.dark);
     final totalCount    = _all.length;
     final activeCount   = _all.where((o) => o['is_active'] == true).length;
     final inactiveCount = totalCount - activeCount;
@@ -3852,7 +3834,7 @@ class _OrganizerTableHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Container(
       padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
       decoration: BoxDecoration(
@@ -3886,7 +3868,7 @@ class _OrganizerRowState extends State<_OrganizerRow> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
-    final t           = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t           = WebTk(Theme.of(context).brightness == Brightness.dark);
     final o           = widget.org;
     final active      = o['is_active'] == true;
     final linked      = o['user_id'] != null;
@@ -4141,7 +4123,7 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return FadeTransition(
       opacity: _fade,
       child: ScaleTransition(
@@ -4413,7 +4395,7 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final t              = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t              = WebTk(Theme.of(context).brightness == Brightness.dark);
     final totalCount     = _all.length;
     final upcomingCount  = _all.where((e) => _resolveDisplayStatus(e) == 'upcoming').length;
     final ongoingCount   = _all.where((e) => _resolveDisplayStatus(e) == 'ongoing').length;
@@ -4791,7 +4773,7 @@ class _EventTableHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Container(
       padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
       decoration: BoxDecoration(
@@ -4834,7 +4816,7 @@ class _EventRowState extends State<_EventRow> {
     final isFull       = max > 0 && cur >= max;
     final isAlmostFull = !isFull && pct >= 0.8;
     final isCancelled  = dbStatus == 'cancelled';
-    final t            = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t            = WebTk(Theme.of(context).brightness == Brightness.dark);
     final typeColor    = type.isEmpty ? t.muted : _eventTypeColor(type);
     final timeStr      = _fmtEventTime(e['start_time'] as String?);
     final barColor     = isCancelled  ? t.muted
@@ -5196,7 +5178,7 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final t              = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t              = WebTk(Theme.of(context).brightness == Brightness.dark);
     final totalCount     = _all.length;
     final pendingCount   = _all.where((r) => r['status'] == 'pending').length;
     final checkedInCount = _all.where((r) => r['status'] == 'checked_in').length;
@@ -5548,7 +5530,7 @@ class _RegLegend extends StatelessWidget {
   const _RegLegend({required this.color, required this.label});
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Container(width: 7, height: 7,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
@@ -5613,7 +5595,7 @@ class _RegTableHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Container(
       padding: const EdgeInsets.only(left: 23, right: 20, top: 10, bottom: 10),
       decoration: BoxDecoration(
@@ -5656,7 +5638,7 @@ class _RegistrationRowState extends State<_RegistrationRow> {
     final initials    = name.trim().split(' ')
         .where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase()).take(2).join();
 
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final avatarColor = switch (status) {
       'checked_in'      => const Color(0xFF10B981),
       'photo_submitted' => const Color(0xFF8B5CF6),
@@ -5799,7 +5781,7 @@ class _ActBtnState extends State<_ActBtn> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Tooltip(
       message: widget.tip,
       child: MouseRegion(
@@ -5833,7 +5815,7 @@ class _ErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -5874,7 +5856,7 @@ class _CredentialPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -5917,7 +5899,7 @@ class _PasswordStrengthBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     if (password.isEmpty) return const SizedBox(height: 4);
     int score = 0;
     if (password.length >= 6)  score++;
@@ -5959,7 +5941,7 @@ class _InfoNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -5991,7 +5973,7 @@ Widget _dialogShell({
   bool loading = false,
 }) {
   return Builder(builder: (context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Container(
       decoration: BoxDecoration(
         color: t.card,
@@ -6066,7 +6048,7 @@ class _DialogHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Row(children: [
       Container(
         width: 38, height: 38,
@@ -6149,7 +6131,7 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
 
   @override
   Widget build(BuildContext context) {
-    final t           = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t           = WebTk(Theme.of(context).brightness == Brightness.dark);
     final reg         = widget.reg;
     final studentName = reg['student_name']      as String? ?? '—';
     final lrn         = reg['student_school_id'] as String? ?? '—';
@@ -6564,7 +6546,7 @@ class _AdminAnnouncementsPageState extends State<_AdminAnnouncementsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: _kAccent));
     }
@@ -6882,7 +6864,7 @@ class _AdminAnnRowState extends State<_AdminAnnRow> {
 
   @override
   Widget build(BuildContext context) {
-    final t       = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t       = WebTk(Theme.of(context).brightness == Brightness.dark);
     final title   = widget.ann['title']   as String? ?? '';
     final message = widget.ann['message'] as String? ?? '';
     final org     = widget.ann['_org']    as String? ?? '—';
@@ -6999,7 +6981,7 @@ class _AnnDeleteBtnState extends State<_AnnDeleteBtn> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return MouseRegion(
       cursor:  SystemMouseCursors.click,
       onEnter: (_) => setState(() => _h = true),
@@ -7261,7 +7243,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
 
   @override
   Widget build(BuildContext context) {
-    final t             = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t             = WebTk(Theme.of(context).brightness == Brightness.dark);
     final loginFiltered = _loginFiltered.length;
     final eventFiltered = _eventFiltered.length;
     final loginTotal    = _loginAll.length;
@@ -7446,7 +7428,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
   // ── Login tab ─────────────────────────────────────────────────────────────
 
   Widget _buildLoginTab(int filtered, int total) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     const roles = ['All', 'Admin', 'Organizer', 'Student'];
     const plats = ['All', 'Web', 'Mobile'];
 
@@ -7680,7 +7662,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
   // ── Event tab ─────────────────────────────────────────────────────────────
 
   Widget _buildEventTab(int filtered, int total) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     const actions = ['All', 'Created', 'Updated', 'Deleted'];
 
     if (_eventLoading) {
@@ -8020,7 +8002,7 @@ class _LogColLabel extends StatelessWidget {
   const _LogColLabel(this.text);
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Text(text,
       style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
           fontWeight: FontWeight.w700, color: t.sub, letterSpacing: 0.8));
@@ -8061,7 +8043,7 @@ class _LoginLogRowState extends State<_LoginLogRow> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
-    final t        = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t        = WebTk(Theme.of(context).brightness == Brightness.dark);
     final r        = widget.log;
     final role     = r['user_role']  as String? ?? '';
     final name     = r['full_name']  as String? ?? '—';
@@ -8154,7 +8136,7 @@ class _EventLogRowState extends State<_EventLogRow> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
-    final t      = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t      = WebTk(Theme.of(context).brightness == Brightness.dark);
     final r      = widget.log;
     final title  = r['event_title']    as String? ?? '—';
     final orgId  = r['organizer_id']   as String? ?? '';
@@ -8252,7 +8234,7 @@ class _LogRoleBadge extends StatelessWidget {
   const _LogRoleBadge({this.role});
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final isKnown = const ['admin', 'organizer', 'student'].contains(role);
     final color = isKnown ? _logRoleColor(role) : t.muted;
     return Row(mainAxisSize: MainAxisSize.min, children: [
@@ -8309,7 +8291,7 @@ class _LogActionBadge extends StatelessWidget {
   const _LogActionBadge({this.action});
   @override
   Widget build(BuildContext context) {
-    final t = AdminTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final isKnown = const ['created', 'updated', 'deleted'].contains(action);
     final color = isKnown ? _logActionColor(action) : t.muted;
     return Row(mainAxisSize: MainAxisSize.min, children: [

@@ -225,7 +225,7 @@ class _ProfileBodyState extends State<ProfileBody> {
                   shape: BoxShape.circle, color: kGoldLight,
                   border: Border.all(color: kGold, width: 2),
                 ),
-                clipBehavior: Clip.antiAlias,
+                clipBehavior: Clip.antiAliasWithSaveLayer,
                 child: _uploadingPhoto
                     ? const Center(
                         child: SizedBox(

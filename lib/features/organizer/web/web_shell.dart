@@ -26,8 +26,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   OrganizerPage _page         = OrganizerPage.dashboard;
   bool          _collapsed    = false;
   AppTheme      _theme        = const AppTheme();
-  // GlobalKey preserves WebSettingsPage state (active tab) when _theme.variant
-  // changes, which restructures the widget tree and would otherwise reset state.
+  // GlobalKey preserves WebProfilePage's own state (e.g. avoids re-fetching
+  // profile/stats data) when _theme.variant changes and restructures the tree.
   final         _settingsKey  = GlobalKey();
   String?       _orgId;
   String?       _name;
@@ -119,15 +119,6 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
     });
   }
 
-  Future<void> _saveTheme(AppTheme t) async {
-    final prefs = await SharedPreferences.getInstance();
-    // ignore: deprecated_member_use
-    await prefs.setInt('org_theme_primary_v2',   t.primaryColor.value);
-    // ignore: deprecated_member_use
-    await prefs.setInt('org_theme_secondary_v2', t.secondaryColor.value);
-    await prefs.setInt('org_theme_variant_v2',   t.variant.index);
-  }
-
   void _goLogin() => Navigator.of(context).pushReplacementNamed('/');
 
   Future<void> _signOut() async {
@@ -142,11 +133,6 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
     if (mounted) _goLogin();
   }
 
-  void _onThemeChanged(AppTheme t) {
-    setState(() => _theme = t);
-    _saveTheme(t); // fire-and-forget; persists across sessions
-  }
-
   // Hamburger: in minimal mode, expand to inset; otherwise toggle collapse
   void _onMenuTap() {
     if (_theme.variant == SidebarVariant.minimal) {
@@ -158,15 +144,16 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
 
   @override
   Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     if (_loading) {
-      return const Scaffold(
-        backgroundColor: kWebBg,
-        body: Center(child: CircularProgressIndicator(color: kGold)),
+      return Scaffold(
+        backgroundColor: t.bg,
+        body: const Center(child: CircularProgressIndicator(color: kGold)),
       );
     }
     if (_profileError) {
       return Scaffold(
-        backgroundColor: kWebBg,
+        backgroundColor: t.bg,
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -186,15 +173,15 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                 ),
               ),
               const SizedBox(height: 20),
-              const Text('Could not load your profile',
+              Text('Could not load your profile',
                 style: TextStyle(
                   fontFamily: 'Poppins', fontSize: 17,
-                  fontWeight: FontWeight.w800, color: kText,
+                  fontWeight: FontWeight.w800, color: t.text,
                 )),
               const SizedBox(height: 8),
-              const Text('Check your connection and try again.',
+              Text('Check your connection and try again.',
                 style: TextStyle(
-                  fontFamily: 'Poppins', fontSize: 13, color: kSubText,
+                  fontFamily: 'Poppins', fontSize: 13, color: t.sub,
                 )),
               const SizedBox(height: 28),
               WebBtn(
@@ -211,12 +198,18 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
       );
     }
     return Scaffold(
-      backgroundColor: kWebBg,
+      backgroundColor: t.bg,
       body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
+    // Sidebar-only override: hard-switches the sidebar to the shared graphite
+    // dark palette when the app is in dark mode, regardless of the
+    // organizer's chosen (light-mode-only) accent/secondary color.
+    final sidebarTheme = _theme.copyWith(
+      dark: Theme.of(context).brightness == Brightness.dark,
+    );
     switch (_theme.variant) {
       case SidebarVariant.inset:
         return Stack(children: [
@@ -231,7 +224,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                   curve: Curves.easeInOut,
                   width: _collapsed ? kWebSideWc : kWebSideW,
                   child: _Sidebar(
-                    theme:        _theme,
+                    theme:        sidebarTheme,
                     collapsed:    _collapsed,
                     minimal:      false,
                     currentPage:  _page,
@@ -338,7 +331,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(20),
                       child: _Sidebar(
-                        theme:        _theme,
+                        theme:        sidebarTheme,
                         collapsed:    _collapsed,
                         minimal:      false,
                         currentPage:  _page,
@@ -366,7 +359,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
               child: SizedBox(
                 width: 56,
                 child: _Sidebar(
-                  theme:        _theme,
+                  theme:        sidebarTheme,
                   collapsed:    true,
                   minimal:      true,
                   currentPage:  _page,
@@ -428,8 +421,6 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
           name:         _name,
           email:        _email,
           organization: _organization,
-          theme:        _theme,
-          onThemeChanged:   _onThemeChanged,
           onPhotoUpdated: (url) => setState(() => _photoUrl = url),
           onNavigate:     (p)   => setState(() => _page = p),
         ),
@@ -750,7 +741,7 @@ class _SidebarState extends State<_Sidebar>
           ),
         ],
       ),
-      clipBehavior: Clip.antiAlias,
+      clipBehavior: Clip.antiAliasWithSaveLayer,
       child: (url != null && url.isNotEmpty)
           ? Image.network(url, fit: BoxFit.cover,
               errorBuilder: (_, _, _) => fallback)
@@ -925,7 +916,7 @@ class _NavItemState extends State<_NavItem> {
         ? t.primaryColor
         : _hovered ? t.navText : t.navIcon;
     final Color labelColor = active
-        ? kText
+        ? (t.dark ? Colors.white : kText)
         : _hovered ? t.navText : t.navIcon;
 
     return Padding(
@@ -1147,6 +1138,7 @@ class _TopBar extends StatefulWidget {
 class _TopBarState extends State<_TopBar> {
   @override
   Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final initials = (widget.name ?? '?').trim().split(' ')
         .where((w) => w.isNotEmpty)
         .map((w) => w[0].toUpperCase())
@@ -1155,14 +1147,14 @@ class _TopBarState extends State<_TopBar> {
 
     return Container(
       height: kWebTopH,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: kCardBorder)),
+      decoration: BoxDecoration(
+        color: t.card,
+        border: Border(bottom: BorderSide(color: t.border)),
         boxShadow: [
           BoxShadow(
-            color: Color(0x06000000),
+            color: t.shadow,
             blurRadius: 8,
-            offset: Offset(0, 2),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -1189,7 +1181,7 @@ class _TopBarState extends State<_TopBar> {
           // Notification bell
           _NotificationBell(orgId: widget.orgId),
           const SizedBox(width: 4),
-          Container(height: 28, width: 1, color: kCardBorder),
+          Container(height: 28, width: 1, color: t.border),
           const SizedBox(width: 16),
 
           // User info + sign-out
@@ -1211,18 +1203,18 @@ class _TopBarState extends State<_TopBar> {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(widget.name ?? 'Organizer',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontFamily: 'Poppins',
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w700,
-                                color: kText,
+                                color: t.text,
                               )),
                             if (widget.email != null)
                               Text(widget.email!,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 10.5,
-                                  color: kMuted,
+                                  color: t.muted,
                                 )),
                           ],
                         ),
@@ -1241,7 +1233,7 @@ class _TopBarState extends State<_TopBar> {
                               ),
                             ],
                           ),
-                          clipBehavior: Clip.antiAlias,
+                          clipBehavior: Clip.antiAliasWithSaveLayer,
                           child: (widget.photoUrl != null && widget.photoUrl!.isNotEmpty)
                               ? Image.network(widget.photoUrl!, fit: BoxFit.cover,
                                   errorBuilder: (_, _, _) => Center(
@@ -1269,7 +1261,7 @@ class _TopBarState extends State<_TopBar> {
                 ),
               ),
               const SizedBox(width: 16),
-              Container(height: 28, width: 1, color: kCardBorder),
+              Container(height: 28, width: 1, color: t.border),
               const SizedBox(width: 16),
               _TopBarSignOutBtn(onTap: widget.onSignOut),
             ],
@@ -1299,22 +1291,23 @@ class _PageContext extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t     = WebTk(Theme.of(context).brightness == Brightness.dark);
     final label = _labels[page] ?? '';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text('Organizer',
+        Text('Organizer',
           style: TextStyle(
             fontFamily: 'Poppins', fontSize: 13,
-            fontWeight: FontWeight.w500, color: kMuted)),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 6),
-          child: Icon(Icons.chevron_right_rounded, size: 16, color: kMuted),
+            fontWeight: FontWeight.w500, color: t.muted)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Icon(Icons.chevron_right_rounded, size: 16, color: t.muted),
         ),
         Text(label,
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'Poppins', fontSize: 13,
-            fontWeight: FontWeight.w700, color: kText)),
+            fontWeight: FontWeight.w700, color: t.text)),
       ],
     );
   }
@@ -1336,26 +1329,29 @@ class _MenuBtnState extends State<_MenuBtn> {
   bool _h = false;
 
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    onEnter: (_) => setState(() => _h = true),
-    onExit:  (_) => setState(() => _h = false),
-    child: GestureDetector(
-      onTap: widget.onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 130),
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: _h ? const Color(0xFFF1F5F9) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: _h ? kCardBorder : Colors.transparent),
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _h = true),
+      onExit:  (_) => setState(() => _h = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 130),
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: _h ? t.divider : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: _h ? t.border : Colors.transparent),
+          ),
+          child: Icon(Icons.menu_rounded, size: 18, color: t.sub),
         ),
-        child: const Icon(Icons.menu_rounded, size: 18, color: kSubText),
       ),
-    ),
-  );
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1374,7 +1370,9 @@ class _TopBarSignOutBtnState extends State<_TopBarSignOutBtn> {
   bool _h = false;
 
   @override
-  Widget build(BuildContext context) => MouseRegion(
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return MouseRegion(
     cursor: SystemMouseCursors.click,
     onEnter: (_) => setState(() => _h = true),
     onExit:  (_) => setState(() => _h = false),
@@ -1387,7 +1385,7 @@ class _TopBarSignOutBtnState extends State<_TopBarSignOutBtn> {
           color: _h ? const Color(0xFFFEF2F2) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: _h ? const Color(0xFFFCA5A5) : kCardBorder),
+            color: _h ? const Color(0xFFFCA5A5) : t.border),
         ),
         child: const Row(
           mainAxisSize: MainAxisSize.min,
@@ -1405,7 +1403,8 @@ class _TopBarSignOutBtnState extends State<_TopBarSignOutBtn> {
         ),
       ),
     ),
-  );
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1613,6 +1612,7 @@ class _NotificationBellState extends State<_NotificationBell> {
   }
 
   Widget _buildPanel() {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Material(
       elevation: 0,
       color: Colors.transparent,
@@ -1620,12 +1620,12 @@ class _NotificationBellState extends State<_NotificationBell> {
         width: 320,
         constraints: const BoxConstraints(maxHeight: 440),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: t.card,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: kCardBorder),
+          border: Border.all(color: t.border),
           boxShadow: [
             BoxShadow(
-              color:      Colors.black.withValues(alpha: 0.10),
+              color:      t.shadow,
               blurRadius: 20,
               offset:     const Offset(0, 8),
             ),
@@ -1638,30 +1638,30 @@ class _NotificationBellState extends State<_NotificationBell> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 13, 12, 11),
               child: Row(children: [
-                const Icon(Icons.notifications_rounded, size: 15, color: kText),
+                Icon(Icons.notifications_rounded, size: 15, color: t.text),
                 const SizedBox(width: 8),
-                const Expanded(
+                Expanded(
                   child: Text('Notifications',
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                      fontWeight: FontWeight.w700, color: kText)),
+                      fontWeight: FontWeight.w700, color: t.text)),
                 ),
                 Text(
                   'Today · ${webTodayLabel().split(',').last.trim()}',
-                  style: const TextStyle(fontFamily: 'Poppins',
-                    fontSize: 10, color: kMuted),
+                  style: TextStyle(fontFamily: 'Poppins',
+                    fontSize: 10, color: t.muted),
                 ),
                 const SizedBox(width: 8),
                 MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: GestureDetector(
                     onTap: _close,
-                    child: const Icon(Icons.close_rounded,
-                      size: 15, color: kMuted),
+                    child: Icon(Icons.close_rounded,
+                      size: 15, color: t.muted),
                   ),
                 ),
               ]),
             ),
-            const Divider(height: 1, color: kCardBorder),
+            Divider(height: 1, color: t.border),
 
             // ── Body ─────────────────────────────────────────────────
             if (_notifs.isEmpty)
@@ -1681,14 +1681,14 @@ class _NotificationBellState extends State<_NotificationBell> {
                         size: 24, color: Color(0xFF10B981)),
                     ),
                     const SizedBox(height: 12),
-                    const Text("You're all caught up!",
+                    Text("You're all caught up!",
                       style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                        fontWeight: FontWeight.w600, color: kText),
+                        fontWeight: FontWeight.w600, color: t.text),
                       textAlign: TextAlign.center),
                     const SizedBox(height: 4),
-                    const Text('No new events or sign-ups today.',
+                    Text('No new events or sign-ups today.',
                       style: TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11, color: kMuted),
+                        fontSize: 11, color: t.muted),
                       textAlign: TextAlign.center),
                   ],
                 ),
@@ -1700,8 +1700,8 @@ class _NotificationBellState extends State<_NotificationBell> {
                   shrinkWrap: true,
                   itemCount: _notifs.length,
                   separatorBuilder: (_, _) =>
-                      const Divider(height: 1, color: kCardBorder),
-                  itemBuilder: (_, i) => _buildItem(_notifs[i]),
+                      Divider(height: 1, color: t.border),
+                  itemBuilder: (_, i) => _buildItem(_notifs[i], t),
                 ),
               ),
           ],
@@ -1710,7 +1710,7 @@ class _NotificationBellState extends State<_NotificationBell> {
     );
   }
 
-  Widget _buildItem(_AppNotif n) {
+  Widget _buildItem(_AppNotif n, WebTk t) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(children: [
@@ -1728,13 +1728,13 @@ class _NotificationBellState extends State<_NotificationBell> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(n.title,
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                  fontWeight: FontWeight.w600, color: kText),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                  fontWeight: FontWeight.w600, color: t.text),
                 maxLines: 1, overflow: TextOverflow.ellipsis),
               const SizedBox(height: 2),
               Text(n.subtitle,
-                style: const TextStyle(fontFamily: 'Poppins',
-                  fontSize: 10.5, color: kMuted),
+                style: TextStyle(fontFamily: 'Poppins',
+                  fontSize: 10.5, color: t.muted),
                 maxLines: 1, overflow: TextOverflow.ellipsis),
             ],
           ),
@@ -1747,6 +1747,7 @@ class _NotificationBellState extends State<_NotificationBell> {
 
   @override
   Widget build(BuildContext context) {
+    final t     = WebTk(Theme.of(context).brightness == Brightness.dark);
     final count = _loaded ? _notifs.length : 0;
     return CompositedTransformTarget(
       link: _layerLink,
@@ -1758,18 +1759,16 @@ class _NotificationBellState extends State<_NotificationBell> {
             duration: const Duration(milliseconds: 130),
             width: 36, height: 36,
             decoration: BoxDecoration(
-              color: _open
-                  ? const Color(0xFFF1F5F9)
-                  : Colors.transparent,
+              color: _open ? t.divider : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: _open ? kCardBorder : Colors.transparent),
+                color: _open ? t.border : Colors.transparent),
             ),
             child: Stack(
               children: [
-                const Center(
+                Center(
                   child: Icon(Icons.notifications_rounded,
-                    size: 18, color: kSubText),
+                    size: 18, color: t.sub),
                 ),
                 if (count > 0 && !_read)
                   Positioned(

@@ -274,17 +274,6 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     }
   }
 
-  // ── Counts ────────────────────────────────────────────────────────────────
-
-  int get _total          => _all.length;
-  int get _pendingCount   => _all
-      .where((r) => r['status'] == 'pending' || r['status'] == 'qr_scanned')
-      .length;
-  int get _photoCount     =>
-      _all.where((r) => r['status'] == 'photo_submitted').length;
-  int get _checkedInCount =>
-      _all.where((r) => r['status'] == 'checked_in').length;
-
   // ══════════════════════════════════════════════════════════════════════════
   // BUILD
   // ══════════════════════════════════════════════════════════════════════════
@@ -309,7 +298,6 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                         physics: const AlwaysScrollableScrollPhysics(),
                         slivers: [
                           SliverToBoxAdapter(child: _buildPageHeader(t)),
-                          SliverToBoxAdapter(child: _buildSummaryStrip(t)),
                           SliverToBoxAdapter(child: _buildFilterRow(t)),
                           SliverToBoxAdapter(child: _buildSearchBar(t)),
                           SliverToBoxAdapter(child: _buildResultCount(t)),
@@ -415,84 +403,29 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   Widget _buildPageHeader(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Eyebrow label
-                Row(
-                  children: [
-                    Container(
-                      width: 4,
-                      height: 4,
-                      decoration: const BoxDecoration(
-                        color: kGold,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 7),
-                    const Text(
-                      'ORGANIZER',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: kGold,
-                        letterSpacing: 1.8,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 5),
-
-                // Title
-                Text(
-                  'Registrations',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: t.text,
-                    height: 1.1,
-                  ),
-                ),
-                const SizedBox(height: 7),
-
-                // Gold accent underline
-                Container(
-                  width: 38,
-                  height: 3,
-                  decoration: BoxDecoration(
-                    gradient: kGoldGradient,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ],
+          // Title
+          Text(
+            'Registrations',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              color: t.text,
+              height: 1.1,
             ),
           ),
+          const SizedBox(height: 7),
 
-          // Decorative icon badge
+          // Gold accent underline
           Container(
-            width: 54,
-            height: 54,
+            width: 38,
+            height: 3,
             decoration: BoxDecoration(
               gradient: kGoldGradient,
-              borderRadius: BorderRadius.circular(17),
-              boxShadow: [
-                BoxShadow(
-                  color: kGold.withValues(alpha: 0.32),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.how_to_reg_rounded,
-              color: Colors.white,
-              size: 26,
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
         ],
@@ -500,81 +433,6 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // ── Summary strip ─────────────────────────────────────────────────────────
-
-  Widget _buildSummaryStrip(AppTk t) {
-    final tiles = [
-      (
-        value: '$_total',
-        label: 'Total',
-        icon: Icons.how_to_reg_rounded,
-        color: kGold
-      ),
-      (
-        value: '$_pendingCount',
-        label: 'Pending',
-        icon: Icons.pending_actions_rounded,
-        color: const Color(0xFFE87A00)
-      ),
-      (
-        value: '$_photoCount',
-        label: 'Selfies',
-        icon: Icons.photo_camera_rounded,
-        color: const Color(0xFF0891B2)
-      ),
-      (
-        value: '$_checkedInCount',
-        label: 'Done',
-        icon: Icons.check_circle_rounded,
-        color: const Color(0xFF16A34A)
-      ),
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      child: Row(
-        children: tiles.asMap().entries.map((entry) {
-          final i    = entry.key;
-          final tile = entry.value;
-          return Expanded(
-            child: Container(
-              margin: EdgeInsets.only(left: i == 0 ? 0 : 8),
-              padding:
-                  const EdgeInsets.symmetric(vertical: 13, horizontal: 6),
-              decoration: BoxDecoration(
-                color: tile.color.withValues(alpha: 0.07),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                    color: tile.color.withValues(alpha: 0.2), width: 1.5),
-              ),
-              child: Column(
-                children: [
-                  Icon(tile.icon, color: tile.color, size: 18),
-                  const SizedBox(height: 5),
-                  Text(
-                    tile.value,
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      color: tile.color,
-                      height: 1.1,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    tile.label,
-                    style: TextStyle(
-                        fontFamily: 'Poppins', fontSize: 9, color: t.muted),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
 
   // ── Scan QR CTA card ──────────────────────────────────────────────────────
 

@@ -7,6 +7,7 @@ import '../../../models/event_registration.dart';
 import '../../../shared/widgets/qr_code_dialog.dart';
 import '../../../core/services/registration_service.dart';
 import '../../../core/app_colors.dart';
+import '../check_in/selfie_screen.dart';
 
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -499,6 +500,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     final statusLabel = eventStatusLabel(reg['events'] as Map<String, dynamic>? ?? {});
     final checkedIn   = _isCheckedIn(reg);
     final isPending   = (reg['status'] as String? ?? '') == 'pending';
+    final needsPhoto  = (reg['status'] as String? ?? '') == 'photo_required';
     final location    = ev?['location'] as String? ?? '—';
     final sc          = eventStatusColor(statusLabel);
 
@@ -609,7 +611,9 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
                       ],
                     ),
                   )
-                : Container(
+                : needsPhoto
+                    ? _buildUploadPhotoButton(reg)
+                    : Container(
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
@@ -685,6 +689,97 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
                   ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ── Persistent "Upload Attendance Photo" CTA ─────────────────────────────────
+  //
+  // Shown whenever a registration's status is 'photo_required' — i.e. the
+  // organizer has confirmed attendance and requested proof. This card lives
+  // in the ticket itself (not a one-shot popup), so backing out of the
+  // camera screen or closing the app never strands the student: it's still
+  // here next time they open this list, no organizer re-scan needed.
+  Widget _buildUploadPhotoButton(Map<String, dynamic> reg) {
+    final regId = reg['id'] as String;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF9333EA).withValues(alpha: 0.34),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Material(
+          color: Colors.transparent,
+          child: Ink(
+            height: 54,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF7E22CE), Color(0xFF9333EA)],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+            ),
+            child: InkWell(
+              onTap: () {
+                HapticFeedback.lightImpact();
+                _openSelfieScreen(regId);
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 34, height: 34,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.camera_alt_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 13),
+                    const Expanded(
+                      child: Text(
+                        'Upload Attendance Photo',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      color: Colors.white.withValues(alpha: 0.65),
+                      size: 14,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openSelfieScreen(String registrationId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SelfieScreen(registrationId: registrationId),
+        fullscreenDialog: true,
       ),
     );
   }

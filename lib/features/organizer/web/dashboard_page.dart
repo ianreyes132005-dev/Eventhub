@@ -250,18 +250,19 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: kGold));
     }
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(kWebPad),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _stagger(_buildPageHeader(),     start: 0.00, end: 0.40),
+          _stagger(_buildPageHeader(t),     start: 0.00, end: 0.40),
           const SizedBox(height: 24),
-          _buildStatRow(),   // individual card stagger handled inside
+          _buildStatRow(t),   // individual card stagger handled inside
           const SizedBox(height: 28),
-          _stagger(_buildAnalyticsLabel(), start: 0.36, end: 0.76),
+          _stagger(_buildAnalyticsLabel(t), start: 0.36, end: 0.76),
           const SizedBox(height: 16),
-          _stagger(_buildContentGrid(),    start: 0.46, end: 0.90),
+          _stagger(_buildContentGrid(t),    start: 0.46, end: 0.90),
           const SizedBox(height: 24),
         ],
       ),
@@ -269,17 +270,17 @@ class _WebDashboardPageState extends State<WebDashboardPage>
   }
 
   // ── Page header ───────────────────────────────────────────────────────────
-  Widget _buildPageHeader() {
+  Widget _buildPageHeader(WebTk t) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        const Text(
+        Text(
           'Dashboard',
           style: TextStyle(
             fontFamily: 'Poppins',
             fontSize: 20,
             fontWeight: FontWeight.w800,
-            color: kText,
+            color: t.text,
             height: 1.1,
           ),
         ),
@@ -288,7 +289,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
   }
 
   // ── Stat cards ───────────────────────────────────────────────────────────
-  Widget _buildStatRow() {
+  Widget _buildStatRow(WebTk t) {
     final todayCount = _weeklyRegs[DateTime.now().weekday - 1];
 
     // Attendance rate is computed from past/completed events only.
@@ -299,7 +300,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
         ? (_pastCheckedIn / _pastEventRegs * 100).round()
         : 0;
     final rateColor   = !hasPastData
-        ? kMuted
+        ? t.muted
         : rate >= 70
             ? const Color(0xFF10B981)
             : rate >= 40 ? kGold : const Color(0xFFEF4444);
@@ -357,7 +358,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
   }
 
   // ── Analytics section label ───────────────────────────────────────────────
-  Widget _buildAnalyticsLabel() {
+  Widget _buildAnalyticsLabel(WebTk t) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -369,11 +370,11 @@ class _WebDashboardPageState extends State<WebDashboardPage>
           ),
         ),
         const SizedBox(width: 10),
-        const Text(
+        Text(
           'Analytics',
           style: TextStyle(
             fontFamily: 'Poppins', fontSize: 16,
-            fontWeight: FontWeight.w800, color: kText, height: 1.1,
+            fontWeight: FontWeight.w800, color: t.text, height: 1.1,
           ),
         ),
         const SizedBox(width: 10),
@@ -404,7 +405,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
   }
 
   // ── Content grid ──────────────────────────────────────────────────────────
-  Widget _buildContentGrid() => LayoutBuilder(builder: (_, c) {
+  Widget _buildContentGrid(WebTk t) => LayoutBuilder(builder: (_, c) {
     final wide = c.maxWidth > 760;
     if (wide) {
       return Row(
@@ -414,9 +415,9 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             flex: 5,
             child: Column(
               children: [
-                _buildWeeklyRegsCard(),
+                _buildWeeklyRegsCard(t),
                 const SizedBox(height: 16),
-                _buildRecentRegs(),
+                _buildRecentRegs(t),
               ],
             ),
           ),
@@ -425,7 +426,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             flex: 4,
             child: Column(
               children: [
-                _buildEventAttendanceCard(),
+                _buildEventAttendanceCard(t),
                 const SizedBox(height: 16),
                 _buildUpcomingCard(),
               ],
@@ -436,11 +437,11 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     }
     return Column(
       children: [
-        _buildWeeklyRegsCard(),
+        _buildWeeklyRegsCard(t),
         const SizedBox(height: 16),
-        _buildEventAttendanceCard(),
+        _buildEventAttendanceCard(t),
         const SizedBox(height: 16),
-        _buildRecentRegs(),
+        _buildRecentRegs(t),
         const SizedBox(height: 16),
         _buildUpcomingCard(),
       ],
@@ -467,7 +468,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     ),
   );
 
-  Widget _buildRecentRegs() => WebCard(
+  Widget _buildRecentRegs(WebTk t) => WebCard(
     padding: const EdgeInsets.all(20),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -487,7 +488,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             return Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (entry.key > 0) Divider(color: kCardBorder, height: 1),
+                if (entry.key > 0) Divider(color: t.border, height: 1),
                 _RegRow(reg: r),
               ],
             );
@@ -498,7 +499,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
 
   // ── Weekly Registrations card (white + purple) ────────────────────────────
 
-  Widget _buildWeeklyRegsCard() {
+  Widget _buildWeeklyRegsCard(WebTk t) {
     const purple = Color(0xFF7C3AED);
     const indigo = Color(0xFF4F46E5);
     const green  = Color(0xFF059669);
@@ -536,14 +537,14 @@ class _WebDashboardPageState extends State<WebDashboardPage>
               child: const Icon(Icons.how_to_reg_rounded, color: purple, size: 20),
             ),
             const SizedBox(width: 12),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Weekly Registrations',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: kText)),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: t.text)),
                   Text('Sign-up activity · this week',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub)),
                 ],
               ),
             ),
@@ -552,15 +553,16 @@ class _WebDashboardPageState extends State<WebDashboardPage>
           const SizedBox(height: 18),
 
           Row(children: [
-            _analyticsKpiChip(value: '$totalWeek', label: 'This Week', icon: Icons.how_to_reg_rounded, color: purple),
+            _analyticsKpiChip(t: t, value: '$totalWeek', label: 'This Week', icon: Icons.how_to_reg_rounded, color: purple),
             const SizedBox(width: 10),
             _analyticsKpiChip(
+              t: t,
               value: peakLabel != null ? '$peakVal' : '—',
               label: peakLabel != null ? 'Peak · $peakLabel' : 'Peak Day',
               icon: Icons.trending_up_rounded, color: indigo,
             ),
             const SizedBox(width: 10),
-            _analyticsKpiChip(value: '$todayCount', label: 'Today', icon: Icons.today_rounded, color: green),
+            _analyticsKpiChip(t: t, value: '$todayCount', label: 'Today', icon: Icons.today_rounded, color: green),
           ]),
 
           if (totalWeek > 0) ...[
@@ -568,8 +570,8 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Daily average this week',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w500, color: kSubText)),
+                Text('Daily average this week',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w500, color: t.sub)),
                 Text('$avgStr / day',
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: purple)),
               ],
@@ -583,7 +585,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                 curve: Curves.easeOut,
                 builder: (_, v, _) => LinearProgressIndicator(
                   value: v, minHeight: 6,
-                  backgroundColor: const Color(0xFFF1F0FF),
+                  backgroundColor: purple.withValues(alpha: 0.10),
                   valueColor: const AlwaysStoppedAnimation<Color>(purple),
                 ),
               ),
@@ -591,16 +593,16 @@ class _WebDashboardPageState extends State<WebDashboardPage>
           ],
 
           const SizedBox(height: 18),
-          SizedBox(height: 200, child: _buildWeeklyBarChart()),
+          SizedBox(height: 200, child: _buildWeeklyBarChart(t)),
 
           if (_weeklyRegs.any((v) => v > 0)) ...[
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _analyticsLegendItem(color: purple, label: 'Registrations'),
+                _analyticsLegendItem(t: t, color: purple, label: 'Registrations'),
                 const SizedBox(width: 20),
-                _analyticsLegendItem(color: kGold, label: 'Today'),
+                _analyticsLegendItem(t: t, color: kGold, label: 'Today'),
               ],
             ),
           ],
@@ -609,7 +611,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     );
   }
 
-  Widget _buildWeeklyBarChart() {
+  Widget _buildWeeklyBarChart(WebTk t) {
     const purple = Color(0xFF7C3AED);
 
     if (_weeklyRegs.every((v) => v == 0)) {
@@ -622,11 +624,11 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             child: const Icon(Icons.bar_chart_rounded, size: 30, color: purple),
           ),
           const SizedBox(height: 14),
-          const Text('No registrations this week',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: kText)),
+          Text('No registrations this week',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
           const SizedBox(height: 4),
-          const Text('Appears once students sign up',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
+          Text('Appears once students sign up',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub)),
         ]),
       );
     }
@@ -687,7 +689,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                     Text(_weekDayLabels[i], style: TextStyle(
                       fontFamily: 'Poppins', fontSize: 10,
                       fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
-                      color: isToday ? kGold : kSubText,
+                      color: isToday ? kGold : t.sub,
                     )),
                   ]),
                 );
@@ -703,7 +705,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                 return SideTitleWidget(
                   meta: meta,
                   child: Text(value.toInt().toString(),
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 9, color: kMuted)),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 9, color: t.muted)),
                 );
               },
             ),
@@ -750,7 +752,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
 
   // ── Event Attendance card (white + blue) ──────────────────────────────────
 
-  Widget _buildEventAttendanceCard() {
+  Widget _buildEventAttendanceCard(WebTk t) {
     const blue = Color(0xFF2563EB);
 
     final totalCheckedIn       = _eventAttendance.fold<int>(0, (s, e) => s + (e['checkedIn']       as int));
@@ -781,14 +783,14 @@ class _WebDashboardPageState extends State<WebDashboardPage>
               child: const Icon(Icons.people_alt_rounded, color: blue, size: 20),
             ),
             const SizedBox(width: 12),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Event Attendance',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: kText)),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: t.text)),
                   Text('Check-in data · last 5 past events',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub)),
                 ],
               ),
             ),
@@ -797,9 +799,9 @@ class _WebDashboardPageState extends State<WebDashboardPage>
           const SizedBox(height: 18),
 
           Row(children: [
-            _analyticsKpiChip(value: '$totalCheckedIn', label: 'Checked In', icon: Icons.check_circle_rounded, color: blue),
+            _analyticsKpiChip(t: t, value: '$totalCheckedIn', label: 'Checked In', icon: Icons.check_circle_rounded, color: blue),
             const SizedBox(width: 10),
-            _analyticsKpiChip(value: '$rate%', label: 'Avg Rate', icon: Icons.trending_up_rounded, color: rateColor),
+            _analyticsKpiChip(t: t, value: '$rate%', label: 'Avg Rate', icon: Icons.trending_up_rounded, color: rateColor),
           ]),
 
           if (_eventAttendance.isNotEmpty) ...[
@@ -807,8 +809,8 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Overall capacity filled',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w500, color: kSubText)),
+                Text('Overall capacity filled',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w500, color: t.sub)),
                 Text('$rate%',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: rateColor)),
               ],
@@ -824,7 +826,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                 curve: Curves.easeOut,
                 builder: (_, v, _) => LinearProgressIndicator(
                   value: v, minHeight: 6,
-                  backgroundColor: Colors.grey.shade100,
+                  backgroundColor: t.divider,
                   valueColor: AlwaysStoppedAnimation<Color>(rateColor),
                 ),
               ),
@@ -832,13 +834,13 @@ class _WebDashboardPageState extends State<WebDashboardPage>
           ],
 
           const SizedBox(height: 18),
-          _buildAttendanceBreakdown(),
+          _buildAttendanceBreakdown(t),
         ],
       ),
     );
   }
 
-  Widget _buildAttendanceBreakdown() {
+  Widget _buildAttendanceBreakdown(WebTk t) {
     const green = Color(0xFF16A34A);
     const red   = Color(0xFFDC2626);
 
@@ -856,12 +858,12 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                 child: const Icon(Icons.people_alt_rounded, size: 30, color: Color(0xFF2563EB)),
               ),
               const SizedBox(height: 14),
-              const Text('No attendance data yet',
+              Text('No attendance data yet',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                  fontWeight: FontWeight.w600, color: kText)),
+                  fontWeight: FontWeight.w600, color: t.text)),
               const SizedBox(height: 4),
-              const Text('Appears after your first check-in',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
+              Text('Appears after your first check-in',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub)),
             ]),
           ),
           const SizedBox(height: 16),
@@ -905,12 +907,12 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(title,
-                          style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 12, fontWeight: FontWeight.w600, color: kText),
+                          style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 12, fontWeight: FontWeight.w600, color: t.text),
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                         Text(dateLabel,
-                          style: const TextStyle(fontFamily: 'Poppins',
-                            fontSize: 10, color: kMuted)),
+                          style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 10, color: t.muted)),
                       ],
                     ),
                   ),
@@ -934,8 +936,8 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                         maxParticipants > 0
                             ? '$checkedIn / $maxParticipants'
                             : '$checkedIn',
-                        style: const TextStyle(fontFamily: 'Poppins',
-                          fontSize: 10, fontWeight: FontWeight.w500, color: kMuted)),
+                        style: TextStyle(fontFamily: 'Poppins',
+                          fontSize: 10, fontWeight: FontWeight.w500, color: t.muted)),
                     ],
                   ),
                 ],
@@ -965,6 +967,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
   // ── Shared analytics helpers ──────────────────────────────────────────────
 
   Widget _analyticsKpiChip({
+    required WebTk     t,
     required String   value,
     required String   label,
     required IconData icon,
@@ -988,7 +991,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                 fontWeight: FontWeight.w800, color: color, height: 1.0)),
             const SizedBox(height: 4),
             Text(label,
-              style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kMuted),
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
               maxLines: 1, overflow: TextOverflow.ellipsis),
           ],
         ),
@@ -996,7 +999,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     );
   }
 
-  Widget _analyticsLegendItem({required Color color, required String label}) {
+  Widget _analyticsLegendItem({required WebTk t, required Color color, required String label}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1005,7 +1008,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
           decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3)),
         ),
         const SizedBox(width: 6),
-        Text(label, style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kMuted)),
+        Text(label, style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
       ],
     );
   }
@@ -1036,6 +1039,7 @@ class _DashStatCardState extends State<_DashStatCard> {
   @override
   Widget build(BuildContext context) {
     final c = widget.accentColor;
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return MouseRegion(
       cursor:  SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -1049,7 +1053,7 @@ class _DashStatCardState extends State<_DashStatCard> {
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-              color:      _hovered ? c.withValues(alpha: 0.14) : Colors.black.withValues(alpha: 0.05),
+              color:      _hovered ? c.withValues(alpha: 0.14) : t.shadow,
               blurRadius: _hovered ? 24 : 10,
               offset:     Offset(0, _hovered ? 10 : 2),
             ),
@@ -1066,11 +1070,11 @@ class _DashStatCardState extends State<_DashStatCard> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: t.card,
                       border: Border(
-                        top:    BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : kCardBorder, width: 1.5),
-                        right:  BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : kCardBorder, width: 1.5),
-                        bottom: BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : kCardBorder, width: 1.5),
+                        top:    BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : t.border, width: 1.5),
+                        right:  BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : t.border, width: 1.5),
+                        bottom: BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : t.border, width: 1.5),
                       ),
                     ),
                     child: Row(
@@ -1088,7 +1092,7 @@ class _DashStatCardState extends State<_DashStatCard> {
                                   fontFamily:    'Poppins',
                                   fontSize:      28,
                                   fontWeight:    FontWeight.w800,
-                                  color:         _hovered ? c : kText,
+                                  color:         _hovered ? c : t.text,
                                   height:        1.0,
                                   letterSpacing: -0.5,
                                 ),
@@ -1096,11 +1100,11 @@ class _DashStatCardState extends State<_DashStatCard> {
                               const SizedBox(height: 6),
                               Text(
                                 widget.label,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize:   12.5,
                                   fontWeight: FontWeight.w500,
-                                  color:      kSubText,
+                                  color:      t.sub,
                                 ),
                               ),
                             ],
@@ -1177,6 +1181,7 @@ class _EventListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final dbStatus = event['event_status'] as String?;
     final resolved = _resolveDisplayStatus(event);
     final isEnded  = resolved == 'ended';
@@ -1200,21 +1205,21 @@ class _EventListTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(event['title'] as String? ?? '—',
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                    fontWeight: FontWeight.w600, color: kText),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                    fontWeight: FontWeight.w600, color: t.text),
                   maxLines: 1, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 2),
                 Row(children: [
-                  const Icon(Icons.calendar_today_rounded, size: 11, color: kMuted),
+                  Icon(Icons.calendar_today_rounded, size: 11, color: t.muted),
                   const SizedBox(width: 4),
                   Text(webFmtDate(event['event_date'] as String?),
-                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub)),
                   const SizedBox(width: 8),
-                  const Icon(Icons.location_on_rounded, size: 11, color: kMuted),
+                  Icon(Icons.location_on_rounded, size: 11, color: t.muted),
                   const SizedBox(width: 2),
                   Expanded(
                     child: Text(event['location'] as String? ?? '—',
-                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText),
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub),
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   ),
                 ]),
@@ -1239,6 +1244,7 @@ class _RegRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t           = WebTk(Theme.of(context).brightness == Brightness.dark);
     final status      = reg['status'] as String?;
     final statusColor = webStatusColor(status);
     final name        = reg['student_name'] as String? ?? '—';
@@ -1268,11 +1274,11 @@ class _RegRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(name,
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
-                    fontWeight: FontWeight.w600, color: kText),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
+                    fontWeight: FontWeight.w600, color: t.text),
                   maxLines: 1, overflow: TextOverflow.ellipsis),
                 Text(reg['event_title'] as String? ?? '—',
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub),
                   maxLines: 1, overflow: TextOverflow.ellipsis),
               ],
             ),
@@ -1283,7 +1289,7 @@ class _RegRow extends StatelessWidget {
               WebStatusBadge(label: webStatusLabel(status), color: statusColor),
               const SizedBox(height: 3),
               Text(webTimeAgo(reg['registered_at'] as String?),
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, color: kMuted)),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
             ],
           ),
         ],

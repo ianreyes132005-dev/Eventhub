@@ -2,14 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/chat_service.dart';
-
-// ── Mobile-matched palette ─────────────────────────────────────────────────────
-const Color _kBg      = Color(0xFFF7F3EC);
-const Color _kText    = Color(0xFF1A1A1A);
-const Color _kSub     = Color(0xFF6B7280);
-const Color _kMuted   = Color(0xFFB0B7C3);
-const Color _kCard    = Color(0xFFFFFFFF);
-const Color _kSurface = Color(0xFFF1EDE6);
+import 'web_layout.dart' show WebTk;
 
 // ── Suggestion model ──────────────────────────────────────────────────────────
 class _SuggestionItem {
@@ -269,7 +262,9 @@ class _ChatPanel extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Material(
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return Material(
     elevation: 0,
     borderRadius: BorderRadius.circular(20),
     clipBehavior: Clip.antiAlias,
@@ -277,12 +272,12 @@ class _ChatPanel extends StatelessWidget {
       width: 364,
       height: 540,
       decoration: BoxDecoration(
-        color: _kBg,
+        color: t.bg,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: t.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.13),
+            color: Colors.black.withValues(alpha: t.dark ? 0.40 : 0.13),
             blurRadius: 30,
             offset: const Offset(0, 8),
           ),
@@ -290,23 +285,24 @@ class _ChatPanel extends StatelessWidget {
       ),
       child: Column(
         children: [
-          _buildHeader(),
-          Expanded(child: _buildBody()),
-          _buildInput(),
+          _buildHeader(t),
+          Expanded(child: _buildBody(t)),
+          _buildInput(t),
         ],
       ),
     ),
-  );
+    );
+  }
 
   // ── Header ─────────────────────────────────────────────────────────────────
 
-  Widget _buildHeader() => Container(
+  Widget _buildHeader(WebTk t) => Container(
     padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
     decoration: BoxDecoration(
-      color: _kCard,
+      color: t.card,
       boxShadow: [
         BoxShadow(
-          color: Colors.black.withValues(alpha: 0.06),
+          color: t.shadow,
           blurRadius: 10,
           offset: const Offset(0, 2),
         ),
@@ -320,13 +316,13 @@ class _ChatPanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'EventHub AI',
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 13.5,
                   fontWeight: FontWeight.w700,
-                  color: _kText,
+                  color: t.text,
                 ),
               ),
               AnimatedSwitcher(
@@ -351,14 +347,14 @@ class _ChatPanel extends StatelessWidget {
                           ),
                         ],
                       )
-                    : const Text(
+                    : Text(
                         'Groq AI',
-                        key: ValueKey('groq'),
+                        key: const ValueKey('groq'),
                         style: TextStyle(
                           fontFamily: 'Poppins',
                           fontSize: 10,
                           fontWeight: FontWeight.w500,
-                          color: _kMuted,
+                          color: t.muted,
                         ),
                       ),
               ),
@@ -393,10 +389,10 @@ class _ChatPanel extends StatelessWidget {
             child: Container(
               width: 34, height: 34,
               decoration: BoxDecoration(
-                color: Colors.grey.shade100,
+                color: t.divider,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(Icons.close_rounded, color: _kSub, size: 16),
+              child: Icon(Icons.close_rounded, color: t.sub, size: 16),
             ),
           ),
         ),
@@ -406,7 +402,7 @@ class _ChatPanel extends StatelessWidget {
 
   // ── Body (messages / welcome / loading / error) ───────────────────────────
 
-  Widget _buildBody() {
+  Widget _buildBody(WebTk t) {
     if (loading) {
       return Center(
         child: Column(
@@ -419,9 +415,9 @@ class _ChatPanel extends StatelessWidget {
               child: CircularProgressIndicator(color: kGold, strokeWidth: 2),
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'Starting chat…',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: _kMuted),
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted),
             ),
           ],
         ),
@@ -445,20 +441,20 @@ class _ChatPanel extends StatelessWidget {
                     color: Color(0xFFEF4444), size: 26),
               ),
               const SizedBox(height: 14),
-              const Text(
+              Text(
                 'Could not connect',
                 style: TextStyle(
                   fontFamily: 'Poppins', fontSize: 13,
-                  fontWeight: FontWeight.w600, color: _kText,
+                  fontWeight: FontWeight.w600, color: t.text,
                 ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 6),
-              const Text(
+              Text(
                 'Check your connection and try again.',
                 style: TextStyle(
                   fontFamily: 'Poppins', fontSize: 11.5,
-                  color: _kSub, height: 1.5,
+                  color: t.sub, height: 1.5,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -480,7 +476,7 @@ class _ChatPanel extends StatelessWidget {
       );
     }
 
-    if (history.isEmpty) return _buildWelcome();
+    if (history.isEmpty) return _buildWelcome(t);
 
     return ListView.builder(
       controller: scroll,
@@ -495,7 +491,7 @@ class _ChatPanel extends StatelessWidget {
 
   // ── Welcome / empty state with suggestions ────────────────────────────────
 
-  Widget _buildWelcome() => SingleChildScrollView(
+  Widget _buildWelcome(WebTk t) => SingleChildScrollView(
     padding: const EdgeInsets.fromLTRB(16, 22, 16, 16),
     child: Column(
       children: [
@@ -503,13 +499,13 @@ class _ChatPanel extends StatelessWidget {
         const _AiBotLogo(size: 60),
         const SizedBox(height: 14),
         // Title
-        const Text(
+        Text(
           'EventHub AI',
           style: TextStyle(
             fontFamily: 'Poppins',
             fontSize: 18,
             fontWeight: FontWeight.w800,
-            color: _kText,
+            color: t.text,
           ),
           textAlign: TextAlign.center,
         ),
@@ -532,13 +528,13 @@ class _ChatPanel extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        const Text(
+        Text(
           'Ask me anything about managing your events,\nQR scanning, or organizer tools.',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontFamily: 'Poppins',
             fontSize: 11.5,
-            color: _kSub,
+            color: t.sub,
             height: 1.6,
           ),
         ),
@@ -546,7 +542,7 @@ class _ChatPanel extends StatelessWidget {
         // Section divider label
         Row(
           children: [
-            Expanded(child: Divider(color: Colors.grey.shade200, height: 1)),
+            Expanded(child: Divider(color: t.border, height: 1)),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Text(
@@ -556,11 +552,11 @@ class _ChatPanel extends StatelessWidget {
                   fontSize: 9,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.4,
-                  color: _kMuted,
+                  color: t.muted,
                 ),
               ),
             ),
-            Expanded(child: Divider(color: Colors.grey.shade200, height: 1)),
+            Expanded(child: Divider(color: t.border, height: 1)),
           ],
         ),
         const SizedBox(height: 12),
@@ -575,13 +571,13 @@ class _ChatPanel extends StatelessWidget {
 
   // ── Input bar ─────────────────────────────────────────────────────────────
 
-  Widget _buildInput() => Container(
+  Widget _buildInput(WebTk t) => Container(
     padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
     decoration: BoxDecoration(
-      color: _kCard,
+      color: t.card,
       boxShadow: [
         BoxShadow(
-          color: Colors.black.withValues(alpha: 0.06),
+          color: t.shadow,
           blurRadius: 10,
           offset: const Offset(0, -2),
         ),
@@ -594,22 +590,22 @@ class _ChatPanel extends StatelessWidget {
           child: Container(
             constraints: const BoxConstraints(maxHeight: 100),
             decoration: BoxDecoration(
-              color: _kSurface,
+              color: t.inputBg,
               borderRadius: BorderRadius.circular(22),
             ),
             child: TextField(
               controller: msgCtrl,
               onSubmitted: (_) => onSend(),
               maxLines: null,
-              style: const TextStyle(
-                fontFamily: 'Poppins', fontSize: 12.5, color: _kText,
+              style: TextStyle(
+                fontFamily: 'Poppins', fontSize: 12.5, color: t.text,
               ),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: 'Ask EventHub AI…',
                 hintStyle: TextStyle(
-                  fontFamily: 'Poppins', fontSize: 12.5, color: _kMuted,
+                  fontFamily: 'Poppins', fontSize: 12.5, color: t.muted,
                 ),
-                contentPadding: EdgeInsets.fromLTRB(16, 11, 12, 11),
+                contentPadding: const EdgeInsets.fromLTRB(16, 11, 12, 11),
                 border:        InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
@@ -639,7 +635,9 @@ class _SuggestionRowState extends State<_SuggestionRow> {
   bool _h = false;
 
   @override
-  Widget build(BuildContext context) => Padding(
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return Padding(
     padding: const EdgeInsets.only(bottom: 8),
     child: MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -651,16 +649,17 @@ class _SuggestionRowState extends State<_SuggestionRow> {
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
           decoration: BoxDecoration(
-            color: _h ? kGold.withValues(alpha: 0.04) : _kCard,
+            color: _h ? kGold.withValues(alpha: 0.04) : t.card,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: _h
                   ? kGold.withValues(alpha: 0.22)
-                  : Colors.grey.shade100,
+                  : t.border,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: _h ? 0.02 : 0.04),
+                color: Colors.black.withValues(
+                    alpha: t.dark ? (_h ? 0.15 : 0.30) : (_h ? 0.02 : 0.04)),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -680,22 +679,23 @@ class _SuggestionRowState extends State<_SuggestionRow> {
               Expanded(
                 child: Text(
                   widget.item.text,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: _kText,
+                    color: t.text,
                   ),
                 ),
               ),
               Icon(Icons.arrow_forward_ios_rounded,
-                  size: 11, color: Colors.grey.shade400),
+                  size: 11, color: t.muted),
             ],
           ),
         ),
       ),
     ),
-  );
+    );
+  }
 }
 
 // ── Message bubble ────────────────────────────────────────────────────────────
@@ -706,6 +706,7 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t      = WebTk(Theme.of(context).brightness == Brightness.dark);
     final isUser = msg.role == 'user';
     final isErr  = msg.isError;
 
@@ -729,7 +730,7 @@ class _MessageBubble extends StatelessWidget {
                     ? null
                     : isErr
                         ? const Color(0xFFFFF5F5)
-                        : _kCard,
+                        : t.card,
                 borderRadius: BorderRadius.only(
                   topLeft:     const Radius.circular(18),
                   topRight:    const Radius.circular(18),
@@ -739,7 +740,7 @@ class _MessageBubble extends StatelessWidget {
                 border: isErr
                     ? Border.all(color: const Color(0xFFFECACA))
                     : !isUser
-                        ? Border.all(color: Colors.grey.shade100)
+                        ? Border.all(color: t.border)
                         : null,
                 boxShadow: isUser
                     ? [
@@ -751,8 +752,9 @@ class _MessageBubble extends StatelessWidget {
                       ]
                     : [
                         BoxShadow(
-                          color: Colors.black.withValues(
-                              alpha: isErr ? 0.04 : 0.06),
+                          color: isErr
+                              ? Colors.black.withValues(alpha: 0.04)
+                              : t.shadow,
                           blurRadius: 10,
                           offset: const Offset(0, 2),
                         ),
@@ -767,7 +769,7 @@ class _MessageBubble extends StatelessWidget {
                       ? Colors.white
                       : isErr
                           ? const Color(0xFFDC2626)
-                          : _kText,
+                          : t.text,
                   height: 1.5,
                 ),
               ),
@@ -786,7 +788,9 @@ class _TypingBubble extends StatelessWidget {
   const _TypingBubble();
 
   @override
-  Widget build(BuildContext context) => Padding(
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return Padding(
     padding: const EdgeInsets.only(bottom: 10),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -796,17 +800,17 @@ class _TypingBubble extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: _kCard,
+            color: t.card,
             borderRadius: const BorderRadius.only(
               topLeft:     Radius.circular(4),
               topRight:    Radius.circular(18),
               bottomRight: Radius.circular(18),
               bottomLeft:  Radius.circular(18),
             ),
-            border: Border.all(color: Colors.grey.shade100),
+            border: Border.all(color: t.border),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.06),
+                color: t.shadow,
                 blurRadius: 10,
                 offset: const Offset(0, 2),
               ),
@@ -825,7 +829,8 @@ class _TypingBubble extends StatelessWidget {
         ),
       ],
     ),
-  );
+    );
+  }
 }
 
 class _Dot extends StatefulWidget {

@@ -163,6 +163,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
 
   @override
   Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: kGold));
     }
@@ -173,21 +174,21 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _stagger(_buildPageHeader(), start: 0.00, end: 0.38),
+            _stagger(_buildPageHeader(t), start: 0.00, end: 0.38),
             const SizedBox(height: 24),
             if (wide)
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(width: 340, child: _stagger(_buildForm(), start: 0.18, end: 0.58)),
+                  SizedBox(width: 340, child: _stagger(_buildForm(t), start: 0.18, end: 0.58)),
                   const SizedBox(width: 20),
-                  Expanded(child: _buildList()),
+                  Expanded(child: _buildList(t)),
                 ],
               )
             else ...[
-              _stagger(_buildForm(), start: 0.18, end: 0.58),
+              _stagger(_buildForm(t), start: 0.18, end: 0.58),
               const SizedBox(height: 20),
-              _buildList(),
+              _buildList(t),
             ],
           ],
         );
@@ -197,25 +198,25 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
 
   // ── Page header ───────────────────────────────────────────────────────────────
 
-  Widget _buildPageHeader() {
+  Widget _buildPageHeader(WebTk t) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
+          children: [
             Text('Announcements',
               style: TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 20,
                 fontWeight: FontWeight.w800,
-                color: kText,
+                color: t.text,
                 height: 1.1,
               )),
-            SizedBox(height: 3),
+            const SizedBox(height: 3),
             Text('Broadcast messages to all registered students',
               style: TextStyle(
-                fontFamily: 'Poppins', fontSize: 12, color: kSubText,
+                fontFamily: 'Poppins', fontSize: 12, color: t.sub,
               )),
           ],
         ),
@@ -235,10 +236,10 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
                 fontWeight: FontWeight.w800, color: kGold,
               )),
             const SizedBox(width: 6),
-            const Text('Posted',
+            Text('Posted',
               style: TextStyle(
                 fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w500, color: kSubText,
+                fontWeight: FontWeight.w500, color: t.sub,
               )),
           ]),
         ),
@@ -248,7 +249,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
 
   // ── Compose form ──────────────────────────────────────────────────────────────
 
-  Widget _buildForm() => WebCard(
+  Widget _buildForm(WebTk t) => WebCard(
     padding: const EdgeInsets.all(22),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -265,19 +266,19 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
             child: const Icon(Icons.campaign_rounded, color: Colors.white, size: 21),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('New Announcement',
                   style: TextStyle(
                     fontFamily: 'Poppins', fontSize: 15,
-                    fontWeight: FontWeight.w800, color: kText,
+                    fontWeight: FontWeight.w800, color: t.text,
                   )),
-                SizedBox(height: 3),
+                const SizedBox(height: 3),
                 Text('Visible to all students',
                   style: TextStyle(
-                    fontFamily: 'Poppins', fontSize: 11, color: kSubText,
+                    fontFamily: 'Poppins', fontSize: 11, color: t.sub,
                   )),
               ],
             ),
@@ -303,18 +304,18 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
         ]),
 
         const SizedBox(height: 20),
-        const Divider(color: kCardBorder),
+        Divider(color: t.border),
         const SizedBox(height: 18),
 
         // Title field
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _FieldLabel('Announcement Title'),
+            const _FieldLabel('Announcement Title'),
             Text('$_titleLen / 100',
               style: TextStyle(
                 fontFamily: 'Poppins', fontSize: 11,
-                color: _titleLen >= 90 ? const Color(0xFFEF4444) : kMuted,
+                color: _titleLen >= 90 ? const Color(0xFFEF4444) : t.muted,
                 fontWeight: _titleLen >= 90
                     ? FontWeight.w600 : FontWeight.w400,
               )),
@@ -326,9 +327,9 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
           maxLength: 100,
           buildCounter: (_, {required currentLength,
                               required isFocused, maxLength}) => null,
-          style: const TextStyle(
-            fontFamily: 'Poppins', fontSize: 13.5, color: kText),
-          decoration: webInputDeco('e.g. Event Schedule Update'),
+          style: TextStyle(
+            fontFamily: 'Poppins', fontSize: 13.5, color: t.text),
+          decoration: webInputDeco('e.g. Event Schedule Update', dark: t.dark),
           onSubmitted: (_) => _post(),
         ),
         const SizedBox(height: 16),
@@ -337,11 +338,11 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _FieldLabel('Message'),
+            const _FieldLabel('Message'),
             Text('$_msgLen / 1000',
               style: TextStyle(
                 fontFamily: 'Poppins', fontSize: 11,
-                color: _msgLen >= 900 ? const Color(0xFFEF4444) : kMuted,
+                color: _msgLen >= 900 ? const Color(0xFFEF4444) : t.muted,
                 fontWeight: _msgLen >= 900
                     ? FontWeight.w600 : FontWeight.w400,
               )),
@@ -354,9 +355,9 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
           maxLines: 6,
           buildCounter: (_, {required currentLength,
                               required isFocused, maxLength}) => null,
-          style: const TextStyle(
-            fontFamily: 'Poppins', fontSize: 13, color: kText, height: 1.55),
-          decoration: webInputDeco('Write your announcement here…'),
+          style: TextStyle(
+            fontFamily: 'Poppins', fontSize: 13, color: t.text, height: 1.55),
+          decoration: webInputDeco('Write your announcement here…', dark: t.dark),
         ),
 
         // Error
@@ -420,7 +421,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
 
   // ── Posted announcements list ─────────────────────────────────────────────────
 
-  Widget _buildList() => WebCard(
+  Widget _buildList(WebTk t) => WebCard(
     padding: const EdgeInsets.all(22),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -434,10 +435,10 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
               color: kGold, borderRadius: BorderRadius.circular(2)),
           ),
           const SizedBox(width: 10),
-          const Text('Posted Announcements',
+          Text('Posted Announcements',
             style: TextStyle(
               fontFamily: 'Poppins', fontSize: 15,
-              fontWeight: FontWeight.w800, color: kText,
+              fontWeight: FontWeight.w800, color: t.text,
             )),
           const SizedBox(width: 10),
           Container(
@@ -501,6 +502,7 @@ class _AnnouncementCardState extends State<_AnnouncementCard> {
 
   @override
   Widget build(BuildContext context) {
+    final t       = WebTk(Theme.of(context).brightness == Brightness.dark);
     final a       = widget.announcement;
     final title   = a['title']      as String? ?? '—';
     final message = a['message']    as String? ?? '';
@@ -513,18 +515,20 @@ class _AnnouncementCardState extends State<_AnnouncementCard> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         decoration: BoxDecoration(
-          color: _hovered ? const Color(0xFFFFFDF5) : Colors.white,
+          color: _hovered
+            ? (t.dark ? kGold.withValues(alpha: 0.07) : const Color(0xFFFFFDF5))
+            : t.card,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: _hovered
               ? kGold.withValues(alpha: 0.40)
-              : kCardBorder,
+              : t.border,
           ),
           boxShadow: [
             BoxShadow(
               color: _hovered
                 ? kGold.withValues(alpha: 0.10)
-                : Colors.black.withValues(alpha: 0.03),
+                : t.shadow,
               blurRadius: _hovered ? 14 : 4,
               offset: Offset(0, _hovered ? 4 : 1),
             ),
@@ -573,19 +577,19 @@ class _AnnouncementCardState extends State<_AnnouncementCard> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(title,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontFamily: 'Poppins', fontSize: 13.5,
-                                    fontWeight: FontWeight.w700, color: kText,
+                                    fontWeight: FontWeight.w700, color: t.text,
                                   )),
                                 const SizedBox(height: 3),
                                 Row(children: [
-                                  const Icon(Icons.access_time_rounded,
-                                    size: 10, color: kMuted),
+                                  Icon(Icons.access_time_rounded,
+                                    size: 10, color: t.muted),
                                   const SizedBox(width: 3),
                                   Text(webTimeAgo(created),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontFamily: 'Poppins',
-                                      fontSize: 10.5, color: kMuted,
+                                      fontSize: 10.5, color: t.muted,
                                     )),
                                 ]),
                               ],
@@ -597,7 +601,7 @@ class _AnnouncementCardState extends State<_AnnouncementCard> {
                       ),
 
                       const SizedBox(height: 11),
-                      const Divider(height: 1, color: kCardBorder),
+                      Divider(height: 1, color: t.border),
                       const SizedBox(height: 11),
 
                       // Message body with AnimatedSize
@@ -608,10 +612,10 @@ class _AnnouncementCardState extends State<_AnnouncementCard> {
                           isLong && !_expanded
                             ? '${message.substring(0, 180)}…'
                             : message,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'Poppins',
                             fontSize: 12.5,
-                            color: kSubText,
+                            color: t.sub,
                             height: 1.65,
                           ),
                         ),
@@ -705,11 +709,14 @@ class _FieldLabel extends StatelessWidget {
   const _FieldLabel(this.text);
 
   @override
-  Widget build(BuildContext context) => Text(text,
-    style: const TextStyle(
-      fontFamily: 'Poppins',
-      fontSize: 12.5,
-      fontWeight: FontWeight.w700,
-      color: kText,
-    ));
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return Text(text,
+      style: TextStyle(
+        fontFamily: 'Poppins',
+        fontSize: 12.5,
+        fontWeight: FontWeight.w700,
+        color: t.text,
+      ));
+  }
 }

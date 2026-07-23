@@ -48,7 +48,6 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
       (widget.eventData['event_id'] as String?) ??
       (widget.eventData['id']       as String?) ?? '';
   int get _registered  => widget.eventData['registered']          as int? ?? 0;
-  int get _checkedIn   => widget.eventData['checkedIn']           as int? ?? 0;
   int get _capacity    => int.tryParse(_capacityCtrl.text)        ?? 0;
 
   // ── Date / time formatting ─────────────────────────────────────────────────
@@ -239,8 +238,6 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                     child: Column(
                       children: [
-                        _buildStatsRow(t),
-                        const SizedBox(height: 16),
                         _buildEventInfoSection(t),
                         const SizedBox(height: 14),
                         _buildScheduleSection(t),
@@ -361,67 +358,6 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  // ── Stats row ──────────────────────────────────────────────────────────────
-
-  Widget _buildStatsRow(AppTk t) {
-    final cap    = int.tryParse(_capacityCtrl.text) ?? 0;
-    final fillPct = cap > 0 ? ((_registered / cap) * 100).toInt() : 0;
-
-    return Row(
-      children: [
-        _statTile('$_registered', 'Registered', Icons.confirmation_num_outlined, kGold, t),
-        const SizedBox(width: 10),
-        _statTile('$_checkedIn', 'Checked In', Icons.how_to_reg_rounded, const Color(0xFF16A34A), t),
-        const SizedBox(width: 10),
-        _statTile(
-          cap > 0 ? '$fillPct%' : '—',
-          'Attendance',
-          Icons.bar_chart_rounded,
-          const Color(0xFF2563EB),
-          t,
-        ),
-      ],
-    );
-  }
-
-  Widget _statTile(String value, String label, IconData icon, Color color, AppTk t) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 10),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withValues(alpha: 0.18), width: 1.5),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(height: 6),
-            Text(
-              value,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: color,
-                height: 1.1,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 10,
-                color: t.muted,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

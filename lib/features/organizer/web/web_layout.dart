@@ -29,10 +29,33 @@ const kWebLightGold = Color(0xFFD4AA60);
 // ── Navigation enum ───────────────────────────────────────────────────────────
 enum OrganizerPage { dashboard, events, registrations, announcements, settings }
 
+// ── Shared web-dashboard dark/light tokens ─────────────────────────────────────
+// Used by BOTH the organizer and admin web dashboards, so the two render an
+// identical dark theme — a cool graphite "SaaS dashboard" look (in the spirit
+// of Linear/GitHub/Vercel), deliberately different from the warm espresso/gold
+// AppTk dark mode used by the organizer/student MOBILE apps.
+//
+// Usage: `final t = WebTk(Theme.of(context).brightness == Brightness.dark);`
+class WebTk {
+  final bool dark;
+  const WebTk(this.dark);
+
+  Color get bg       => dark ? const Color(0xFF0B0D12) : kWebBg;
+  Color get card     => dark ? const Color(0xFF12151B) : Colors.white;
+  Color get border   => dark ? const Color(0xFF232833) : kCardBorder;
+  Color get text     => dark ? const Color(0xFFE7EAEE) : kText;
+  Color get sub      => dark ? const Color(0xFF9AA3B2) : kSubText;
+  Color get muted    => dark ? const Color(0xFF666E7D) : kMuted;
+  Color get divider  => dark ? const Color(0xFF1B1F27) : kCardBorder;
+  Color get shadow   => dark
+      ? Colors.black.withValues(alpha: 0.55)
+      : Colors.black.withValues(alpha: 0.055);
+  Color get inputBg  => dark ? const Color(0xFF0E1116) : Colors.white;
+}
+
 // ── Web input decoration helper ───────────────────────────────────────────────
-// `dark` defaults to false — organizer web never enables dark mode, so its
-// call sites are unaffected. Only the admin dashboard passes `dark: true`
-// when its own theme is dark, using the same graphite palette as AdminTk.
+// `dark` defaults to false. Both organizer and admin dashboards pass
+// `dark: t.dark` explicitly when their own WebTk instance is dark.
 InputDecoration webInputDeco(String hint, {IconData? icon, int? maxLines, bool dark = false}) =>
   InputDecoration(
     hintText: hint,

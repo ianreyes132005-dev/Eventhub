@@ -297,55 +297,25 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   }
 
   Widget _buildPageHeader() {
-    final total     = _events.length;
-    final upcoming  = _events.where((e) => _resolveDisplayStatus(e) == 'upcoming').length;
-    final ongoing   = _events.where((e) => _resolveDisplayStatus(e) == 'ongoing').length;
-    final completed = _events.where((e) {
-      final r = _resolveDisplayStatus(e);
-      return r == 'completed' || r == 'ended';
-    }).length;
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
 
-    final statCards = [
-      WebStatCard(label: 'Total Events', value: '$total',     icon: Icons.event_rounded,       color: kGold),
-      WebStatCard(label: 'Upcoming',     value: '$upcoming',  icon: Icons.schedule_rounded,     color: const Color(0xFF3B82F6)),
-      WebStatCard(label: 'Ongoing',      value: '$ongoing',   icon: Icons.play_circle_rounded,  color: const Color(0xFF16A34A)),
-      WebStatCard(label: 'Ended',         value: '$completed', icon: Icons.check_circle_rounded, color: const Color(0xFF6B7280)),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _stagger(
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const Text('Events',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: kText,
-                  height: 1.1,
-                )),
-              const Spacer(),
-              WebBtn(label: 'New Event', icon: Icons.add_rounded, onTap: () => _openDialog()),
-            ],
-          ),
-          start: 0.00, end: 0.35,
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: List.generate(statCards.length, (i) {
-            final s = 0.10 + i * 0.07;
-            return Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(left: i > 0 ? 12 : 0),
-                child: _stagger(statCards[i], start: s, end: (s + 0.35).clamp(0.0, 1.0)),
-              ),
-            );
-          }),
-        ),
-      ],
+    return _stagger(
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text('Events',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: t.text,
+              height: 1.1,
+            )),
+          const Spacer(),
+          WebBtn(label: 'New Event', icon: Icons.add_rounded, onTap: () => _openDialog()),
+        ],
+      ),
+      start: 0.00, end: 0.35,
     );
   }
 
@@ -388,6 +358,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   }
 
   Widget _filterTab(String f, int count) {
+    final t        = WebTk(Theme.of(context).brightness == Brightness.dark);
     final selected = _filter == f;
     final hovered  = _hoveredTab == f;
     final accent   = f == 'All' ? kGold : webEventStatusColor(f.toLowerCase());
@@ -409,15 +380,13 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
             color: selected
                 ? accent.withValues(alpha: 0.08)
                 : hovered
-                    ? const Color(0xFFEEF2F7)
-                    : const Color(0xFFF8F9FC),
+                    ? t.divider
+                    : t.inputBg,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: selected
                   ? accent.withValues(alpha: 0.35)
-                  : hovered
-                      ? const Color(0xFFD1D5DB)
-                      : kCardBorder,
+                  : t.border,
               width: selected ? 1.5 : 1.0,
             ),
           ),
@@ -440,7 +409,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                   fontFamily:    'Poppins',
                   fontSize:      12,
                   fontWeight:    selected ? FontWeight.w700 : FontWeight.w500,
-                  color:         selected ? accent : kSubText,
+                  color:         selected ? accent : t.sub,
                   letterSpacing: selected ? 0.1 : 0,
                 ),
               ),
@@ -452,7 +421,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                 decoration: BoxDecoration(
                   color: selected
                       ? accent.withValues(alpha: 0.15)
-                      : const Color(0xFFE5E7EB),
+                      : t.divider,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -461,7 +430,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                     fontFamily: 'Poppins',
                     fontSize:   10,
                     fontWeight: FontWeight.w700,
-                    color:      selected ? accent : kMuted,
+                    color:      selected ? accent : t.muted,
                   ),
                 ),
               ),
@@ -473,16 +442,17 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   }
 
   Widget _buildTable() {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         _stagger(
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
-            decoration: const BoxDecoration(
-              color: Color(0xFFF8F9FC),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-              border: Border(bottom: BorderSide(color: kCardBorder)),
+            decoration: BoxDecoration(
+              color: t.inputBg,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              border: Border(bottom: BorderSide(color: t.border)),
             ),
             child: const Row(
               children: [
@@ -551,11 +521,11 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(e['title'] as String? ?? '—',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
-                                  color: kText,
+                                  color: t.text,
                                 ),
                                 maxLines: 1, overflow: TextOverflow.ellipsis),
                               const SizedBox(height: 3),
@@ -586,12 +556,12 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                     flex: 2,
                     child: Row(
                       children: [
-                        const Icon(Icons.calendar_today_rounded, size: 12, color: kMuted),
+                        Icon(Icons.calendar_today_rounded, size: 12, color: t.muted),
                         const SizedBox(width: 5),
                         Flexible(
                           child: Text(webFmtDate(e['event_date'] as String?),
-                            style: const TextStyle(
-                              fontFamily: 'Poppins', fontSize: 12.5, color: kText,
+                            style: TextStyle(
+                              fontFamily: 'Poppins', fontSize: 12.5, color: t.text,
                             )),
                         ),
                       ],
@@ -601,12 +571,12 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                     flex: 2,
                     child: Row(
                       children: [
-                        const Icon(Icons.location_on_rounded, size: 12, color: kMuted),
+                        Icon(Icons.location_on_rounded, size: 12, color: t.muted),
                         const SizedBox(width: 4),
                         Flexible(
                           child: Text(e['location'] as String? ?? '—',
-                            style: const TextStyle(
-                              fontFamily: 'Poppins', fontSize: 12.5, color: kSubText,
+                            style: TextStyle(
+                              fontFamily: 'Poppins', fontSize: 12.5, color: t.sub,
                             ),
                             maxLines: 1, overflow: TextOverflow.ellipsis),
                         ),
@@ -625,13 +595,13 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                               fontFamily: 'Poppins',
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
-                              color: isFull ? const Color(0xFFEF4444) : kText,
+                              color: isFull ? const Color(0xFFEF4444) : t.text,
                             )),
                           Text(max > 0 ? ' / $max' : ' / âˆž',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 12,
-                              color: kMuted,
+                              color: t.muted,
                             )),
                         ]),
                         if (max > 0) ...[
@@ -641,7 +611,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                             child: LinearProgressIndicator(
                               value: (current / max).clamp(0.0, 1.0),
                               minHeight: 3,
-                              backgroundColor: kCardBorder,
+                              backgroundColor: t.border,
                               color: isFull
                                 ? const Color(0xFFEF4444)
                                 : const Color(0xFF3B82F6),
@@ -947,9 +917,10 @@ class _EventDialogState extends State<_EventDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      backgroundColor: Colors.white,
+      backgroundColor: t.card,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 620, maxHeight: 760),
         child: Column(
@@ -958,8 +929,8 @@ class _EventDialogState extends State<_EventDialog> {
             // Header
             Container(
               padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: kCardBorder)),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: t.border)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -980,24 +951,24 @@ class _EventDialogState extends State<_EventDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(_isEdit ? 'Edit Event' : 'Create New Event',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 15,
                               fontWeight: FontWeight.w800,
-                              color: kText,
+                              color: t.text,
                             )),
                           Text(_isEdit
                             ? 'Update event details below'
                             : 'Fill in the details for your new event',
-                            style: const TextStyle(
-                              fontFamily: 'Poppins', fontSize: 11, color: kSubText,
+                            style: TextStyle(
+                              fontFamily: 'Poppins', fontSize: 11, color: t.sub,
                             )),
                         ],
                       ),
                     ),
                     IconButton(
                       onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded, color: kMuted),
+                      icon: Icon(Icons.close_rounded, color: t.muted),
                     ),
                   ]),
                   const SizedBox(height: 14),
@@ -1005,12 +976,12 @@ class _EventDialogState extends State<_EventDialog> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
+                      Text(
                         'Form completion',
                         style: TextStyle(
                           fontFamily: 'Poppins',
                           fontSize: 11,
-                          color: kMuted,
+                          color: t.muted,
                         ),
                       ),
                       TweenAnimationBuilder<double>(
@@ -1041,7 +1012,7 @@ class _EventDialogState extends State<_EventDialog> {
                       builder: (_, value, _) => LinearProgressIndicator(
                         value: value,
                         minHeight: 5,
-                        backgroundColor: Colors.grey.shade200,
+                        backgroundColor: t.border,
                         valueColor: AlwaysStoppedAnimation<Color>(
                           value == 1.0
                               ? const Color(0xFF16A34A)
@@ -1073,8 +1044,8 @@ class _EventDialogState extends State<_EventDialog> {
                           const SizedBox(height: 6),
                           TextField(
                             controller: _titleCtrl,
-                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: kText),
-                            decoration: webInputDeco('e.g. Annual Science Fair'),
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5, color: t.text),
+                            decoration: webInputDeco('e.g. Annual Science Fair', dark: t.dark),
                           ),
                           const SizedBox(height: 14),
                           _label('Description'),
@@ -1082,8 +1053,8 @@ class _EventDialogState extends State<_EventDialog> {
                           TextField(
                             controller: _descCtrl,
                             maxLines: 3,
-                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
-                            decoration: webInputDeco('Tell students what this event is about…'),
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
+                            decoration: webInputDeco('Tell students what this event is about…', dark: t.dark),
                           ),
                         ],
                       ),
@@ -1173,8 +1144,8 @@ class _EventDialogState extends State<_EventDialog> {
                           const SizedBox(height: 6),
                           TextField(
                             controller: _locationCtrl,
-                            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13, color: kText),
-                            decoration: webInputDeco('Venue or room name', icon: Icons.location_on_rounded),
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
+                            decoration: webInputDeco('Venue or room name', icon: Icons.location_on_rounded, dark: t.dark),
                           ),
                           const SizedBox(height: 14),
                           _label('Max Capacity'),
@@ -1190,19 +1161,19 @@ class _EventDialogState extends State<_EventDialog> {
                                 controller: _capacityCtrl,
                                 keyboardType: TextInputType.number,
                                 textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700, color: kText),
+                                style: TextStyle(
+                                  fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700, color: t.text),
                                 decoration: InputDecoration(
                                   hintText: '—',
-                                  hintStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 16, color: kMuted),
-                                  filled: true, fillColor: const Color(0xFFF8F9FC),
+                                  hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 16, color: t.muted),
+                                  filled: true, fillColor: t.inputBg,
                                   contentPadding: const EdgeInsets.symmetric(vertical: 12),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
-                                    borderSide: const BorderSide(color: kCardBorder)),
+                                    borderSide: BorderSide(color: t.border)),
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
-                                    borderSide: const BorderSide(color: kCardBorder)),
+                                    borderSide: BorderSide(color: t.border)),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
                                     borderSide: const BorderSide(color: kGold, width: 2)),
@@ -1216,8 +1187,8 @@ class _EventDialogState extends State<_EventDialog> {
                             }),
                           ]),
                           const SizedBox(height: 5),
-                          const Text('Leave blank for unlimited participants',
-                            style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: kMuted)),
+                          Text('Leave blank for unlimited participants',
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted)),
                         ],
                       ),
                     ),
@@ -1248,9 +1219,9 @@ class _EventDialogState extends State<_EventDialog> {
                                     duration: const Duration(milliseconds: 180),
                                     width: 74, height: 76,
                                     decoration: BoxDecoration(
-                                      color: sel ? kGold : const Color(0xFFF8F9FC),
+                                      color: sel ? kGold : t.inputBg,
                                       borderRadius: BorderRadius.circular(14),
-                                      border: Border.all(color: sel ? kGold : kCardBorder, width: 1.5),
+                                      border: Border.all(color: sel ? kGold : t.border, width: 1.5),
                                       boxShadow: sel ? [BoxShadow(
                                         color: kGold.withValues(alpha: 0.28),
                                         blurRadius: 8, offset: const Offset(0, 3),
@@ -1265,7 +1236,7 @@ class _EventDialogState extends State<_EventDialog> {
                                           style: TextStyle(
                                             fontFamily: 'Poppins', fontSize: 9.5,
                                             fontWeight: FontWeight.w600,
-                                            color: sel ? Colors.white : kText,
+                                            color: sel ? Colors.white : t.text,
                                           )),
                                       ],
                                     ),
@@ -1281,18 +1252,19 @@ class _EventDialogState extends State<_EventDialog> {
                             TextField(
                               controller: _otherTypeCtrl,
                               maxLength: 40,
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontFamily: 'Poppins',
                                   fontSize: 13.5,
-                                  color: kText),
+                                  color: t.text),
                               decoration: webInputDeco(
                                 'e.g. Quiz Bee, Sports Fest, Job Fair',
                                 icon: Icons.edit_rounded,
+                                dark: t.dark,
                               ).copyWith(
-                                counterStyle: const TextStyle(
+                                counterStyle: TextStyle(
                                     fontFamily: 'Poppins',
                                     fontSize: 10,
-                                    color: kMuted),
+                                    color: t.muted),
                               ),
                             ),
                           ],
@@ -1320,22 +1292,22 @@ class _EventDialogState extends State<_EventDialog> {
             // Footer buttons
             Container(
               padding: const EdgeInsets.fromLTRB(24, 14, 24, 20),
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: kCardBorder)),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: t.border)),
               ),
               child: Row(children: [
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => Navigator.of(context).pop(),
                     style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: kCardBorder),
+                      side: BorderSide(color: t.border),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10)),
                       padding: const EdgeInsets.symmetric(vertical: 13),
                     ),
-                    child: const Text('Cancel',
+                    child: Text('Cancel',
                       style: TextStyle(
-                        fontFamily: 'Poppins', color: kSubText, fontWeight: FontWeight.w600,
+                        fontFamily: 'Poppins', color: t.sub, fontWeight: FontWeight.w600,
                       )),
                   ),
                 ),
@@ -1372,6 +1344,7 @@ class _EventDialogState extends State<_EventDialog> {
   }
 
   Widget _buildBannerPicker() {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final hasBanner = _bannerBytes != null ||
         (_existingBannerUrl != null && _existingBannerUrl!.isNotEmpty);
 
@@ -1384,12 +1357,12 @@ class _EventDialogState extends State<_EventDialog> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: hasBanner ? kGold.withValues(alpha: 0.50) : kCardBorder,
+              color: hasBanner ? kGold.withValues(alpha: 0.50) : t.border,
               style: hasBanner ? BorderStyle.solid : BorderStyle.solid,
             ),
             color: hasBanner
               ? kGold.withValues(alpha: 0.04)
-              : const Color(0xFFF8F9FC),
+              : t.inputBg,
           ),
           child: hasBanner
             ? Stack(fit: StackFit.expand, children: [
@@ -1430,14 +1403,14 @@ class _EventDialogState extends State<_EventDialog> {
                 Icon(Icons.add_photo_alternate_rounded,
                   size: 28, color: kGold.withValues(alpha: 0.60)),
                 const SizedBox(height: 8),
-                const Text('Click to upload banner',
+                Text('Click to upload banner',
                   style: TextStyle(
-                    fontFamily: 'Poppins', fontSize: 13, color: kSubText,
+                    fontFamily: 'Poppins', fontSize: 13, color: t.sub,
                   )),
                 const SizedBox(height: 2),
-                const Text('PNG, JPG up to 10 MB',
+                Text('PNG, JPG up to 10 MB',
                   style: TextStyle(
-                    fontFamily: 'Poppins', fontSize: 11, color: kMuted,
+                    fontFamily: 'Poppins', fontSize: 11, color: t.muted,
                   )),
               ]),
         ),
@@ -1445,13 +1418,16 @@ class _EventDialogState extends State<_EventDialog> {
     );
   }
 
-  Widget _label(String text) => Text(text,
-    style: const TextStyle(
-      fontFamily: 'Poppins',
-      fontSize: 12.5,
-      fontWeight: FontWeight.w700,
-      color: kText,
-    ));
+  Widget _label(String text) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return Text(text,
+      style: TextStyle(
+        fontFamily: 'Poppins',
+        fontSize: 12.5,
+        fontWeight: FontWeight.w700,
+        color: t.text,
+      ));
+  }
 
   Widget _buildTimeCard({
     required String    label,
@@ -1462,6 +1438,7 @@ class _EventDialogState extends State<_EventDialog> {
     required VoidCallback onTap,
     bool isActive = false,
   }) {
+    final tk = WebTk(Theme.of(context).brightness == Brightness.dark);
     final filled = time != null;
     String fmt12(TimeOfDay t) {
       final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
@@ -1476,7 +1453,7 @@ class _EventDialogState extends State<_EventDialog> {
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
           decoration: BoxDecoration(
-            color: filled || isActive ? accentColor.withValues(alpha: 0.04) : const Color(0xFFF8F9FC),
+            color: filled || isActive ? accentColor.withValues(alpha: 0.04) : tk.inputBg,
             borderRadius: BorderRadius.only(
               topLeft:     const Radius.circular(12),
               topRight:    const Radius.circular(12),
@@ -1488,7 +1465,7 @@ class _EventDialogState extends State<_EventDialog> {
                 ? accentColor.withValues(alpha: 0.50)
                 : filled
                 ? accentColor.withValues(alpha: 0.35)
-                : kCardBorder,
+                : tk.border,
               width: 1.5,
             ),
           ),
@@ -1496,13 +1473,13 @@ class _EventDialogState extends State<_EventDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(children: [
-                Icon(icon, size: 11, color: filled ? accentColor : kMuted),
+                Icon(icon, size: 11, color: filled ? accentColor : tk.muted),
                 const SizedBox(width: 5),
                 Expanded(
                   child: Text(label,
                     style: TextStyle(
                       fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w600,
-                      color: filled ? accentColor : kMuted,
+                      color: filled ? accentColor : tk.muted,
                     )),
                 ),
                 if (isRequired && !filled)
@@ -1548,12 +1525,12 @@ class _EventDialogState extends State<_EventDialog> {
                 Text('--:--',
                   style: TextStyle(
                     fontFamily: 'Poppins', fontSize: 24, fontWeight: FontWeight.w800,
-                    color: kCardBorder, height: 1.0,
+                    color: tk.border, height: 1.0,
                   )),
                 const SizedBox(height: 2),
-                const Text('Tap to set',
+                Text('Tap to set',
                   style: TextStyle(
-                    fontFamily: 'Poppins', fontSize: 9.5, color: kMuted,
+                    fontFamily: 'Poppins', fontSize: 9.5, color: tk.muted,
                   )),
               ],
             ],
@@ -1592,6 +1569,7 @@ class _EventDialogState extends State<_EventDialog> {
   }
 
   Widget _buildDateTrigger() {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final filled = _date != null;
     const accent = Color(0xFF2563EB);
     return MouseRegion(
@@ -1602,7 +1580,7 @@ class _EventDialogState extends State<_EventDialog> {
           duration: const Duration(milliseconds: 220),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: filled ? accent.withValues(alpha: 0.04) : const Color(0xFFF8F9FC),
+            color: filled ? accent.withValues(alpha: 0.04) : t.inputBg,
             borderRadius: BorderRadius.only(
               topLeft:     const Radius.circular(12),
               topRight:    const Radius.circular(12),
@@ -1614,7 +1592,7 @@ class _EventDialogState extends State<_EventDialog> {
                   ? accent.withValues(alpha: 0.50)
                   : filled
                   ? accent.withValues(alpha: 0.30)
-                  : kCardBorder,
+                  : t.border,
               width: 1.5,
             ),
           ),
@@ -1624,7 +1602,7 @@ class _EventDialogState extends State<_EventDialog> {
                 duration: const Duration(milliseconds: 200),
                 width: 44, height: 44,
                 decoration: BoxDecoration(
-                  color: filled ? accent : const Color(0xFFEEEEEE),
+                  color: filled ? accent : t.divider,
                   borderRadius: BorderRadius.circular(11),
                 ),
                 child: filled
@@ -1636,29 +1614,29 @@ class _EventDialogState extends State<_EventDialog> {
                         style: const TextStyle(fontFamily: 'Poppins', fontSize: 20,
                           fontWeight: FontWeight.w800, color: Colors.white, height: 1.1)),
                     ])
-                  : const Icon(Icons.calendar_month_rounded, color: kMuted, size: 20),
+                  : Icon(Icons.calendar_month_rounded, color: t.muted, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: filled
                   ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text(webFmtDate(_date!.toIso8601String()),
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 14,
-                          fontWeight: FontWeight.w700, color: kText)),
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
+                          fontWeight: FontWeight.w700, color: t.text)),
                       const SizedBox(height: 2),
                       Text(_weekdayFull(_date!.weekday),
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
                     ])
-                  : const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
                         Text('Event Date', style: TextStyle(fontFamily: 'Poppins',
-                          fontSize: 13, fontWeight: FontWeight.w600, color: kText)),
-                        Text(' *', style: TextStyle(fontFamily: 'Poppins',
+                          fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
+                        const Text(' *', style: TextStyle(fontFamily: 'Poppins',
                           fontSize: 13, color: Color(0xFFEF4444), fontWeight: FontWeight.w700)),
                       ]),
-                      SizedBox(height: 2),
+                      const SizedBox(height: 2),
                       Text('Tap to open calendar',
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kMuted)),
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
                     ]),
               ),
               AnimatedRotation(
@@ -1669,11 +1647,11 @@ class _EventDialogState extends State<_EventDialog> {
                   decoration: BoxDecoration(
                     color: _showCalendar
                       ? accent.withValues(alpha: 0.10)
-                      : const Color(0xFFF0F0F0),
+                      : t.divider,
                     borderRadius: BorderRadius.circular(7),
                   ),
                   child: Icon(Icons.keyboard_arrow_down_rounded, size: 16,
-                    color: _showCalendar ? accent : kMuted),
+                    color: _showCalendar ? accent : t.muted),
                 ),
               ),
             ],
@@ -1687,6 +1665,7 @@ class _EventDialogState extends State<_EventDialog> {
     final showStart = _showStartPicker;
     final showEnd   = _showEndPicker;
     if (!showStart && !showEnd) return const SizedBox.shrink();
+    final wtk         = WebTk(Theme.of(context).brightness == Brightness.dark);
     final accentColor = showStart ? const Color(0xFF16A34A) : const Color(0xFFEF4444);
     final label       = showStart ? 'Start Time' : 'End Time';
     final initTime    = showStart ? _startTime   : _endTime;
@@ -1700,7 +1679,7 @@ class _EventDialogState extends State<_EventDialog> {
       curve: Curves.easeInOut,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: wtk.card,
           borderRadius: const BorderRadius.only(
             bottomLeft:  Radius.circular(12),
             bottomRight: Radius.circular(12),
@@ -1727,6 +1706,7 @@ class _EventDialogState extends State<_EventDialog> {
   }
 
   Widget _buildInlineCalendar() {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     const accent = Color(0xFF2563EB);
     return AnimatedSize(
       duration: const Duration(milliseconds: 300),
@@ -1734,7 +1714,7 @@ class _EventDialogState extends State<_EventDialog> {
       child: _showCalendar
         ? Container(
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: t.card,
               borderRadius: const BorderRadius.only(
                 bottomLeft:  Radius.circular(12),
                 bottomRight: Radius.circular(12),
@@ -1778,13 +1758,15 @@ class _DialogSection extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return Container(
     decoration: BoxDecoration(
-      color: Colors.white,
+      color: t.card,
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: kCardBorder),
+      border: Border.all(color: t.border),
       boxShadow: [
-        BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2)),
+        BoxShadow(color: t.shadow, blurRadius: 8, offset: const Offset(0, 2)),
       ],
     ),
     child: Column(
@@ -1800,23 +1782,24 @@ class _DialogSection extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Text(title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: kText,
+                color: t.text,
               )),
           ]),
         ),
         const SizedBox(height: 10),
-        Divider(height: 1, color: Colors.grey.shade100),
+        Divider(height: 1, color: t.divider),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
           child: child,
         ),
       ],
     ),
-  );
+    );
+  }
 }
 
 // ── Shared micro-widgets ──────────────────────────────────────────────────────
@@ -1834,22 +1817,25 @@ class _HoverRowState extends State<_HoverRow> {
   bool _h = false;
 
   @override
-  Widget build(BuildContext context) => MouseRegion(
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return MouseRegion(
     onEnter: (_) => setState(() => _h = true),
     onExit:  (_) => setState(() => _h = false),
     child: Container(
       decoration: BoxDecoration(
-        color: _h ? const Color(0xFFF8FAFB) : Colors.white,
+        color: _h ? t.divider : t.card,
         borderRadius: widget.isLast
           ? const BorderRadius.vertical(bottom: Radius.circular(16))
           : BorderRadius.zero,
         border: widget.isLast
           ? null
-          : const Border(bottom: BorderSide(color: kCardBorder)),
+          : Border(bottom: BorderSide(color: t.border)),
       ),
       child: widget.child,
     ),
-  );
+    );
+  }
 }
 
 class _IconBtn extends StatefulWidget {
@@ -1945,6 +1931,7 @@ class _WebCalendarState extends State<_WebCalendar> {
 
   @override
   Widget build(BuildContext context) {
+    final t      = WebTk(Theme.of(context).brightness == Brightness.dark);
     final today  = DateUtils.dateOnly(DateTime.now());
     final cells  = _cells();
     final accent = widget.accentColor;
@@ -1959,8 +1946,8 @@ class _WebCalendarState extends State<_WebCalendar> {
             Expanded(
               child: Text('${_months[_month - 1]} $_year',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 13.5,
-                  fontWeight: FontWeight.w700, color: kText)),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5,
+                  fontWeight: FontWeight.w700, color: t.text)),
             ),
             _CalBtn(icon: Icons.chevron_right_rounded, onTap: _next, color: accent),
           ]),
@@ -1970,7 +1957,7 @@ class _WebCalendarState extends State<_WebCalendar> {
             child: Text(d,
               textAlign: TextAlign.center,
               style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, fontWeight: FontWeight.w700,
-                color: d == 'Su' || d == 'Sa' ? accent.withValues(alpha: 0.55) : kMuted)),
+                color: d == 'Su' || d == 'Sa' ? accent.withValues(alpha: 0.55) : t.muted)),
           )).toList()),
           const SizedBox(height: 6),
           // Day grid
@@ -2001,9 +1988,9 @@ class _WebCalendarState extends State<_WebCalendar> {
                           fontFamily: 'Poppins', fontSize: 12.5,
                           fontWeight: isSel || isToday ? FontWeight.w700 : FontWeight.w500,
                           color: isSel     ? Colors.white
-                              : disabled   ? const Color(0xFFE0E0E0)
+                              : disabled   ? t.muted
                               : isToday    ? accent
-                              : kText,
+                              : t.text,
                         )),
                     ),
                   ),
@@ -2102,6 +2089,7 @@ class _WebTimePickerState extends State<_WebTimePicker> {
 
   @override
   Widget build(BuildContext context) {
+    final t      = WebTk(Theme.of(context).brightness == Brightness.dark);
     final accent = widget.accentColor;
 
     return Padding(
@@ -2128,11 +2116,11 @@ class _WebTimePickerState extends State<_WebTimePicker> {
               widget.minTime != null
                   ? 'Today — from ${_fmtMinTime(widget.minTime!)} onwards'
                   : 'Scroll to select',
-              style: const TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: kMuted),
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted),
             ),
           ]),
           const SizedBox(height: 10),
-          Divider(height: 1, color: Colors.grey.shade100),
+          Divider(height: 1, color: t.divider),
           const SizedBox(height: 10),
           // Drums row
           SizedBox(
@@ -2178,15 +2166,15 @@ class _WebTimePickerState extends State<_WebTimePicker> {
                             duration: const Duration(milliseconds: 180),
                             width: 52, height: _itemH,
                             decoration: BoxDecoration(
-                              color: sel ? accent : const Color(0xFFF8F9FC),
+                              color: sel ? accent : t.inputBg,
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
-                                color: sel ? accent : kCardBorder, width: 1.5),
+                                color: sel ? accent : t.border, width: 1.5),
                             ),
                             child: Center(child: Text(p,
                               style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
                                 fontWeight: FontWeight.w700,
-                                color: sel ? Colors.white : kSubText))),
+                                color: sel ? Colors.white : t.sub))),
                           ),
                         ),
                       ),
@@ -2259,6 +2247,7 @@ class _WebTimePickerState extends State<_WebTimePicker> {
     required String Function(int) label,
     required Color accent,
   }) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -2287,7 +2276,7 @@ class _WebTimePickerState extends State<_WebTimePicker> {
                   fontFamily: 'Poppins',
                   fontSize:   isSel ? 28 : 18,
                   fontWeight: isSel ? FontWeight.w800 : FontWeight.w400,
-                  color:      isSel ? accent : Colors.grey.shade400,
+                  color:      isSel ? accent : t.muted,
                 )));
             },
           ),
@@ -2297,7 +2286,7 @@ class _WebTimePickerState extends State<_WebTimePicker> {
             height: _itemH * 1.2,
             decoration: BoxDecoration(gradient: LinearGradient(
               begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+              colors: [t.card, t.card.withValues(alpha: 0)],
             )),
           ))),
         Positioned(bottom: 0, left: 0, right: 0,
@@ -2305,7 +2294,7 @@ class _WebTimePickerState extends State<_WebTimePicker> {
             height: _itemH * 1.2,
             decoration: BoxDecoration(gradient: LinearGradient(
               begin: Alignment.bottomCenter, end: Alignment.topCenter,
-              colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+              colors: [t.card, t.card.withValues(alpha: 0)],
             )),
           ))),
       ],
