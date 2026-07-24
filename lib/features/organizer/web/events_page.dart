@@ -8,6 +8,19 @@ import '../../../core/services/supabase_service.dart';
 import '../../../core/services/audit_service.dart';
 import 'web_shared.dart';
 
+// ── Banner upload constraints ─────────────────────────────────────────────
+const _kAllowedBannerExts = {'jpg', 'jpeg', 'png', 'webp'};
+
+String _bannerContentType(String ext) {
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'png':  return 'image/png';
+    case 'webp': return 'image/webp';
+    default:     return 'application/octet-stream';
+  }
+}
+
 // Returns the display status for an event, overriding 'upcoming'/'ongoing'
 // with 'ended' when the event's end time (or whole event day) has passed.
 String _resolveDisplayStatus(Map<String, dynamic> event) {
@@ -762,6 +775,11 @@ class _EventDialogState extends State<_EventDialog> {
     );
     if (result == null || result.files.isEmpty) return;
     final file = result.files.first;
+    final ext  = (file.extension ?? '').toLowerCase();
+    if (!_kAllowedBannerExts.contains(ext)) {
+      setState(() => _error = 'Banner must be a JPG, PNG, or WEBP image.');
+      return;
+    }
     const maxBytes = 10 * 1024 * 1024; // 10 MB
     if (file.size > maxBytes) {
       setState(() => _error =
@@ -847,11 +865,11 @@ class _EventDialogState extends State<_EventDialog> {
           }
         }
 
-        final ext  = (_bannerName ?? 'banner.jpg').split('.').last;
+        final ext  = (_bannerName ?? 'banner.jpg').split('.').last.toLowerCase();
         final path = 'banner_${DateTime.now().millisecondsSinceEpoch}_${webUuid()}.$ext';
         await client.storage.from('event-banners').uploadBinary(
           path, _bannerBytes!,
-          fileOptions: FileOptions(contentType: 'image/$ext', upsert: false),
+          fileOptions: FileOptions(contentType: _bannerContentType(ext), upsert: false),
         );
         imageUrl = client.storage.from('event-banners').getPublicUrl(path);
       }

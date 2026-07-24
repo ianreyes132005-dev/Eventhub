@@ -20,6 +20,20 @@ const _kBlue  = Color(0xFF2563EB);
 const _kGreen = Color(0xFF16A34A);
 const _kRed   = Color(0xFFDC2626);
 
+// ── Banner upload constraints ─────────────────────────────────────────────
+const _kAllowedBannerExts = {'jpg', 'jpeg', 'png', 'webp'};
+const _kMaxBannerBytes    = 10 * 1024 * 1024; // 10 MB — matches the web upload flow
+
+String _bannerContentType(String ext) {
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'png':  return 'image/png';
+    case 'webp': return 'image/webp';
+    default:     return 'application/octet-stream';
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen
 // ─────────────────────────────────────────────────────────────────────────────
@@ -157,10 +171,21 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   Future<void> _uploadBanner() async {
     try {
       final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
-      if (!mounted) return;
-      if (result != null && result.files.single.path != null) {
-        setState(() => _selectedBanner = File(result.files.single.path!));
+      if (!mounted || result == null) return;
+      final picked = result.files.single;
+      if (picked.path == null) return;
+
+      final ext = (picked.extension ?? '').toLowerCase();
+      if (!_kAllowedBannerExts.contains(ext)) {
+        _snack('Banner must be a JPG, PNG, or WEBP image.', isError: true);
+        return;
       }
+      if (picked.size > _kMaxBannerBytes) {
+        _snack('Image must be 10 MB or smaller.', isError: true);
+        return;
+      }
+
+      setState(() => _selectedBanner = File(picked.path!));
     } catch (e) {
       if (!mounted) return;
       _snack('Could not select image: $e', isError: true);
@@ -183,11 +208,16 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           ? _otherTypeCtrl.text.trim() : _selectedEventType;
       String? bannerUrl;
       if (_selectedBanner != null) {
+        final ext      = _selectedBanner!.path.split('.').last.toLowerCase();
         final fileName = 'banner_${DateTime.now().millisecondsSinceEpoch}_${_selectedBanner!.path.split('/').last}';
         final bytes    = await _selectedBanner!.readAsBytes();
         await supabase.storage.from('event-banners').uploadBinary(
           fileName, bytes,
-          fileOptions: const FileOptions(cacheControl: '3600', upsert: false),
+          fileOptions: FileOptions(
+            contentType: _bannerContentType(ext),
+            cacheControl: '3600',
+            upsert: false,
+          ),
         );
         bannerUrl = supabase.storage.from('event-banners').getPublicUrl(fileName);
       }

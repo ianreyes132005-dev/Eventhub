@@ -100,9 +100,10 @@ class RegistrationService {
         .select()
         .single();
 
-    // Atomically increment the participant counter via an RPC so concurrent
-    // registrations cannot both read the same count and produce the wrong total.
-    await _db.rpc('increment_participant_count', params: {'p_event_id': eventId});
+    // Capacity/deadline/status are re-validated server-side by
+    // trg_enforce_registration_insert_rules, and current_participants is
+    // now maintained automatically by trg_maintain_participant_count —
+    // no RPC call needed here any more.
 
     return Map<String, dynamic>.from(row);
   }
@@ -164,21 +165,10 @@ class RegistrationService {
   // Organizer operations
   // ──────────────────────────────────────────────────────────
 
-  /// Deletes a registration and decrements the event's current_participants.
+  /// Deletes a registration. current_participants is decremented automatically
+  /// by trg_maintain_participant_count.
   static Future<void> deleteRegistration(String registrationId) async {
-    // Fetch the event_id before deleting so we can decrement the counter.
-    final reg = await _db
-        .from('registrations')
-        .select('event_id')
-        .eq('id', registrationId)
-        .maybeSingle();
-
     await _db.from('registrations').delete().eq('id', registrationId);
-
-    final eventId = reg?['event_id'] as String?;
-    if (eventId != null) {
-      await _db.rpc('decrement_participant_count', params: {'p_event_id': eventId});
-    }
   }
 
   /// Returns all registrations scoped to [organizerId]'s events.

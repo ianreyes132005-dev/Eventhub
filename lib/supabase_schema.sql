@@ -205,3 +205,141 @@ CREATE POLICY "organizer_delete_announcements" ON public.announcements
   FOR DELETE USING (
     EXISTS (SELECT 1 FROM public.organizers WHERE user_id = auth.uid())
   );
+
+-- 9. REGISTRATION UPDATE GUARDRAIL
+-- ============================================================
+-- student_update_own (section 2) only restricts WHICH ROW a student may
+-- update, not which columns/values — RLS can't express that on its own.
+-- Without this trigger, a student's own already-authenticated session could
+-- set status straight to 'checked_in' (or fabricate a selfie_url) with a
+-- plain .update() call, bypassing the QR-scan -> confirm -> selfie flow
+-- entirely. Applied directly via the Supabase SQL editor on 2026-07-23;
+-- captured here so the schema has one source of truth (see the audit's
+-- "conflicting SQL drafts" finding for why that matters).
+
+CREATE OR REPLACE FUNCTION public.enforce_registration_update_rules()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Organizers may perform any legitimate transition (scan, confirm, check in).
+  IF EXISTS (SELECT 1 FROM public.organizers WHERE user_id = auth.uid()) THEN
+    RETURN NEW;
+  END IF;
+
+  -- Anyone else (i.e. the student themselves) may ONLY submit a selfie:
+  -- photo_required -> photo_submitted, nothing else changes.
+  IF OLD.status = 'photo_required'
+     AND NEW.status = 'photo_submitted'
+     AND NEW.selfie_url IS NOT NULL
+     AND NEW.checked_in_at IS NOT DISTINCT FROM OLD.checked_in_at
+  THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'You are not allowed to make this change to a registration.';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_enforce_registration_update_rules
+  BEFORE UPDATE ON public.registrations
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_registration_update_rules();
+
+-- 10. REGISTRATION INSERT GUARDRAIL + AUTOMATIC PARTICIPANT COUNTER
+-- ============================================================
+-- Two things used to be enforced only by the Flutter client, with nothing
+-- backing them up server-side:
+--   1. event_status / registration_deadline / max_participants were checked
+--      in Dart before inserting a registration, but a direct insert
+--      (bypassing the app) skipped all three checks entirely.
+--   2. increment_participant_count / decrement_participant_count (section 5)
+--      were independently callable by ANY authenticated user for ANY
+--      event_id, with no check they corresponded to a real registration.
+-- This section replaces both: a BEFORE INSERT trigger enforces the rules
+-- server-side (with FOR UPDATE locking to close the concurrent-registration
+-- race condition, not just the deliberate-bypass case), and the counter is
+-- now maintained automatically as a side effect of a real insert/delete,
+-- never independently callable. Applied 2026-07-23.
+
+CREATE OR REPLACE FUNCTION public.enforce_registration_insert_rules()
+RETURNS TRIGGER AS $$
+DECLARE
+  ev RECORD;
+BEGIN
+  SELECT event_status, max_participants, current_participants, registration_deadline
+    INTO ev
+    FROM public.events
+    WHERE event_id = NEW.event_id
+    FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Event not found.';
+  END IF;
+
+  IF ev.event_status IN ('cancelled', 'completed') THEN
+    RAISE EXCEPTION 'Registration is closed — this event is no longer accepting sign-ups.';
+  END IF;
+
+  IF ev.registration_deadline IS NOT NULL AND now() > ev.registration_deadline THEN
+    RAISE EXCEPTION 'Registration is closed — the deadline has passed.';
+  END IF;
+
+  IF ev.max_participants IS NOT NULL AND ev.max_participants > 0
+     AND ev.current_participants >= ev.max_participants THEN
+    RAISE EXCEPTION 'This event is full — no spots remaining.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_enforce_registration_insert_rules ON public.registrations;
+CREATE TRIGGER trg_enforce_registration_insert_rules
+  BEFORE INSERT ON public.registrations
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_registration_insert_rules();
+
+CREATE OR REPLACE FUNCTION public.maintain_participant_count()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    UPDATE public.events
+    SET current_participants = current_participants + 1
+    WHERE event_id = NEW.event_id;
+    RETURN NEW;
+  ELSIF TG_OP = 'DELETE' THEN
+    UPDATE public.events
+    SET current_participants = GREATEST(current_participants - 1, 0)
+    WHERE event_id = OLD.event_id;
+    RETURN OLD;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_maintain_participant_count ON public.registrations;
+CREATE TRIGGER trg_maintain_participant_count
+  AFTER INSERT OR DELETE ON public.registrations
+  FOR EACH ROW EXECUTE FUNCTION public.maintain_participant_count();
+
+-- The old RPCs are now fully replaced by the triggers above, and were the
+-- exact thing flagged as freely callable by anyone for any event with no
+-- ownership or cap check — drop them rather than leave unused, still-
+-- dangerous functions around.
+DROP FUNCTION IF EXISTS public.increment_participant_count(UUID);
+DROP FUNCTION IF EXISTS public.decrement_participant_count(UUID);
+
+-- 11. ANNOUNCEMENT LENGTH LIMITS
+-- ============================================================
+-- title/message are plain TEXT with no length cap in any schema source —
+-- the 100/1000 character limits shown in the app are a Flutter
+-- TextField.maxLength UI nicety only; nothing server-side re-checks them,
+-- so a direct insert (bypassing the app) could post arbitrary-length
+-- content that every screen rendering announcements would then have to
+-- display as-is. These CHECK constraints make the same 100/1000 limits
+-- the app already advertises to organizers actually enforced.
+
+ALTER TABLE public.announcements
+  DROP CONSTRAINT IF EXISTS announcements_title_length_chk,
+  DROP CONSTRAINT IF EXISTS announcements_message_length_chk;
+
+ALTER TABLE public.announcements
+  ADD CONSTRAINT announcements_title_length_chk   CHECK (char_length(title)   <= 100),
+  ADD CONSTRAINT announcements_message_length_chk CHECK (char_length(message) <= 1000);
