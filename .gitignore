@@ -46,3 +46,4 @@ app.*.map.json
 
 # Secret keys — never commit
 lib/services/app_secrets.dart
+

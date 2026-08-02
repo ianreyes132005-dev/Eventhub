@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:app_links/app_links.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/supabase_service.dart';
+import 'services/notif_read_store.dart';
 import 'theme_store.dart';
 
 // Exposed so MaterialApp widgets in app.dart can reference it.
@@ -45,6 +46,7 @@ void setupAuthStateListener() {
       final route = isOrg ? '/organizer' : '/student';
 
       await ThemeStore.loadForUser(user.id, isOrg ? 'organizer' : 'student');
+      if (!isOrg) await NotifReadStore.loadForUser(user.id);
 
       if (navigatorKey.currentContext != null) {
         navigatorKey.currentState?.pushNamedAndRemoveUntil(route, (r) => false);
@@ -70,7 +72,9 @@ void setupAppLinks() async {
             .select('organizer_id')
             .eq('user_id', user.id)
             .maybeSingle();
-        final route = organizerRow != null ? '/organizer' : '/student';
+        final isOrg = organizerRow != null;
+        final route = isOrg ? '/organizer' : '/student';
+        if (!isOrg) await NotifReadStore.loadForUser(user.id);
         navigatorKey.currentState?.pushNamedAndRemoveUntil(route, (r) => false);
       } catch (_) {}
     }

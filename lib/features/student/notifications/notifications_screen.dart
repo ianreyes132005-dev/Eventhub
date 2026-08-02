@@ -9,7 +9,7 @@ import '../../../shared/widgets/app_loader.dart';
 // ── Notification type ─────────────────────────────────────────────────────────
 
 // ── Notification type ─────────────────────────────────────────────────────────
-enum _NotifType { announcement, checkIn, selfieRequired, photoSubmitted }
+enum _NotifType { announcement, checkIn, selfieRequired, photoSubmitted, rejected }
 // ── Notification model ────────────────────────────────────────────────────────
 class _NotifItem {
   final String     id;
@@ -183,6 +183,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           notifType = _NotifType.photoSubmitted;
           title     = 'Photo received';
           body      = 'Your selfie for "$event" was submitted — awaiting organizer confirmation.';
+        } else if (status == 'rejected') {
+          notifType = _NotifType.rejected;
+          title     = 'Registration declined';
+          body      = 'Your registration for "$event" was not approved by the organizer.';
         } else {
           continue;
         }
@@ -650,6 +654,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       case _NotifType.photoSubmitted:
         accentColor = const Color(0xFF2979C8);
         accentIcon  = Icons.photo_camera_outlined;
+        typeLabel   = 'My Events';
+      case _NotifType.rejected:
+        accentColor = const Color(0xFFDC2626);
+        accentIcon  = Icons.cancel_outlined;
         typeLabel   = 'My Events';
     }
     return Dismissible(

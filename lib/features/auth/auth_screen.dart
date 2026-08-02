@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/supabase_service.dart';
 import '../../core/services/audit_service.dart';
 import '../../core/services/rate_limit_service.dart';
+import '../../core/services/notif_read_store.dart';
 import '../../shared/widgets/gradient_button.dart';
 import '../../shared/widgets/app_alert.dart';
 import '../organizer/mobile/dashboard/organizer_dashboard.dart';
@@ -863,6 +864,7 @@ class _AuthScreenState extends State<AuthScreen> {
       // ── Load per-user theme before navigating ───────────────────────────────
       await ThemeStore.loadForUser(
           user.id, isOrganizer ? 'organizer' : 'student');
+      if (!isOrganizer) await NotifReadStore.loadForUser(user.id);
 
       // ── Route correctly ─────────────────────────────────────────────────────
       if (mounted) {

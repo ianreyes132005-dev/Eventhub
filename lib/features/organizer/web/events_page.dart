@@ -203,6 +203,13 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     }
   }
 
+  void _openDetails(Map<String, dynamic> e) {
+    showDialog(
+      context: context,
+      builder: (_) => _EventDetailsDialog(event: e),
+    );
+  }
+
   Future<void> _delete(Map<String, dynamic> e) async {
     final id = e['event_id'] as String?;
     if (id == null) return;
@@ -474,7 +481,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                 Expanded(flex: 2, child: WebColHeader('LOCATION')),
                 Expanded(flex: 2, child: WebColHeader('REGISTRATIONS')),
                 Expanded(flex: 2, child: WebColHeader('STATUS')),
-                SizedBox(width: 76, child: WebColHeader('ACTIONS')),
+                SizedBox(width: 112, child: WebColHeader('ACTIONS')),
               ],
             ),
           ),
@@ -642,7 +649,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                     ),
                   ),
                   SizedBox(
-                    width: 76,
+                    width: 112,
                     child: Row(
                       children: [
                         _IconBtn(
@@ -650,6 +657,13 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                           color: const Color(0xFF3B82F6),
                           tooltip: 'Edit',
                           onTap: () => _openDialog(existing: e),
+                        ),
+                        const SizedBox(width: 6),
+                        _IconBtn(
+                          icon: Icons.visibility_outlined,
+                          color: kGold,
+                          tooltip: 'Details',
+                          onTap: () => _openDetails(e),
                         ),
                         const SizedBox(width: 6),
                         _IconBtn(
@@ -1078,6 +1092,85 @@ class _EventDialogState extends State<_EventDialog> {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    // ── Event Type ─────────────────────────────────────────────
+                    _DialogSection(
+                      icon: Icons.tune_rounded,
+                      iconBg: const Color(0x1A7C3AED),
+                      iconColor: const Color(0xFF7C3AED),
+                      title: 'Event Type',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Event Type'),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: List.generate(_kTypes.length, (i) {
+                              final tp  = _kTypes[i];
+                              final sel = _type == tp.$1;
+                              return MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => setState(() => _type = tp.$1),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 180),
+                                    width: 74, height: 76,
+                                    decoration: BoxDecoration(
+                                      color: sel ? kGold : t.inputBg,
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(color: sel ? kGold : t.border, width: 1.5),
+                                      boxShadow: sel ? [BoxShadow(
+                                        color: kGold.withValues(alpha: 0.28),
+                                        blurRadius: 8, offset: const Offset(0, 3),
+                                      )] : null,
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(tp.$2, size: 22, color: sel ? Colors.white : tp.$3),
+                                        const SizedBox(height: 5),
+                                        Text(tp.$1,
+                                          style: TextStyle(
+                                            fontFamily: 'Poppins', fontSize: 9.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: sel ? Colors.white : t.text,
+                                          )),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ),
+                          if (_type == 'Other') ...[
+                            const SizedBox(height: 14),
+                            _label('Specify type'),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _otherTypeCtrl,
+                              maxLength: 40,
+                              style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 13.5,
+                                  color: t.text),
+                              decoration: webInputDeco(
+                                'e.g. Quiz Bee, Sports Fest, Job Fair',
+                                icon: Icons.edit_rounded,
+                                dark: t.dark,
+                              ).copyWith(
+                                counterStyle: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 10,
+                                    color: t.muted),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                     // ── Schedule ──────────────────────────────────────────────
                     _DialogSection(
                       icon: Icons.schedule_rounded,
@@ -1207,85 +1300,6 @@ class _EventDialogState extends State<_EventDialog> {
                           const SizedBox(height: 5),
                           Text('Leave blank for unlimited participants',
                             style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    // ── Event Settings ────────────────────────────────────────
-                    _DialogSection(
-                      icon: Icons.tune_rounded,
-                      iconBg: const Color(0x1A7C3AED),
-                      iconColor: const Color(0xFF7C3AED),
-                      title: 'Event Settings',
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _label('Event Type'),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: List.generate(_kTypes.length, (i) {
-                              final tp  = _kTypes[i];
-                              final sel = _type == tp.$1;
-                              return MouseRegion(
-                                cursor: SystemMouseCursors.click,
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: () => setState(() => _type = tp.$1),
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 180),
-                                    width: 74, height: 76,
-                                    decoration: BoxDecoration(
-                                      color: sel ? kGold : t.inputBg,
-                                      borderRadius: BorderRadius.circular(14),
-                                      border: Border.all(color: sel ? kGold : t.border, width: 1.5),
-                                      boxShadow: sel ? [BoxShadow(
-                                        color: kGold.withValues(alpha: 0.28),
-                                        blurRadius: 8, offset: const Offset(0, 3),
-                                      )] : null,
-                                    ),
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(tp.$2, size: 22, color: sel ? Colors.white : tp.$3),
-                                        const SizedBox(height: 5),
-                                        Text(tp.$1,
-                                          style: TextStyle(
-                                            fontFamily: 'Poppins', fontSize: 9.5,
-                                            fontWeight: FontWeight.w600,
-                                            color: sel ? Colors.white : t.text,
-                                          )),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }),
-                          ),
-                          if (_type == 'Other') ...[
-                            const SizedBox(height: 14),
-                            _label('Specify type'),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: _otherTypeCtrl,
-                              maxLength: 40,
-                              style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 13.5,
-                                  color: t.text),
-                              decoration: webInputDeco(
-                                'e.g. Quiz Bee, Sports Fest, Job Fair',
-                                icon: Icons.edit_rounded,
-                                dark: t.dark,
-                              ).copyWith(
-                                counterStyle: TextStyle(
-                                    fontFamily: 'Poppins',
-                                    fontSize: 10,
-                                    color: t.muted),
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                     ),
@@ -2315,6 +2329,407 @@ class _WebTimePickerState extends State<_WebTimePicker> {
               colors: [t.card, t.card.withValues(alpha: 0)],
             )),
           ))),
+      ],
+    );
+  }
+}
+
+// ── Event details dialog ──────────────────────────────────────────────────────
+
+class _EventDetailsDialog extends StatefulWidget {
+  final Map<String, dynamic> event;
+  const _EventDetailsDialog({required this.event});
+
+  @override
+  State<_EventDetailsDialog> createState() => _EventDetailsDialogState();
+}
+
+class _EventDetailsDialogState extends State<_EventDetailsDialog> {
+  bool _loading = true;
+  List<Map<String, dynamic>> _registrations = [];
+  String? _organizerName;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final eventId = widget.event['event_id'] as String?;
+    if (eventId == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    try {
+      final regsRaw = await SupabaseService.client
+          .from('registrations')
+          .select()
+          .eq('event_id', eventId)
+          .order('registered_at', ascending: false);
+
+      String? orgName;
+      final orgId = widget.event['organizer_id'] as String?;
+      if (orgId != null) {
+        final orgRow = await SupabaseService.client
+            .from('organizers')
+            .select('full_name')
+            .eq('organizer_id', orgId)
+            .maybeSingle();
+        orgName = orgRow?['full_name'] as String?;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _registrations = List<Map<String, dynamic>>.from(regsRaw as List);
+        _organizerName = orgName;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Map<String, dynamic> get _e => widget.event;
+
+  String get _title    => _e['title'] as String? ?? '—';
+  String get _location => _e['location'] as String? ?? '—';
+  String get _type     => _e['event_type'] as String? ?? '—';
+  String get _desc     => _e['description'] as String? ?? '';
+  String? get _imgUrl  => _e['event_image_url'] as String?;
+
+  int get _capacity   => _e['max_participants'] as int? ?? 0;
+  int get _registered => _registrations.isNotEmpty
+      ? _registrations.length
+      : (_e['current_participants'] as int? ?? 0);
+  int get _checkedIn =>
+      _registrations.where((r) => r['status'] == 'checked_in').length;
+  int get _pending => _registrations.where(
+      (r) => r['status'] == 'pending' || r['status'] == 'qr_scanned').length;
+  int get _remaining =>
+      _capacity > 0 ? (_capacity - _registered).clamp(0, _capacity) : 0;
+  double get _fillRatio =>
+      _capacity > 0 ? (_registered / _capacity).clamp(0.0, 1.0) : 0.0;
+  int get _attendancePct =>
+      _capacity > 0 ? (_checkedIn / _capacity * 100).clamp(0, 100).toInt() : 0;
+
+  String get _fmtTimeRange {
+    final s  = _e['start_time'] as String?;
+    final en = _e['end_time'] as String?;
+    if (s == null || s.isEmpty) return '—';
+    return en != null && en.isNotEmpty ? '${webFmtTime(s)} — ${webFmtTime(en)}' : webFmtTime(s);
+  }
+
+  String _initials(String name) {
+    final p = name.trim().split(' ');
+    if (p.length >= 2) return '${p[0][0]}${p[1][0]}'.toUpperCase();
+    return p.isNotEmpty && p[0].isNotEmpty ? p[0][0].toUpperCase() : '?';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t         = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final status    = _e['event_status'] as String?;
+    final resolved  = _resolveDisplayStatus(_e);
+    final isEnded   = resolved == 'ended';
+    final sc        = isEnded ? const Color(0xFF6B7280) : webEventStatusColor(status);
+    final statusLbl = isEnded ? 'Ended' : webEventStatusLabel(status);
+    final typeData  = _kTypes.firstWhere(
+      (tp) => tp.$1 == _type,
+      orElse: () => _kTypes.last,
+    );
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: t.card,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 560,
+          maxHeight: MediaQuery.of(context).size.height * 0.88,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 18, 16, 18),
+              decoration: BoxDecoration(
+                color: t.inputBg,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                border: Border(bottom: BorderSide(color: t.border)),
+              ),
+              child: Row(children: [
+                Container(
+                  width: 44, height: 44,
+                  decoration: BoxDecoration(
+                    color: typeData.$3.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: typeData.$3.withValues(alpha: 0.18)),
+                  ),
+                  clipBehavior: Clip.hardEdge,
+                  child: _imgUrl != null && _imgUrl!.isNotEmpty
+                      ? Image.network(_imgUrl!, fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Icon(typeData.$2, color: typeData.$3, size: 20))
+                      : Icon(typeData.$2, color: typeData.$3, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_title,
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: t.text),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 5),
+                      Wrap(spacing: 6, runSpacing: 6, children: [
+                        WebStatusBadge(label: _type, color: typeData.$3),
+                        WebStatusBadge(label: statusLbl, color: sc),
+                      ]),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: () => Navigator.of(context).pop(),
+                    child: Container(
+                      width: 32, height: 32,
+                      decoration: BoxDecoration(color: t.divider, borderRadius: BorderRadius.circular(8)),
+                      child: Icon(Icons.close_rounded, size: 16, color: t.sub),
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+            // Body
+            Flexible(
+              child: _loading
+                  ? const Padding(
+                      padding: EdgeInsets.all(40),
+                      child: Center(child: CircularProgressIndicator(color: kGold)),
+                    )
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildStatsStrip(t),
+                          const SizedBox(height: 14),
+                          _DialogSection(
+                            icon: Icons.info_outline_rounded,
+                            iconBg: kGoldLight,
+                            iconColor: kGold,
+                            title: 'Event Information',
+                            child: Column(children: [
+                              _infoRow(Icons.calendar_today_rounded, const Color(0xFF2563EB), 'Date', webFmtDate(_e['event_date'] as String?), t),
+                              _divider(t),
+                              _infoRow(Icons.access_time_rounded, const Color(0xFF16A34A), 'Time', _fmtTimeRange, t),
+                              _divider(t),
+                              _infoRow(Icons.location_on_rounded, kGold, 'Venue', _location, t),
+                              _divider(t),
+                              _infoRow(Icons.person_rounded, const Color(0xFFEA580C), 'Organizer', _organizerName ?? '—', t),
+                            ]),
+                          ),
+                          const SizedBox(height: 14),
+                          _DialogSection(
+                            icon: Icons.people_rounded,
+                            iconBg: kGoldLight,
+                            iconColor: kGold,
+                            title: 'Registration Fill',
+                            child: _buildFill(t),
+                          ),
+                          if (_desc.isNotEmpty) ...[
+                            const SizedBox(height: 14),
+                            _DialogSection(
+                              icon: Icons.notes_rounded,
+                              iconBg: const Color(0x1A7C3AED),
+                              iconColor: const Color(0xFF7C3AED),
+                              title: 'About This Event',
+                              child: Text(_desc,
+                                style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub, height: 1.6)),
+                            ),
+                          ],
+                          const SizedBox(height: 14),
+                          _DialogSection(
+                            icon: Icons.list_alt_rounded,
+                            iconBg: const Color(0x1A16A34A),
+                            iconColor: const Color(0xFF16A34A),
+                            title: 'Recent Registrations',
+                            child: _buildRegistrations(t),
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _divider(WebTk t) => Divider(height: 16, thickness: 0.8, color: t.divider);
+
+  Widget _infoRow(IconData icon, Color color, String label, String value, WebTk t) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 30, height: 30,
+          decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(9)),
+          child: Icon(icon, color: color, size: 15),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
+              const SizedBox(height: 2),
+              Text(value, style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatsStrip(WebTk t) {
+    final data = [
+      (value: '$_registered',     label: 'Registered', icon: Icons.confirmation_num_outlined, color: kGold),
+      (value: '$_checkedIn',      label: 'Checked In',  icon: Icons.how_to_reg_rounded,        color: const Color(0xFF16A34A)),
+      (value: '$_remaining',      label: 'Remaining',   icon: Icons.event_seat_rounded,        color: const Color(0xFF2563EB)),
+      (value: '$_attendancePct%', label: 'Attendance',  icon: Icons.bar_chart_rounded,         color: const Color(0xFF7C3AED)),
+    ];
+    return Row(
+      children: data.asMap().entries.map((entry) {
+        final d = entry.value;
+        return Expanded(
+          child: Container(
+            margin: EdgeInsets.only(left: entry.key == 0 ? 0 : 8),
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+            decoration: BoxDecoration(
+              color: d.color.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: d.color.withValues(alpha: 0.2)),
+            ),
+            child: Column(children: [
+              Icon(d.icon, color: d.color, size: 17),
+              const SizedBox(height: 5),
+              Text(d.value, style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w800, color: d.color)),
+              const SizedBox(height: 2),
+              Text(d.label, style: TextStyle(fontFamily: 'Poppins', fontSize: 9, color: t.muted), textAlign: TextAlign.center),
+            ]),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildFill(WebTk t) {
+    final fillColor = _fillRatio >= 0.9 ? const Color(0xFFEF4444)
+        : _fillRatio >= 0.7 ? const Color(0xFFF59E0B) : kGold;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Expanded(
+            child: RichText(
+              text: TextSpan(style: const TextStyle(fontFamily: 'Poppins'), children: [
+                TextSpan(text: '$_registered',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: fillColor)),
+                if (_capacity > 0)
+                  TextSpan(text: ' / $_capacity',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: t.muted)),
+              ]),
+            ),
+          ),
+          if (_capacity > 0)
+            Text('${(_fillRatio * 100).toInt()}%',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: fillColor)),
+        ]),
+        const SizedBox(height: 12),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            value: _fillRatio, minHeight: 9,
+            backgroundColor: t.divider,
+            valueColor: AlwaysStoppedAnimation<Color>(fillColor),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          _pill('$_pending Pending', const Color(0xFFF59E0B)),
+          _pill('$_checkedIn Checked In', const Color(0xFF16A34A)),
+          if (_capacity > 0) _pill('$_remaining Remaining', const Color(0xFF2563EB)),
+        ]),
+      ],
+    );
+  }
+
+  Widget _pill(String label, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: color.withValues(alpha: 0.25)),
+    ),
+    child: Text(label, style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+  );
+
+  Widget _buildRegistrations(WebTk t) {
+    if (_registrations.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(children: [
+          Icon(Icons.inbox_outlined, size: 36, color: kGold.withValues(alpha: 0.3)),
+          const SizedBox(height: 10),
+          Text('No registrations yet',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.muted)),
+        ]),
+      );
+    }
+    final preview = _registrations.take(5).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ...preview.asMap().entries.map((entry) {
+          final r      = entry.value;
+          final name   = r['student_name'] as String? ?? '—';
+          final sid    = r['student_school_id'] as String? ?? '—';
+          final rstat  = r['status'] as String? ?? 'pending';
+          final regAt  = r['registered_at'] as String?;
+          final color  = webStatusColor(rstat);
+          return Padding(
+            padding: EdgeInsets.only(bottom: entry.key < preview.length - 1 ? 12 : 0),
+            child: Row(children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: color.withValues(alpha: 0.12),
+                child: Text(_initials(name),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, fontWeight: FontWeight.w700, color: color)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Text('$sid  ·  ${regAt != null ? webFmtDate(regAt) : '—'}',
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
+                  ],
+                ),
+              ),
+              WebStatusBadge(label: webStatusLabel(rstat), color: color),
+            ]),
+          );
+        }),
+        if (_registrations.length > 5) ...[
+          const SizedBox(height: 12),
+          Text('+ ${_registrations.length - 5} more registration${_registrations.length - 5 == 1 ? '' : 's'}',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w600, color: t.muted)),
+        ],
       ],
     );
   }

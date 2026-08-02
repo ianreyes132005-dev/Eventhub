@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
+import '../../../core/services/org_notif_prefs.dart';
 import 'web_shared.dart';
 import 'dashboard_page.dart';
 import 'events_page.dart';
@@ -1412,11 +1414,13 @@ class _TopBarSignOutBtnState extends State<_TopBarSignOutBtn> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AppNotif {
+  final String   id;
   final String   title;
   final String   subtitle;
   final IconData icon;
   final Color    color;
   const _AppNotif({
+    required this.id,
     required this.title,
     required this.subtitle,
     required this.icon,
@@ -1437,27 +1441,54 @@ class _NotificationBell extends StatefulWidget {
 }
 
 class _NotificationBellState extends State<_NotificationBell> {
-  // Survives widget remounts — tracks the hash of the last batch of
-  // notifications the user actually opened the panel to read.
-  static int _lastSeenHash = 0;
-
   final _layerLink = LayerLink();
   OverlayEntry?   _entry;
+  Timer?          _refreshTimer;
   bool            _open   = false;
   bool            _loaded = false;
   bool            _read   = false;
   List<_AppNotif> _notifs = [];
 
+  String? get _uid => SupabaseService.client.auth.currentUser?.id;
+
   @override
   void initState() {
     super.initState();
     _load();
+    // The bell lives in the shell for the whole session, so it needs its own
+    // refresh — unlike a per-page widget it never gets rebuilt on navigation.
+    _refreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (!_open) _load();
+    });
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _entry?.remove();
     super.dispose();
+  }
+
+  // ── Read-state persistence (per-user, per-notification-ID) ────────────────
+
+  static String _prefKey(String userId) => 'web_notif_read_ids_$userId';
+
+  Future<void> _persistReadState() async {
+    final userId = _uid;
+    if (userId == null || _notifs.isEmpty) return;
+    final prefs    = await SharedPreferences.getInstance();
+    final existing = Set<String>.from(prefs.getStringList(_prefKey(userId)) ?? []);
+    existing.addAll(_notifs.map((n) => n.id));
+    final list    = existing.toList();
+    final trimmed = list.length > 200 ? list.sublist(list.length - 200) : list;
+    await prefs.setStringList(_prefKey(userId), trimmed);
+  }
+
+  Future<bool> _wasAlreadyRead(String userId, List<_AppNotif> notifs) async {
+    if (notifs.isEmpty) return true;
+    final prefs   = await SharedPreferences.getInstance();
+    final readIds = Set<String>.from(prefs.getStringList(_prefKey(userId)) ?? []);
+    return notifs.every((n) => readIds.contains(n.id));
   }
 
   // ── Data fetch ─────────────────────────────────────────────────────────────
@@ -1467,8 +1498,9 @@ class _NotificationBellState extends State<_NotificationBell> {
       if (mounted) setState(() => _loaded = true);
       return;
     }
-    final orgId = widget.orgId!;
-    final now   = DateTime.now();
+    final orgId  = widget.orgId!;
+    final userId = _uid;
+    final now    = DateTime.now();
 
     String fmtDate(DateTime d) =>
         '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -1502,6 +1534,7 @@ class _NotificationBellState extends State<_NotificationBell> {
         final count = (regRows as List).length;
         if (count > 0) {
           result.add(_AppNotif(
+            id:       'signups_today_$todayStr',
             title:    '$count new sign-up${count == 1 ? '' : 's'} today',
             subtitle: 'Students registered for your events',
             icon:     Icons.how_to_reg_rounded,
@@ -1515,6 +1548,7 @@ class _NotificationBellState extends State<_NotificationBell> {
           .where((e) => e['event_status'] == 'ongoing')
           .take(3)) {
         result.add(_AppNotif(
+          id:       'event_live_${e['event_id']}',
           title:    e['title'] as String? ?? '—',
           subtitle: 'Event is live · check in students now',
           icon:     Icons.radio_button_checked_rounded,
@@ -1530,6 +1564,7 @@ class _NotificationBellState extends State<_NotificationBell> {
           .take(3)) {
         final t = webFmtTime(e['start_time'] as String?);
         result.add(_AppNotif(
+          id:       'event_today_${e['event_id']}',
           title:    e['title'] as String? ?? '—',
           subtitle: 'Starting today${t.isNotEmpty ? ' at $t' : ''}',
           icon:     Icons.today_rounded,
@@ -1545,21 +1580,38 @@ class _NotificationBellState extends State<_NotificationBell> {
           .take(2)) {
         final t = webFmtTime(e['start_time'] as String?);
         result.add(_AppNotif(
+          id:       'event_tomorrow_${e['event_id']}',
           title:    e['title'] as String? ?? '—',
           subtitle: 'Starting tomorrow${t.isNotEmpty ? ' at $t' : ''}',
           icon:     Icons.calendar_month_rounded,
           color:    const Color(0xFFF59E0B),
         ));
       }
+
+      // Respect per-user preferences (Profile → Notifications) — same
+      // categories the mobile app already filters on.
+      if (userId != null) {
+        final disabledCats = await OrgNotifPrefs.disabled(userId);
+        if (disabledCats.isNotEmpty) {
+          result.removeWhere((n) =>
+              (disabledCats.contains(OrgNotifPrefs.signups) &&
+                  n.id.startsWith('signups_today_')) ||
+              (disabledCats.contains(OrgNotifPrefs.live) &&
+                  n.id.startsWith('event_live_')) ||
+              (disabledCats.contains(OrgNotifPrefs.today) &&
+                  n.id.startsWith('event_today_')) ||
+              (disabledCats.contains(OrgNotifPrefs.tomorrow) &&
+                  n.id.startsWith('event_tomorrow_')));
+        }
+      }
     } catch (_) {}
 
+    final alreadyRead = userId == null || await _wasAlreadyRead(userId, result);
     if (mounted) {
-      final hash = Object.hashAll(result.map((n) => n.title));
       setState(() {
         _notifs = result;
         _loaded = true;
-        // Don't flash the dot if nothing changed since the user last read.
-        _read   = result.isEmpty || hash == _lastSeenHash;
+        _read   = alreadyRead;
       });
       _entry?.markNeedsBuild();
     }
@@ -1573,10 +1625,11 @@ class _NotificationBellState extends State<_NotificationBell> {
   }
 
   void _openPanel() {
-    _lastSeenHash = Object.hashAll(_notifs.map((n) => n.title));
     setState(() { _open = true; _read = true; });
     _entry = OverlayEntry(builder: (_) => _buildOverlay());
     Overlay.of(context).insert(_entry!);
+    _persistReadState(); // fire-and-forget — survives reload/logout
+    _load(); // refresh in the background; overlay repaints via markNeedsBuild
   }
 
   void _close() {
