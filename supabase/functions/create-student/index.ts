@@ -7,6 +7,16 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// Must match `kRequiredLrnPrefix` in lib/core/app_colors.dart — the student
+// login screen only asks for the last 4 digits of the LRN and rebuilds the
+// rest from that constant, so any account created with a different prefix
+// here could never actually be logged into. Keep both in sync by hand.
+const REQUIRED_LRN_PREFIX = '12345626'
+
+function formatLrn(rawDigits: string): string {
+  return `${rawDigits.slice(0, 6)} - ${rawDigits.slice(6, 8)} - ${rawDigits.slice(8, 12)}`
+}
+
 function errRes(status: number, message: string): Response {
   return new Response(
     JSON.stringify({ error: true, message }),
@@ -28,8 +38,13 @@ serve(async (req) => {
     // ── 1. Parse body ────────────────────────────────────────────────────────
     const { lrn, full_name, year_level, password } = await req.json()
 
-    if (!lrn || !/^\d{12}$/.test(lrn))
+    const rawLrn = String(lrn ?? '').replace(/\D/g, '')
+    if (!rawLrn || !/^\d{12}$/.test(rawLrn))
       return errRes(400, 'LRN must be exactly 12 digits.')
+    if (!rawLrn.startsWith(REQUIRED_LRN_PREFIX)) {
+      const prefixDisplay = `${REQUIRED_LRN_PREFIX.slice(0, 6)} - ${REQUIRED_LRN_PREFIX.slice(6, 8)}`
+      return errRes(400, `LRN must start with ${prefixDisplay} — students log in with only the last 4 digits.`)
+    }
     if (!full_name?.trim())
       return errRes(400, 'Full name is required.')
     if (!password || password.length < 6)
@@ -55,12 +70,15 @@ serve(async (req) => {
     if (!adminRow) return errRes(403, 'Only admins can create student accounts.')
 
     // ── 4. Check LRN not already taken ───────────────────────────────────────
+    const formattedLrn = formatLrn(rawLrn)
     const { data: existing } = await supabaseAdmin
-      .from('students').select('lrn').eq('lrn', lrn).maybeSingle()
-    if (existing) return errRes(409, `LRN ${lrn} already exists.`)
+      .from('students').select('lrn').eq('lrn', formattedLrn).maybeSingle()
+    if (existing) return errRes(409, `LRN ${formattedLrn} already exists.`)
 
-    // ── 5. Create auth user  (email = {lrn}@gmail.com) ───────────────────────
-    const email = `${lrn}@gmail.com`
+    // ── 5. Create auth user (email always built from the raw digits, so it
+    // matches what the login screen reconstructs regardless of how the LRN
+    // is formatted for storage) ───────────────────────────────────────────────
+    const email = `${rawLrn}@gmail.com`
     const { data: created, error: createErr } =
       await supabaseAdmin.auth.admin.createUser({
         email,
@@ -69,9 +87,9 @@ serve(async (req) => {
       })
     if (createErr) return errRes(400, createErr.message)
 
-    // ── 6. Insert student row ─────────────────────────────────────────────────
+    // ── 6. Insert student row (LRN stored dash-formatted for readability) ────
     const { error: insertErr } = await supabaseAdmin.from('students').insert({
-      lrn,
+      lrn:        formattedLrn,
       user_id:    created.user.id,
       full_name:  full_name.trim(),
       year_level: year_level ?? null,

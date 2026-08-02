@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/app_colors.dart';
 import '../../core/theme_store.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/services/audit_service.dart';
 import '../organizer/web/web_shared.dart';
 import '../../shared/widgets/event_phase_pill.dart';
 
@@ -2298,8 +2299,12 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
     );
     if (ok != true) return;
     try {
-      await SupabaseService.client.from('students')
-          .update({'is_active': !cur}).eq('lrn', lrn);
+      final updated = await SupabaseService.client.from('students')
+          .update({'is_active': !cur}).eq('lrn', lrn).select();
+      if ((updated as List).isEmpty) {
+        if (mounted) _snack('Failed: student not found or the update was not permitted.');
+        return;
+      }
       final idx = _all.indexWhere((s) => s['lrn'] == lrn);
       if (idx != -1) { _all[idx] = {..._all[idx], 'is_active': !cur}; _applyFilter(); }
     } catch (e) {
@@ -2312,8 +2317,12 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
       context: context, builder: (_) => _StudentDialog(student: student));
     if (result == null) return;
     try {
-      await SupabaseService.client.from('students')
-          .update(result).eq('lrn', student['lrn'] as String);
+      final updated = await SupabaseService.client.from('students')
+          .update(result).eq('lrn', student['lrn'] as String).select();
+      if ((updated as List).isEmpty) {
+        if (mounted) _snack('Failed: student not found or the update was not permitted.');
+        return;
+      }
       final idx = _all.indexWhere((s) => s['lrn'] == student['lrn']);
       if (idx != -1) { _all[idx] = {..._all[idx], ...result}; _applyFilter(); }
       if (mounted) WebAlert.success(context: context, title: 'Saved', message: 'Student profile updated.');
@@ -2362,15 +2371,25 @@ class _AdminStudentsPageState extends State<_AdminStudentsPage> {
   Future<void> _deleteStudent(String lrn, String name) async {
     final ok = await WebAlert.confirm(
       context: context, title: 'Delete Student?',
-      message: 'This will permanently remove $name\'s profile and all their event registration history.',
+      message: 'This will permanently remove $name\'s profile, revoke their login, '
+          'and delete all their event registration history.',
       confirmLabel: 'Delete',
     );
     if (ok != true) return;
     try {
-      await SupabaseService.client.from('students').delete().eq('lrn', lrn);
+      final res = await SupabaseService.client.functions.invoke(
+        'delete-student',
+        body: {'lrn': lrn},
+      );
+      final body = res.data is Map ? Map<String, dynamic>.from(res.data as Map) : null;
+      if (res.status != 200) {
+        if (mounted) _snack(body?['message'] as String? ?? 'Failed to delete student.');
+        return;
+      }
       _all.removeWhere((s) => s['lrn'] == lrn);
       _applyFilter();
-      if (mounted) WebAlert.success(context: context, title: 'Deleted', message: 'Student record removed.');
+      if (mounted) WebAlert.success(context: context, title: 'Deleted',
+          message: 'Student record removed and login access revoked.');
     } catch (e) { if (mounted) _snack('Failed: $e'); }
   }
 
@@ -3127,6 +3146,12 @@ class _StudentDialogState extends State<_StudentDialog>
     if (!_isEdit && !RegExp(r'^\d{12}$').hasMatch(lrn)) {
       _snack('LRN must be exactly 12 digits'); return;
     }
+    if (!_isEdit && !lrn.startsWith(kRequiredLrnPrefix)) {
+      final prefixDisplay = '${kRequiredLrnPrefix.substring(0, 6)} - ${kRequiredLrnPrefix.substring(6, 8)}';
+      _snack('LRN must start with $prefixDisplay '
+          '— students log in with only the last 4 digits, which are rebuilt using this prefix.');
+      return;
+    }
     if (name.isEmpty) { _snack('Full name is required'); return; }
     if (!_isEdit && pw.length < 6) {
       _snack('Password must be at least 6 characters'); return;
@@ -3508,8 +3533,12 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
     );
     if (ok != true) return;
     try {
-      await SupabaseService.client.from('organizers')
-          .update({'is_active': !cur}).eq('organizer_id', id);
+      final updated = await SupabaseService.client.from('organizers')
+          .update({'is_active': !cur}).eq('organizer_id', id).select();
+      if ((updated as List).isEmpty) {
+        if (mounted) _snack('Failed: organizer not found or the update was not permitted.');
+        return;
+      }
       final idx = _all.indexWhere((o) => o['organizer_id'] == id);
       if (idx != -1) { _all[idx] = {..._all[idx], 'is_active': !cur}; _applyFilter(); }
     } catch (e) { if (mounted) _snack('Failed: $e'); }
@@ -3523,8 +3552,12 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
       ));
     if (result == null) return;
     try {
-      await SupabaseService.client.from('organizers')
-          .update(result).eq('organizer_id', org['organizer_id'] as String);
+      final updated = await SupabaseService.client.from('organizers')
+          .update(result).eq('organizer_id', org['organizer_id'] as String).select();
+      if ((updated as List).isEmpty) {
+        if (mounted) _snack('Failed: organizer not found or the update was not permitted.');
+        return;
+      }
       final idx = _all.indexWhere((o) => o['organizer_id'] == org['organizer_id']);
       if (idx != -1) { _all[idx] = {..._all[idx], ...result}; _applyFilter(); }
       if (mounted) WebAlert.success(context: context, title: 'Saved', message: 'Organizer profile updated.');
@@ -3597,11 +3630,20 @@ class _AdminOrganizersPageState extends State<_AdminOrganizersPage> {
     );
     if (ok != true) return;
     try {
-      await SupabaseService.client.from('organizers').delete().eq('organizer_id', id);
+      final res = await SupabaseService.client.functions.invoke(
+        'delete-organizer',
+        body: {'organizer_id': id},
+      );
+      final body = res.data is Map ? Map<String, dynamic>.from(res.data as Map) : null;
+      if (res.status != 200) {
+        if (mounted) _snack(body?['message'] as String? ?? 'Failed to delete organizer.');
+        return;
+      }
       _all.removeWhere((o) => o['organizer_id'] == id);
       _eventCounts.remove(id);
       _applyFilter();
-      if (mounted) WebAlert.success(context: context, title: 'Deleted', message: 'Organizer removed.');
+      if (mounted) WebAlert.success(context: context, title: 'Deleted',
+          message: 'Organizer removed and login access revoked.');
     } catch (e) { if (mounted) _snack('Failed: $e'); }
   }
 
@@ -4381,9 +4423,22 @@ class _AdminEventsPageState extends State<_AdminEventsPage> {
     );
     if (ok != true) return;
     try {
-      await SupabaseService.client.from('events')
-          .update({'event_status': 'cancelled'}).eq('event_id', id);
-      final idx = _all.indexWhere((e) => e['event_id'] == id);
+      final updated = await SupabaseService.client.from('events')
+          .update({'event_status': 'cancelled'}).eq('event_id', id).select();
+      if ((updated as List).isEmpty) {
+        if (mounted) _snack('Failed: event not found or you do not have permission to cancel it.');
+        return;
+      }
+      final idx    = _all.indexWhere((e) => e['event_id'] == id);
+      final orgMap = idx != -1 ? _all[idx]['organizers'] as Map<String, dynamic>? : null;
+      AuditService.logEvent(
+        action: 'cancelled',
+        eventTitle: title,
+        eventId: id,
+        organizerId: idx != -1 ? _all[idx]['organizer_id'] as String? : null,
+        organizerName: orgMap?['full_name'] as String?,
+        details: 'Event cancelled by an administrator',
+      );
       if (idx != -1) { _all[idx] = {..._all[idx], 'event_status': 'cancelled'}; _applyFilter(); }
       if (mounted) WebAlert.success(context: context, title: 'Cancelled', message: 'Event has been cancelled.');
     } catch (e) { if (mounted) _snack('Failed: $e'); }
@@ -5152,8 +5207,12 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
     try {
       if (result == 'approve') {
         final now = DateTime.now().toUtc().toIso8601String();
-        await SupabaseService.client.from('registrations')
-            .update({'status': 'checked_in', 'checked_in_at': now}).eq('id', id);
+        final updated = await SupabaseService.client.from('registrations')
+            .update({'status': 'checked_in', 'checked_in_at': now}).eq('id', id).select();
+        if ((updated as List).isEmpty) {
+          if (mounted) _snack('Failed: registration not found or the update was not permitted.');
+          return;
+        }
         final idx = _all.indexWhere((r) => r['id'] == id);
         if (idx != -1) {
           _all[idx] = {..._all[idx], 'status': 'checked_in', 'checked_in_at': now};
@@ -5162,8 +5221,12 @@ class _AdminRegistrationsPageState extends State<_AdminRegistrationsPage> {
         if (mounted) { WebAlert.success(context: context, title: 'Approved',
             message: '$sName has been checked in.'); }
       } else {
-        await SupabaseService.client.from('registrations')
-            .update({'status': 'rejected'}).eq('id', id);
+        final updated = await SupabaseService.client.from('registrations')
+            .update({'status': 'rejected'}).eq('id', id).select();
+        if ((updated as List).isEmpty) {
+          if (mounted) _snack('Failed: registration not found or the update was not permitted.');
+          return;
+        }
         final idx = _all.indexWhere((r) => r['id'] == id);
         if (idx != -1) { _all[idx] = {..._all[idx], 'status': 'rejected'}; _applyFilter(); }
         if (mounted) { WebAlert.success(context: context, title: 'Rejected',
@@ -6368,24 +6431,27 @@ IconData _logRoleIcon(String? role) => switch (role) {
 };
 
 Color _logActionColor(String? action) => switch (action) {
-  'created' => const Color(0xFF10B981),
-  'updated' => const Color(0xFF3B82F6),
-  'deleted' => const Color(0xFFEF4444),
-  _         => kMuted,
+  'created'   => const Color(0xFF10B981),
+  'updated'   => const Color(0xFF3B82F6),
+  'deleted'   => const Color(0xFFEF4444),
+  'cancelled' => const Color(0xFFEF4444),
+  _           => kMuted,
 };
 
 String _logActionLabel(String? action) => switch (action) {
-  'created' => 'Created',
-  'updated' => 'Updated',
-  'deleted' => 'Deleted',
-  _         => action?.toUpperCase() ?? '—',
+  'created'   => 'Created',
+  'updated'   => 'Updated',
+  'deleted'   => 'Deleted',
+  'cancelled' => 'Cancelled',
+  _           => action?.toUpperCase() ?? '—',
 };
 
 IconData _logActionIcon(String? action) => switch (action) {
-  'created' => Icons.add_circle_outline_rounded,
-  'updated' => Icons.edit_outlined,
-  'deleted' => Icons.delete_outline_rounded,
-  _         => Icons.event_note_outlined,
+  'created'   => Icons.add_circle_outline_rounded,
+  'updated'   => Icons.edit_outlined,
+  'deleted'   => Icons.delete_outline_rounded,
+  'cancelled' => Icons.cancel_outlined,
+  _           => Icons.event_note_outlined,
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -6507,12 +6573,27 @@ class _AdminAnnouncementsPageState extends State<_AdminAnnouncementsPage> {
     );
     if (ok != true || !mounted) return;
     try {
-      await SupabaseService.client
+      final deleted = await SupabaseService.client
           .from('announcements')
           .delete()
-          .eq('id', ann['id'] as int);
+          .eq('id', ann['id'] as int)
+          .select();
+      if ((deleted as List).isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Failed: announcement not found or the delete was not permitted.',
+                style: TextStyle(fontFamily: 'Poppins')),
+            backgroundColor: Color(0xFFEF4444),
+          ));
+        }
+        return;
+      }
       SupabaseService.announcementsVersion.value++;
       await _load(silent: true);
+      if (mounted) {
+        WebAlert.success(context: context, title: 'Deleted',
+            message: 'Announcement removed.');
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -7663,7 +7744,7 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
 
   Widget _buildEventTab(int filtered, int total) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    const actions = ['All', 'Created', 'Updated', 'Deleted'];
+    const actions = ['All', 'Created', 'Updated', 'Deleted', 'Cancelled'];
 
     if (_eventLoading) {
       return const Center(child: CircularProgressIndicator(color: _kAccent));
@@ -7681,9 +7762,10 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
       ..sort();
 
     // KPI counts from the filtered set
-    final createdCount = _eventFiltered.where((r) => r['action'] == 'created').length;
-    final updatedCount = _eventFiltered.where((r) => r['action'] == 'updated').length;
-    final deletedCount = _eventFiltered.where((r) => r['action'] == 'deleted').length;
+    final createdCount   = _eventFiltered.where((r) => r['action'] == 'created').length;
+    final updatedCount   = _eventFiltered.where((r) => r['action'] == 'updated').length;
+    final deletedCount   = _eventFiltered.where((r) => r['action'] == 'deleted').length;
+    final cancelledCount = _eventFiltered.where((r) => r['action'] == 'cancelled').length;
     final activeOrgs   = _eventFiltered
         .map((r) => r['organizer_name'] as String? ?? '')
         .where((n) => n.isNotEmpty)
@@ -7726,10 +7808,11 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
                   ? _eventAll.length
                   : _eventAll.where((x) => x['action'] == a.toLowerCase()).length,
               selectedColor: switch (a) {
-                'Created' => const Color(0xFF10B981),
-                'Updated' => const Color(0xFF3B82F6),
-                'Deleted' => const Color(0xFFEF4444),
-                _         => kGold,
+                'Created'   => const Color(0xFF10B981),
+                'Updated'   => const Color(0xFF3B82F6),
+                'Deleted'   => const Color(0xFFEF4444),
+                'Cancelled' => const Color(0xFFEF4444),
+                _           => kGold,
               },
             ),
             const SizedBox(width: 6),
@@ -7850,6 +7933,12 @@ class _AdminLogsPageState extends State<_AdminLogsPage>
             _LogKpiChip(
               icon: Icons.delete_rounded,
               label: '$deletedCount Deleted',
+              color: const Color(0xFFEF4444),
+            ),
+            const SizedBox(width: 8),
+            _LogKpiChip(
+              icon: Icons.cancel_rounded,
+              label: '$cancelledCount Cancelled',
               color: const Color(0xFFEF4444),
             ),
             const SizedBox(width: 16),
@@ -8292,7 +8381,7 @@ class _LogActionBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final isKnown = const ['created', 'updated', 'deleted'].contains(action);
+    final isKnown = const ['created', 'updated', 'deleted', 'cancelled'].contains(action);
     final color = isKnown ? _logActionColor(action) : t.muted;
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Container(

@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../core/services/audit_service.dart';
 
 
 // ── Static lookup tables ───────────────────────────────────────────────────
@@ -145,6 +146,14 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
         'max_participants': int.tryParse(_capacityCtrl.text),
         'event_status':     _currentStatus,
       }).eq('event_id', _eventId);
+
+      AuditService.logEvent(
+        action: 'updated',
+        eventTitle: _nameCtrl.text.trim(),
+        eventId: _eventId,
+        organizerId: widget.eventData['organizer_id'] as String?,
+        details: 'Event details updated',
+      );
 
       if (!mounted) return;
       setState(() => _isSaving = false);

@@ -61,7 +61,6 @@ class _AuthScreenState extends State<AuthScreen> {
 
   static const _storage = FlutterSecureStorage();
 
-  static const String _kLrnPrefix   = '12345626';
   static const String _kEmailDomain = '@gmail.com';
 
   late final TextEditingController _emailCtrl;
@@ -758,7 +757,7 @@ class _AuthScreenState extends State<AuthScreen> {
     if (!_loginFormKey.currentState!.validate()) return;
     final email = _isOrganizer
         ? '${_emailCtrl.text.trim().toLowerCase()}@gmail.com'
-        : '$_kLrnPrefix${_lrnCtrl.text.trim()}$_kEmailDomain';
+        : '$kRequiredLrnPrefix${_lrnCtrl.text.trim()}$_kEmailDomain';
     final pass  = _passwordCtrl.text;
     setState(() => _loginLoading = true);
     // Block setupAuthStateListener from racing us to the navigator.
@@ -801,7 +800,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
       final organizerData = await SupabaseService.client
           .from('organizers')
-          .select('organizer_id, full_name')
+          .select('organizer_id, full_name, is_active')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -840,6 +839,46 @@ class _AuthScreenState extends State<AuthScreen> {
           );
         }
         return;
+      }
+
+      // ── Account status gate ───────────────────────────────────────────────
+      // Deactivated or deleted accounts must not reach the dashboard just
+      // because Supabase Auth still accepts the password.
+      if (isOrganizer) {
+        if (organizerData!['is_active'] != true) {
+          await Supabase.instance.client.auth.signOut();
+          if (mounted) {
+            setState(() => _loginLoading = false);
+            AppAlert.warning(
+              context,
+              title: 'Account Deactivated',
+              message: 'This organizer account has been deactivated. '
+                  'Contact an administrator for assistance.',
+              buttonText: 'Got it',
+            );
+          }
+          return;
+        }
+      } else {
+        final studentData = await SupabaseService.client
+            .from('students')
+            .select('is_active')
+            .eq('user_id', user.id)
+            .maybeSingle();
+        if (studentData == null || studentData['is_active'] != true) {
+          await Supabase.instance.client.auth.signOut();
+          if (mounted) {
+            setState(() => _loginLoading = false);
+            AppAlert.warning(
+              context,
+              title: 'Account Deactivated',
+              message: 'This student account has been deactivated. '
+                  'Contact an administrator for assistance.',
+              buttonText: 'Got it',
+            );
+          }
+          return;
+        }
       }
 
       // ── Persist credential if Remember Me is on ────────────────────────────

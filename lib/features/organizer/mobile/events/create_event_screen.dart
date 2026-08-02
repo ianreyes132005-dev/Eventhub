@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../core/services/audit_service.dart';
 
 // ── Event type data ────────────────────────────────────────────────────────
 const List<(String, IconData, Color)> _kTypeData = [
@@ -219,6 +220,15 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             ? '${_endTime!.hour.toString().padLeft(2,'0')}:${_endTime!.minute.toString().padLeft(2,'0')}:00' : null,
         'event_image_url':       bannerUrl,
       });
+      final cap = int.tryParse(_capacityCtrl.text);
+      AuditService.logEvent(
+        action: 'created',
+        eventTitle: _nameCtrl.text.trim(),
+        organizerId: customOrgId as String?,
+        details: cap != null && cap > 0
+            ? 'New event created · max $cap participants'
+            : 'New event created',
+      );
       if (!mounted) return;
       setState(() => _isPublishing = false);
       await AppAlert.success(context,

@@ -84,3 +84,15 @@ String formatLrn(String lrn) {
   if (d.length != 12) return lrn;
   return '${d.substring(0, 6)} - ${d.substring(6, 8)} - ${d.substring(8)}';
 }
+
+// The 8-digit school-code + enrollment-year prefix every student LRN must
+// share. The student login screen only asks for the last 4 digits and
+// rebuilds the rest from this constant, so any account created with a
+// different prefix could never actually be logged into. Kept as the single
+// shared source of truth between the login screen and admin account
+// creation — if this ever needs to change (e.g. a new enrollment year),
+// change it here only.
+// NOTE: the `create-student` edge function (supabase/functions/create-student)
+// enforces this same value server-side and must be kept in sync by hand,
+// since edge functions run in a separate Deno runtime and can't import this file.
+const String kRequiredLrnPrefix = '12345626';

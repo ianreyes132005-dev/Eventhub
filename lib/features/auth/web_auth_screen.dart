@@ -395,7 +395,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
 
       final row = await SupabaseService.client
           .from('organizers')
-          .select('organizer_id, full_name')
+          .select('organizer_id, full_name, is_active')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -408,6 +408,22 @@ class _WebAuthScreenState extends State<WebAuthScreen>
             title: 'Wrong Portal',
             message: 'This portal is for organizers and admins only.\n'
                 'Please use the EventHub mobile app to log in as a student.',
+            buttonText: 'Got it',
+            compact: true,
+          );
+        }
+        return;
+      }
+
+      if (row['is_active'] != true) {
+        await SupabaseService.client.auth.signOut();
+        if (mounted) {
+          setState(() => _loading = false);
+          AppAlert.warning(
+            context,
+            title: 'Account Deactivated',
+            message: 'This organizer account has been deactivated. '
+                'Contact an administrator for assistance.',
             buttonText: 'Got it',
             compact: true,
           );

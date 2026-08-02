@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'supabase_service.dart';
 
 class AuditService {
@@ -18,8 +18,10 @@ class AuditService {
         'identifier': identifier,
         'platform':   kIsWeb ? 'web' : 'mobile',
       });
-    } catch (_) {
-      // Audit failures must never interrupt the main flow
+    } catch (e) {
+      // Audit failures must never interrupt the main flow — but still
+      // surface what went wrong so a silent failure doesn't stay invisible.
+      debugPrint('AuditService.logLogin failed: $e');
     }
   }
 
@@ -43,8 +45,10 @@ class AuditService {
         'details':        details,
         'performed_by':   user.id,
       });
-    } catch (_) {
-      // Audit failures must never interrupt the main flow
+    } catch (e) {
+      // Audit failures must never interrupt the main flow — but still
+      // surface what went wrong so a silent failure doesn't stay invisible.
+      debugPrint('AuditService.logEvent failed: $e');
     }
   }
 }

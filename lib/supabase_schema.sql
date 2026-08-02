@@ -343,3 +343,131 @@ ALTER TABLE public.announcements
 ALTER TABLE public.announcements
   ADD CONSTRAINT announcements_title_length_chk   CHECK (char_length(title)   <= 100),
   ADD CONSTRAINT announcements_message_length_chk CHECK (char_length(message) <= 1000);
+
+-- 12. STUDENT YEAR-LEVEL CHECK RANGE FIX
+-- ============================================================
+-- The original table definition (supabase_students_table.sql) capped
+-- year_level at 1-6 — leftover from an earlier draft, never updated. The
+-- admin "Add Student" dialog has only ever offered Junior High (7-10) and
+-- Senior High (11-12) grade buttons, so every attempt to create a student
+-- with a grade selected violated students_year_level_check and failed
+-- outright with no student ever actually getting a grade recorded.
+
+ALTER TABLE public.students
+  DROP CONSTRAINT IF EXISTS students_year_level_check;
+
+ALTER TABLE public.students
+  ADD CONSTRAINT students_year_level_check CHECK (year_level >= 7 AND year_level <= 12);
+
+-- 13. ADMIN WRITE ACCESS — EVENTS, REGISTRATIONS, ANNOUNCEMENTS
+-- ============================================================
+-- The admin dashboard has always tried to cancel events, review/approve
+-- registration photos, and delete announcements directly as the signed-in
+-- admin — but every RLS policy on these tables only ever granted access to
+-- organizers (EXISTS ... FROM organizers), never to admins. These writes
+-- were silently doing nothing (RLS just filters out non-matching rows
+-- rather than raising an error). Confirmed live: cancelling an event
+-- returned "not found or not permitted", and the Registrations tab showed
+-- no rows at all even though registrations exist.
+
+-- Events: admin needs to update event_status (Cancel Event button).
+DROP POLICY IF EXISTS "admin_update_events" ON public.events;
+CREATE POLICY "admin_update_events" ON public.events
+  FOR UPDATE USING (
+    EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
+  );
+
+-- Registrations: admin needs to see every registration (Registrations tab,
+-- Dashboard Overview stats, per-student registration counts) and to update
+-- status when approving/rejecting a submitted photo.
+DROP POLICY IF EXISTS "admin_select_all_registrations" ON public.registrations;
+CREATE POLICY "admin_select_all_registrations" ON public.registrations
+  FOR SELECT USING (
+    EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
+  );
+
+DROP POLICY IF EXISTS "admin_update_registrations" ON public.registrations;
+CREATE POLICY "admin_update_registrations" ON public.registrations
+  FOR UPDATE USING (
+    EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
+  );
+
+-- Announcements: admin needs to delete (moderation tool). Not yet tested
+-- live, but added proactively — identical shape to the two confirmed gaps
+-- above, so it would fail the exact same way if left alone.
+DROP POLICY IF EXISTS "admin_delete_announcements" ON public.announcements;
+CREATE POLICY "admin_delete_announcements" ON public.announcements
+  FOR DELETE USING (
+    EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
+  );
+
+-- 14. ADMIN WRITE ACCESS — EVENT LOGS
+-- ============================================================
+-- Section 13 fixed events/registrations/announcements, but AuditService's
+-- insert into event_logs was still organizer-only. Confirmed live:
+-- cancelling an event now succeeds, but no "Cancelled" entry appears in the
+-- Logs tab — AuditService.logEvent() swallows insert errors silently by
+-- design (an audit failure must never block the real action), so this
+-- failure was invisible until actually checking the Logs tab.
+
+DROP POLICY IF EXISTS "admin_insert_event_logs" ON public.event_logs;
+CREATE POLICY "admin_insert_event_logs" ON public.event_logs
+  FOR INSERT WITH CHECK (
+    EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
+  );
+
+-- 15. ADMIN READ ACCESS — EVENT LOGS + LOGIN LOGS
+-- ============================================================
+-- Section 14 fixed admin *writing* to event_logs, but admin never had a
+-- policy to *read* it either — confirmed live: organizer-created entries
+-- (created/updated/deleted), which predate every change in this session,
+-- also never showed up for admin. The Event Logs tab has likely been empty
+-- for admin since the feature was first built, regardless of who wrote the
+-- entries. login_logs was created at the same time in the same untracked
+-- way, so it's fixed proactively here too, even though it hasn't been
+-- specifically confirmed broken yet.
+
+DROP POLICY IF EXISTS "admin_select_event_logs" ON public.event_logs;
+CREATE POLICY "admin_select_event_logs" ON public.event_logs
+  FOR SELECT USING (
+    EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
+  );
+
+DROP POLICY IF EXISTS "admin_select_login_logs" ON public.login_logs;
+CREATE POLICY "admin_select_login_logs" ON public.login_logs
+  FOR SELECT USING (
+    EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
+  );
+
+-- 16. ORGANIZER WRITE ACCESS — EVENT LOGS
+-- ============================================================
+-- The real root cause: event_logs had RLS enabled with no INSERT policy for
+-- anyone at all until Section 14 added one for admin. Organizers have been
+-- calling AuditService.logEvent() on every create/update/delete since this
+-- feature was built, and every single one of those inserts has been
+-- silently failing (logEvent() swallows insert errors on purpose, so the
+-- real action always succeeded and nothing ever looked broken). Confirmed
+-- live: total row count in event_logs was 0. This is what actually closes
+-- the loop for "the Logs tab doesn't see most of what happens" — it wasn't
+-- only missing mobile/admin actions, it was missing everything.
+
+DROP POLICY IF EXISTS "organizer_insert_event_logs" ON public.event_logs;
+CREATE POLICY "organizer_insert_event_logs" ON public.event_logs
+  FOR INSERT WITH CHECK (
+    EXISTS (SELECT 1 FROM public.organizers WHERE user_id = auth.uid())
+  );
+
+-- 17. EVENT LOGS COLUMN TYPE FIX — organizer_id
+-- ============================================================
+-- The actual root cause, found via information_schema after Section 16's
+-- RLS fix still didn't produce any rows: event_logs.organizer_id was
+-- created as uuid, but every organizer_id in this app is a custom string
+-- like "Org0001" (organizers.organizer_id, never a UUID). Every insert —
+-- from every organizer action since this feature was built, plus every
+-- admin action tonight — has been rejected by Postgres at the type-cast
+-- level (invalid input syntax for type uuid), which PostgREST surfaces as
+-- an HTTP 400. Nothing but this column's type was ever wrong; RLS was a
+-- real but separate gap. Safe to change with no data loss — the table has
+-- never held a single row.
+
+ALTER TABLE public.event_logs ALTER COLUMN organizer_id TYPE text;
