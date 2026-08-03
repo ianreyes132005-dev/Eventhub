@@ -20,6 +20,7 @@ class WebDashboardPage extends StatefulWidget {
 class _WebDashboardPageState extends State<WebDashboardPage>
     with TickerProviderStateMixin {
   bool      _loading      = true;
+  bool      _error        = false;
   Timer?           _autoRefreshTimer;
   RealtimeChannel? _rtChannel;
 
@@ -89,7 +90,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
   Future<void> _load({bool silent = false}) async {
     if (widget.orgId == null) return;
     if (!mounted) return;
-    if (!silent) setState(() => _loading = true);
+    if (!silent) setState(() { _loading = true; _error = false; });
     try {
       final client = SupabaseService.client;
       final now    = DateTime.now();
@@ -217,7 +218,9 @@ class _WebDashboardPageState extends State<WebDashboardPage>
       }
     } catch (_) {
       if (mounted) {
-        setState(() => _loading = false);
+        // A failed silent background refresh shouldn't blow away an already
+        // -rendered dashboard — only the initial load surfaces the error state.
+        setState(() { _loading = false; if (!silent) _error = true; });
         if (!silent) _staggerCtrl.forward(from: 0);
       }
     }
@@ -251,6 +254,9 @@ class _WebDashboardPageState extends State<WebDashboardPage>
       return const Center(child: CircularProgressIndicator(color: kGold));
     }
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    if (_error) {
+      return _buildErrorState(t);
+    }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(kWebPad),
       child: Column(
@@ -268,6 +274,28 @@ class _WebDashboardPageState extends State<WebDashboardPage>
       ),
     );
   }
+
+  Widget _buildErrorState(WebTk t) => Center(
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        width: 68, height: 68,
+        decoration: BoxDecoration(
+          color: const Color(0xFFFEF2F2), shape: BoxShape.circle,
+          border: Border.all(color: const Color(0xFFFCA5A5), width: 1.5),
+        ),
+        child: const Icon(Icons.cloud_off_rounded, color: Color(0xFFEF4444), size: 32),
+      ),
+      const SizedBox(height: 18),
+      Text('Could not load dashboard',
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 16,
+            fontWeight: FontWeight.w800, color: t.text)),
+      const SizedBox(height: 8),
+      Text('Check your connection and try again.',
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub)),
+      const SizedBox(height: 24),
+      WebBtn(label: 'Retry', icon: Icons.refresh_rounded, onTap: () => _load()),
+    ]),
+  );
 
   // ── Page header ───────────────────────────────────────────────────────────
   Widget _buildPageHeader(WebTk t) {
@@ -516,11 +544,6 @@ class _WebDashboardPageState extends State<WebDashboardPage>
         ? _weekDayLabels[peakIdx]
         : null;
 
-    final avgNum = totalWeek > 0 ? totalWeek / 7 : 0.0;
-    final avgStr = avgNum == avgNum.toInt().toDouble()
-        ? avgNum.toInt().toString()
-        : avgNum.toStringAsFixed(1);
-
     return WebCard(
       padding: const EdgeInsets.all(22),
       child: Column(
@@ -570,9 +593,9 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Daily average this week',
+                Text('Today vs. this week',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w500, color: t.sub)),
-                Text('$avgStr / day',
+                Text('$todayCount of $totalWeek',
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: purple)),
               ],
             ),

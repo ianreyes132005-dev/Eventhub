@@ -180,10 +180,25 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
         } catch (_) {}
       }
 
-      // Event attendance: last 5 events
-      final last5 = allEvents.length > 5
-          ? allEvents.sublist(allEvents.length - 5)
-          : allEvents;
+      // Event attendance: last 5 PAST events only. Upcoming/ongoing events
+      // are excluded because no student has had the chance to be checked in
+      // yet — including them would deflate the rate misleadingly.
+      final pastEvents = List<Map<String, dynamic>>.from(allEvents)
+        ..retainWhere((e) {
+          final status = (e['event_status'] as String? ?? '').toLowerCase();
+          if (status == 'upcoming' || status == 'ongoing') return false;
+          final d = DateTime.tryParse(e['event_date'] as String? ?? '');
+          return d != null && !DateTime(d.year, d.month, d.day).isAfter(todayStart);
+        })
+        ..sort((a, b) {
+          final da = DateTime.tryParse(a['event_date'] as String? ?? '') ?? DateTime(0);
+          final db = DateTime.tryParse(b['event_date'] as String? ?? '') ?? DateTime(0);
+          return da.compareTo(db);
+        });
+
+      final last5 = pastEvents.length > 5
+          ? pastEvents.sublist(pastEvents.length - 5)
+          : pastEvents;
 
       final attendance = last5.map((e) {
         final eid       = e['event_id'] as String;
@@ -910,11 +925,6 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
     final todayCount = _dailyRegistrations[todayIdx].toInt();
     final peak       = _getPeakDay();
 
-    final avgNum = _totalRegsThisWeek > 0 ? _totalRegsThisWeek / 7 : 0.0;
-    final avgStr = avgNum == avgNum.toInt().toDouble()
-        ? avgNum.toInt().toString()
-        : avgNum.toStringAsFixed(1);
-
     return Container(
       decoration: BoxDecoration(
         color: t.card,
@@ -995,11 +1005,11 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Daily average this week',
+                  'Today vs. this week',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w500, color: t.sub),
                 ),
                 Text(
-                  '$avgStr / day',
+                  '$todayCount of $_totalRegsThisWeek',
                   style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700, color: purple),
                 ),
               ],
@@ -1300,7 +1310,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                 children: [
                   Text('Event Attendance',
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: t.text)),
-                  Text('Attendance per event · last 5 events',
+                  Text('Attendance per event · last 5 past events',
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
                 ],
               ),

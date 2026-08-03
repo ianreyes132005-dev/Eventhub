@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/chat_service.dart';
+import '../../../shared/widgets/web/web_alert.dart';
 import 'web_layout.dart' show WebTk;
 
 // ── Suggestion model ──────────────────────────────────────────────────────────
@@ -137,6 +138,13 @@ class _WebAiChatbotState extends State<WebAiChatbot>
 
   Future<void> _clear() async {
     if (_sessionId == null) return;
+    final ok = await WebAlert.confirm(
+      context: context,
+      title: 'Clear conversation?',
+      message: 'All messages will be permanently deleted. This cannot be undone.',
+      confirmLabel: 'Clear All',
+    );
+    if (ok != true || !mounted) return;
     try {
       await ChatService.clearHistory(_sessionId!);
       if (mounted) setState(() => _history.clear());
@@ -597,6 +605,7 @@ class _ChatPanel extends StatelessWidget {
               controller: msgCtrl,
               onSubmitted: (_) => onSend(),
               maxLines: null,
+              maxLength: 600,
               style: TextStyle(
                 fontFamily: 'Poppins', fontSize: 12.5, color: t.text,
               ),
@@ -609,6 +618,7 @@ class _ChatPanel extends StatelessWidget {
                 border:        InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
+                counterText:   '',
               ),
             ),
           ),

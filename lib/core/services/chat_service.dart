@@ -76,16 +76,20 @@ class ChatService {
     String sessionId, {
     int limit = 100,
   }) async {
+    // Fetch the most recent [limit] messages (newest first, so the cutoff
+    // lands on the oldest ones), then reverse back to chronological order
+    // for display.
     final rows = await SupabaseService.client
         .from('chat_messages')
         .select()
         .eq('session_id', sessionId)
-        .order('created_at', ascending: true)
+        .order('created_at', ascending: false)
         .limit(limit);
 
-    return (rows as List)
+    final messages = (rows as List)
         .map((r) => ChatMessage.fromRow(Map<String, dynamic>.from(r as Map)))
         .toList();
+    return messages.reversed.toList();
   }
 
   static Future<ChatResult> chat({

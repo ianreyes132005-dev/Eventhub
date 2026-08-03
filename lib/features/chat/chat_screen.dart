@@ -133,21 +133,37 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     });
     _scrollToBottom();
 
-    final result = await ChatService.chat(
-      sessionId:   _sessionId!,
-      userMessage: text,
-      history:     historySnapshot,
-      userRole:    widget.userRole,
-    );
+    try {
+      final result = await ChatService.chat(
+        sessionId:   _sessionId!,
+        userMessage: text,
+        history:     historySnapshot,
+        userRole:    widget.userRole,
+      );
 
-    if (!mounted) return;
-    setState(() {
-      _messages.removeLast();
-      _messages.add(result.userMessage);
-      _messages.add(result.assistantMessage);
-      _sending = false;
-    });
-    _scrollToBottom();
+      if (!mounted) return;
+      setState(() {
+        _messages.removeLast();
+        _messages.add(result.userMessage);
+        _messages.add(result.assistantMessage);
+        _sending = false;
+      });
+      _scrollToBottom();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _messages.removeLast();
+        _messages.add(ChatMessage(
+          id:        'err_${DateTime.now().millisecondsSinceEpoch}',
+          role:      'assistant',
+          content:   'Something went wrong sending your message. Please try again.',
+          createdAt: DateTime.now(),
+          isError:   true,
+        ));
+        _sending = false;
+      });
+      _scrollToBottom();
+    }
   }
 
   Future<void> _confirmClear() async {

@@ -49,6 +49,17 @@ serve(async (req) => {
       return errRes(401, 'unauthorized', 'Invalid or expired session.')
     }
 
+    // ── 1b. Determine the caller's real role from the database ──────────────
+    // Never trust a role the client claims in the request body — that would
+    // let a student request organizer-flavored answers (or vice versa)
+    // simply by sending a different value.
+    const { data: organizerRow } = await supabase
+      .from('organizers')
+      .select('organizer_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    const realRole = organizerRow ? 'organizer' : 'student'
+
     // ── 2. Per-user daily quota (bill-shock protection) ──────────────────────
     // Reuses the existing chat_messages table — no extra tables needed.
     // Quota resets at midnight UTC every day.
@@ -80,12 +91,14 @@ serve(async (req) => {
     }
 
     // ── 3. Parse request body ────────────────────────────────────────────────
+    // Note: the client still sends userRole for backward compatibility, but
+    // it is intentionally ignored below in favor of realRole (see 1b).
     const body = await req.json() as {
       messages: Array<{ role: string; content: string }>
       userRole?: string
     }
 
-    const { messages, userRole = 'student' } = body
+    const { messages } = body
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return errRes(400, 'bad_request', 'messages must be a non-empty array.')
@@ -110,7 +123,7 @@ serve(async (req) => {
         max_tokens:  1024,
         temperature: 0.7,
         messages: [
-          { role: 'system', content: buildSystemPrompt(userRole) },
+          { role: 'system', content: buildSystemPrompt(realRole) },
           ...messages,
         ],
       }),
@@ -171,7 +184,7 @@ J-Jireh EventHub is a mobile app for managing school events with three user type
 - Check-in flow: organizer scans QR → student takes a selfie → organizer confirms → status = Checked In
 - "My Registered Events" page shows all registrations with live status badges
 - Notifications bell shows announcements and check-in updates
-- Profile page: view full name, year level, LRN/student ID; change password under the Security tab
+- Profile page: view full name, year level, LRN/student ID, and profile photo — name and year level are set by the administrator and can't be self-edited
 
 ## Organizer features
 - Create events with title, date, time, location, description, banner image, capacity, and type
@@ -183,7 +196,7 @@ J-Jireh EventHub is a mobile app for managing school events with three user type
 - Home dashboard shows a weekly registration bar chart and an event attendance line chart
 
 ## Common questions
-- Login: email + password. "Forgot Password?" sends a reset link by email.
+- Login: email + password, provisioned by the school administrator. There is no self-service password reset — if you forget your password or need it changed, contact the school administrator.
 - Accounts are created by the school administrator — students and organizers cannot self-register.
 - QR code: auto-generated after registration. Tap "My QR Code" or "View QR Code" to display it.
 - Check-in status order: pending → qr_scanned → photo_required → photo_submitted → checked_in
