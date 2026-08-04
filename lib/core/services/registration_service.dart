@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'supabase_service.dart';
+import 'audit_service.dart';
 
 // Generates a RFC-4122 v4 UUID using dart:math — no external package needed.
 String _newUuid() {
@@ -56,11 +57,19 @@ class RegistrationService {
 
     // Validate event status, capacity, and deadline in a single fetch so we
     // only pay one extra round-trip and all three checks are consistent.
+    // maybeSingle(), not single() — a pending/rejected event is invisible to
+    // students under RLS, so a stale event_id (e.g. a deep link held onto
+    // from before an admin rejected it) must fail with a friendly message
+    // here rather than a raw "JSON object requested, multiple (or no) rows
+    // returned" Postgrest error.
     final eventRow = await _db
         .from('events')
         .select('event_status, max_participants, current_participants, registration_deadline')
         .eq('event_id', eventId)
-        .single();
+        .maybeSingle();
+    if (eventRow == null) {
+      throw Exception('This event is not available for registration.');
+    }
 
     final evStatus = (eventRow['event_status'] as String? ?? '').toLowerCase();
     if (evStatus == 'cancelled' || evStatus == 'completed' ||
@@ -220,12 +229,57 @@ class RegistrationService {
 
   /// Update the status of a registration.
   /// Automatically sets [checked_in_at] when status is 'checked_in'.
-  static Future<void> updateStatus(String id, String status) async {
+  ///
+  /// [checked_in] and [rejected] are the two decision-terminal transitions —
+  /// both record [reviewed_by] (the acting organizer) for the audit trail,
+  /// and both write an entry to the Logs tab via [AuditService]. [rejected]
+  /// requires [rejectionReason] to be meaningful; callers should collect it
+  /// from the organizer before calling this (see the reason-prompt dialogs
+  /// in organizer_registrations.dart / registrations_page.dart) rather than
+  /// rejecting silently.
+  static Future<void> updateStatus(
+    String id,
+    String status, {
+    String? rejectionReason,
+  }) async {
+    final user = SupabaseService.currentUser;
     final data = <String, dynamic>{'status': status};
     if (status == 'checked_in') {
       data['checked_in_at'] = DateTime.now().toIso8601String();
     }
-    await _db.from('registrations').update(data).eq('id', id);
+    if (status == 'checked_in' || status == 'rejected') {
+      data['reviewed_by'] = user?.id;
+    }
+    if (status == 'rejected') {
+      data['rejection_reason'] = rejectionReason;
+    }
+
+    final updated = await _db
+        .from('registrations')
+        .update(data)
+        .eq('id', id)
+        .select('event_id, event_title, student_name, student_school_id')
+        .maybeSingle();
+
+    if (updated != null && (status == 'checked_in' || status == 'rejected')) {
+      String? organizerName;
+      if (user != null) {
+        final orgRow = await _db
+            .from('organizers')
+            .select('full_name')
+            .eq('user_id', user.id)
+            .maybeSingle();
+        organizerName = orgRow?['full_name'] as String?;
+      }
+      AuditService.logEvent(
+        action: status == 'checked_in' ? 'checked_in' : 'registration_rejected',
+        eventTitle: updated['event_title'] as String? ?? '—',
+        eventId: updated['event_id'] as String?,
+        organizerName: organizerName,
+        details: 'Student: ${updated['student_name']} (${updated['student_school_id']})'
+            '${status == 'rejected' && rejectionReason != null && rejectionReason.isNotEmpty ? ' — $rejectionReason' : ''}',
+      );
+    }
   }
 
   /// Generate a 1-hour signed URL so the organizer can view a private selfie.

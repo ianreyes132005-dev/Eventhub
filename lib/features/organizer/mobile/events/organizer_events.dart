@@ -28,7 +28,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   // event_id → checked-in count (loaded alongside events)
   final Map<String, int> _checkedInMap = {};
 
-  static const _filterOptions = ['All', 'Upcoming', 'Ongoing', 'Ended', 'Draft'];
+  static const _filterOptions = ['All', 'Upcoming', 'Ongoing', 'Ended'];
 
   @override
   void initState() {
@@ -121,8 +121,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
       if (label == 'Upcoming') return 0;
       if (label == 'Ongoing')  return 1;
       if (label == 'Ended')    return 2;
-      if (label == 'Draft')    return 3;
-      return 4; // Cancelled
+      return 3; // Cancelled
     }
 
     _filtered.sort((a, b) {
@@ -146,18 +145,17 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
 
   // ── Status helpers ─────────────────────────────────────────────────────────
 
-  String _statusLabel(Map<String, dynamic> e) {
-    final s = (e['event_status'] as String? ?? '').toLowerCase();
-    if (s == 'draft' || s == 'pending') return 'Draft';
-    return eventStatusLabel(e);
-  }
+  // event_status only ever holds upcoming/ongoing/completed/cancelled (DB
+  // CHECK constraint) — draft/pending were never real values here. Approval
+  // state (pending admin review / rejected) is a separate concept, shown as
+  // its own badge in _buildEventCard, not folded into this lifecycle label.
+  String _statusLabel(Map<String, dynamic> e) => eventStatusLabel(e);
 
   Color _statusColor(String label) {
     switch (label) {
       case 'Ongoing':   return const Color(0xFF16A34A);
       case 'Ended':     return const Color(0xFF6B7280);
       case 'Cancelled': return const Color(0xFFEF4444);
-      case 'Draft':     return const Color(0xFF9333EA);
       default:          return const Color(0xFFE87A00); // Upcoming
     }
   }
@@ -624,8 +622,10 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     final registered  = e['current_participants'] as int? ?? 0;
     final capacity    = e['max_participants']     as int?;
     final checkedIn   = _checkedInMap[eventId] ?? 0;
-    final statusLabel = _statusLabel(e);
-    final statusColor = _statusColor(statusLabel);
+    final statusLabel    = _statusLabel(e);
+    final statusColor    = _statusColor(statusLabel);
+    final approval       = e['approval_status'] as String? ?? 'approved';
+    final needsAttention = approval != 'approved';
     final maxSet      = capacity != null && capacity > 0;
     final attendancePct =
         registered > 0 ? ((checkedIn / registered) * 100).round() : 0;
@@ -690,6 +690,45 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                     ),
                   ),
                 ),
+                // Only shown while it needs the organizer's attention —
+                // "Approved" is the normal, expected state and would just
+                // be noise on every card.
+                if (needsAttention)
+                  Positioned(
+                    top: 10, left: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: approvalStatusColor(approval),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(
+                          approval == 'rejected'
+                              ? Icons.block_rounded
+                              : Icons.pending_actions_rounded,
+                          size: 11, color: Colors.white),
+                        const SizedBox(width: 4),
+                        Text(
+                          approvalStatusLabel(approval),
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ),
               ],
             ),
           ),

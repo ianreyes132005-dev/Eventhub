@@ -218,12 +218,13 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     'Awaiting Selfie': 'photo_required',
     'Photo Submitted': 'photo_submitted',
     'Checked In':      'checked_in',
+    'Rejected':        'rejected',
   };
 
-  Future<void> _updateStatus(String id, String newStatus) async {
+  Future<void> _updateStatus(String id, String newStatus, {String? rejectionReason}) async {
     setState(() => _processingIds.add(id));
     try {
-      await RegistrationService.updateStatus(id, newStatus);
+      await RegistrationService.updateStatus(id, newStatus, rejectionReason: rejectionReason);
     } catch (e) {
       if (mounted) {
         setState(() => _processingIds.remove(id));
@@ -953,7 +954,15 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                             // Slot 2 - Status advance / lock
                             _StatusMenu(
                               currentStatus: status,
-                              onSelect: (s) => _updateStatus(id, s),
+                              onSelect: (s) async {
+                                if (s == 'rejected') {
+                                  final reason = await _promptRejectReason(context, name);
+                                  if (reason == null) return;
+                                  await _updateStatus(id, s, rejectionReason: reason);
+                                } else {
+                                  await _updateStatus(id, s);
+                                }
+                              },
                             ),
                             const SizedBox(width: 6),
                             // Slot 3 - Delete
@@ -978,6 +987,99 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
   }
 }
 
+// ── Reject reason prompt ─────────────────────────────────────────────────────
+// Reject requires a reason and this explicit dialog — more friction than the
+// other forward status transitions, deliberately, since it's the one
+// decision here that denies a student attendance.
+
+Future<String?> _promptRejectReason(BuildContext context, String studentName) {
+  final ctrl = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (dialogCtx) => StatefulBuilder(
+      builder: (dialogCtx, setState) {
+        final t = WebTk(Theme.of(dialogCtx).brightness == Brightness.dark);
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Container(
+              decoration: BoxDecoration(
+                color: t.card,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.14),
+                    blurRadius: 40, offset: const Offset(0, 14))],
+              ),
+              padding: const EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Container(
+                    width: 38, height: 38,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444).withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.block_rounded, size: 19, color: Color(0xFFEF4444)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text('Reject $studentName?',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 16,
+                        fontWeight: FontWeight.w800, color: t.text))),
+                ]),
+                const SizedBox(height: 8),
+                Text('This student will not be checked in. Give a reason so they know what to fix.',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub, height: 1.5)),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  maxLines: 3,
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.text),
+                  decoration: webInputDeco('e.g. Selfie doesn\'t match student ID photo', dark: t.dark),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 20),
+                Row(children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(dialogCtx).pop(),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: t.border),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                      ),
+                      child: Text('Cancel', style: TextStyle(fontFamily: 'Poppins',
+                          fontWeight: FontWeight.w600, color: t.sub)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: ctrl.text.trim().isEmpty
+                          ? null
+                          : () => Navigator.of(dialogCtx).pop(ctrl.text.trim()),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFEF4444),
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.35),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                      ),
+                      child: const Text('Confirm Reject',
+                          style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ]),
+              ]),
+            ),
+          ),
+        );
+      },
+    ),
+  ).whenComplete(ctrl.dispose);
+}
+
 // ── Status advance menu ───────────────────────────────────────────────────────
 
 class _StatusMenu extends StatefulWidget {
@@ -998,15 +1100,19 @@ class _StatusMenuState extends State<_StatusMenu> {
     ('photo_required',  'Awaiting Selfie'),
     ('photo_submitted', 'Photo Submitted'),
     ('checked_in',      'Check In'),
+    ('rejected',        'Reject'),
   ];
 
-  // Forward-only state machine. checked_in is terminal.
+  // Forward-only state machine. checked_in and rejected are both terminal —
+  // rejected is only reachable from photo_submitted (the same point admin's
+  // now-removed dialog used to decide from).
   static const _allowed = <String, Set<String>>{
     'pending':         {'qr_scanned', 'photo_required', 'photo_submitted', 'checked_in'},
     'qr_scanned':      {'photo_required', 'photo_submitted', 'checked_in'},
     'photo_required':  {'photo_submitted', 'checked_in'},
-    'photo_submitted': {'checked_in'},
+    'photo_submitted': {'checked_in', 'rejected'},
     'checked_in':      {},
+    'rejected':        {},
   };
 
   static IconData _statusIcon(String key) => switch (key) {
@@ -1015,6 +1121,7 @@ class _StatusMenuState extends State<_StatusMenu> {
     'photo_required'  => Icons.photo_camera_rounded,
     'photo_submitted' => Icons.check_circle_outline_rounded,
     'checked_in'      => Icons.how_to_reg_rounded,
+    'rejected'        => Icons.block_rounded,
     _                 => Icons.circle_outlined,
   };
 
@@ -1023,6 +1130,7 @@ class _StatusMenuState extends State<_StatusMenu> {
     'photo_required'  => 'Request a selfie from the student',
     'photo_submitted' => 'Selfie received, awaiting review',
     'checked_in'      => 'Confirm and finalise attendance',
+    'rejected'        => 'Deny attendance — requires a reason',
     _                 => '',
   };
 
@@ -1032,20 +1140,22 @@ class _StatusMenuState extends State<_StatusMenu> {
     final current      = widget.currentStatus;
     final currentColor = webStatusColor(current);
 
-    // Terminal state — green lock, no menu.
-    if (current == 'checked_in') {
+    // Terminal states — locked, no menu.
+    if (current == 'checked_in' || current == 'rejected') {
+      final isRejected = current == 'rejected';
+      final c = isRejected ? const Color(0xFFEF4444) : const Color(0xFF10B981);
       return Tooltip(
-        message: 'Check-in is final — status cannot be changed',
+        message: isRejected
+            ? 'Rejected — status cannot be changed'
+            : 'Check-in is final — status cannot be changed',
         child: Container(
           width: 32, height: 32,
           decoration: BoxDecoration(
-            color: const Color(0xFF10B981).withValues(alpha: 0.08),
+            color: c.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-                color: const Color(0xFF10B981).withValues(alpha: 0.20)),
+            border: Border.all(color: c.withValues(alpha: 0.20)),
           ),
-          child: const Icon(Icons.lock_rounded, size: 13,
-              color: Color(0xFF10B981)),
+          child: Icon(Icons.lock_rounded, size: 13, color: c),
         ),
       );
     }
@@ -1136,7 +1246,7 @@ class _StatusMenuState extends State<_StatusMenu> {
             final c          = webStatusColor(key);
             final icon       = _statusIcon(key);
             final desc       = _statusDesc(key);
-            final isTerminal = key == 'checked_in';
+            final isTerminal = key == 'checked_in' || key == 'rejected';
 
             return PopupMenuItem<String>(
               value:   key,

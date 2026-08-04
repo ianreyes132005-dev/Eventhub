@@ -66,26 +66,38 @@ IconData _logRoleIcon(String? role) => switch (role) {
 };
 
 Color _logActionColor(String? action) => switch (action) {
-  'created'   => const Color(0xFF10B981),
-  'updated'   => const Color(0xFF3B82F6),
-  'deleted'   => const Color(0xFFEF4444),
-  'cancelled' => const Color(0xFFEF4444),
-  _           => kMuted,
+  'created'             => const Color(0xFF10B981),
+  'updated'             => const Color(0xFF3B82F6),
+  'deleted'             => const Color(0xFFEF4444),
+  'cancelled'           => const Color(0xFFEF4444),
+  'approved'            => const Color(0xFF10B981),
+  'rejected'            => const Color(0xFFF59E0B),
+  'checked_in'          => const Color(0xFF10B981),
+  'registration_rejected' => const Color(0xFFE11D48),
+  _                     => kMuted,
 };
 
 String _logActionLabel(String? action) => switch (action) {
-  'created'   => 'Created',
-  'updated'   => 'Updated',
-  'deleted'   => 'Deleted',
-  'cancelled' => 'Cancelled',
-  _           => action?.toUpperCase() ?? '—',
+  'created'             => 'Created',
+  'updated'             => 'Updated',
+  'deleted'             => 'Deleted',
+  'cancelled'           => 'Cancelled',
+  'approved'            => 'Approved',
+  'rejected'            => 'Rejected',
+  'checked_in'          => 'Checked In',
+  'registration_rejected' => 'Registration Rejected',
+  _                     => action?.toUpperCase() ?? '—',
 };
 
 IconData _logActionIcon(String? action) => switch (action) {
-  'created'   => Icons.add_circle_outline_rounded,
-  'updated'   => Icons.edit_outlined,
-  'deleted'   => Icons.delete_outline_rounded,
-  'cancelled' => Icons.cancel_outlined,
+  'created'             => Icons.add_circle_outline_rounded,
+  'updated'             => Icons.edit_outlined,
+  'deleted'             => Icons.delete_outline_rounded,
+  'cancelled'           => Icons.cancel_outlined,
+  'approved'            => Icons.check_circle_outline_rounded,
+  'rejected'            => Icons.block_rounded,
+  'checked_in'          => Icons.how_to_reg_rounded,
+  'registration_rejected' => Icons.person_off_rounded,
   _           => Icons.event_note_outlined,
 };
 
@@ -253,8 +265,7 @@ class _AdminLogsPageState extends State<AdminLogsPage>
           final d = DateTime.tryParse(r['created_at'] as String? ?? '')?.toLocal();
           if (d == null || d.isBefore(cut)) return false;
         }
-        if (_eventAction != 'All' &&
-            r['action'] != _eventAction.toLowerCase()) return false;
+        if (_eventAction != 'All' && r['action'] != _eventAction) return false;
         if (_eventOrg != 'All') {
           final nm = (r['organizer_name'] as String? ?? '');
           final id = (r['organizer_id']   as String? ?? '');
@@ -747,7 +758,8 @@ class _AdminLogsPageState extends State<AdminLogsPage>
 
   Widget _buildEventTab(int filtered, int total) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    const actions = ['All', 'Created', 'Updated', 'Deleted', 'Cancelled'];
+    const actions = ['All', 'created', 'updated', 'deleted', 'cancelled', 'approved',
+        'rejected', 'checked_in', 'registration_rejected'];
 
     if (_eventLoading) {
       return const Center(child: CircularProgressIndicator(color: kAdminAccent));
@@ -782,7 +794,7 @@ class _AdminLogsPageState extends State<AdminLogsPage>
     };
     final eventFilterDesc = [
       if (eventPeriodLabel != null) eventPeriodLabel,
-      if (_eventAction != 'All')    _eventAction,
+      if (_eventAction != 'All')    _logActionLabel(_eventAction),
       if (_eventOrg    != 'All')    _eventOrg,
       if (_search.isNotEmpty)       '"$_search"',
     ].join(' · ');
@@ -799,29 +811,35 @@ class _AdminLogsPageState extends State<AdminLogsPage>
           border: Border(bottom: BorderSide(color: t.border)),
         ),
         child: Row(children: [
-          Text('Action:',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w600, color: t.text)),
-          const SizedBox(width: 8),
-          for (final a in actions) ...[
-            WebFilterChip(
-              label: a, selected: _eventAction == a,
-              onTap: () { setState(() => _eventAction = a); _applyEvent(); },
-              count: a == 'All'
-                  ? _eventAll.length
-                  : _eventAll.where((x) => x['action'] == a.toLowerCase()).length,
-              selectedColor: switch (a) {
-                'Created'   => const Color(0xFF10B981),
-                'Updated'   => const Color(0xFF3B82F6),
-                'Deleted'   => const Color(0xFFEF4444),
-                'Cancelled' => const Color(0xFFEF4444),
-                _           => kGold,
-              },
-            ),
-            const SizedBox(width: 6),
-          ],
+          Expanded(
+            child: Row(children: [
+              Text('Action:',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                    fontWeight: FontWeight.w600, color: t.text)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: [
+                    for (final a in actions) ...[
+                      WebFilterChip(
+                        label: a == 'All' ? 'All' : _logActionLabel(a),
+                        selected: _eventAction == a,
+                        onTap: () { setState(() => _eventAction = a); _applyEvent(); },
+                        count: a == 'All'
+                            ? _eventAll.length
+                            : _eventAll.where((x) => x['action'] == a).length,
+                        selectedColor: a == 'All' ? kGold : _logActionColor(a),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                  ]),
+                ),
+              ),
+            ]),
+          ),
           if (_eventAction != 'All' || _eventOrg != 'All') ...[
-            const Spacer(),
+            const SizedBox(width: 8),
             MouseRegion(
               cursor: SystemMouseCursors.click,
               child: GestureDetector(
@@ -1384,7 +1402,8 @@ class _LogActionBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final isKnown = const ['created', 'updated', 'deleted', 'cancelled'].contains(action);
+    final isKnown = const ['created', 'updated', 'deleted', 'cancelled', 'approved', 'rejected',
+        'checked_in', 'registration_rejected'].contains(action);
     final color = isKnown ? _logActionColor(action) : t.muted;
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Container(

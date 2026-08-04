@@ -1,6 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Admin — Registrations tab.
-// Split out of admin_web_dashboard.dart so each sidebar tab has its own file.
+// View/audit only — admin does NOT approve or reject check-in photos here.
+// That's organizer's job: they're physically at the event and can compare
+// the selfie to the person in front of them, which admin reviewing remotely
+// never could. Admin can still open and inspect any submitted photo (audit
+// needs visibility), but the decision itself belongs to organizer alone —
+// see RegistrationService.updateStatus() for the reviewed_by trail and the
+// Logs tab for the resulting audit entries. Same principle as the Events
+// tab (Section 18/19 of lib/supabase_schema.sql): admin governs, organizer
+// executes, neither duplicates the other's job.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
@@ -80,7 +88,8 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
     if (mounted) setState(() { if (!silent) _loading = true; _error = false; });
     try {
       final rows = await SupabaseService.client.from('registrations')
-          .select('id, student_name, student_school_id, event_title, status, registered_at, checked_in_at, selfie_url, student_user_id')
+          .select('id, student_name, student_school_id, event_title, status, registered_at, '
+              'checked_in_at, selfie_url, rejection_reason')
           .order('registered_at', ascending: false)
           .limit(300);
       if (!mounted) return;
@@ -146,49 +155,15 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
     _applyFilter();
   }
 
-  Future<void> _reviewPhoto(Map<String, dynamic> reg) async {
-    final result = await showDialog<String>(
+  // View-only — opens the submitted photo for inspection. No result to
+  // handle: this dialog no longer writes anything, it only displays.
+  void _viewPhoto(Map<String, dynamic> reg) {
+    showDialog<void>(
       context: context,
       barrierDismissible: true,
-      builder: (_) => _PhotoReviewDialog(reg: reg),
+      builder: (_) => _PhotoViewDialog(reg: reg),
     );
-    if (result == null || !mounted) return;
-    final id    = reg['id']           as String? ?? '';
-    final sName = reg['student_name'] as String? ?? 'Student';
-    try {
-      if (result == 'approve') {
-        final now = DateTime.now().toUtc().toIso8601String();
-        final updated = await SupabaseService.client.from('registrations')
-            .update({'status': 'checked_in', 'checked_in_at': now}).eq('id', id).select();
-        if ((updated as List).isEmpty) {
-          if (mounted) _snack('Failed: registration not found or the update was not permitted.');
-          return;
-        }
-        final idx = _all.indexWhere((r) => r['id'] == id);
-        if (idx != -1) {
-          _all[idx] = {..._all[idx], 'status': 'checked_in', 'checked_in_at': now};
-          _applyFilter();
-        }
-        if (mounted) { WebAlert.success(context: context, title: 'Approved',
-            message: '$sName has been checked in.'); }
-      } else {
-        final updated = await SupabaseService.client.from('registrations')
-            .update({'status': 'rejected'}).eq('id', id).select();
-        if ((updated as List).isEmpty) {
-          if (mounted) _snack('Failed: registration not found or the update was not permitted.');
-          return;
-        }
-        final idx = _all.indexWhere((r) => r['id'] == id);
-        if (idx != -1) { _all[idx] = {..._all[idx], 'status': 'rejected'}; _applyFilter(); }
-        if (mounted) { WebAlert.success(context: context, title: 'Rejected',
-            message: "$sName's submission has been rejected."); }
-      }
-    } catch (e) { if (mounted) _snack('Failed: $e'); }
   }
-
-  void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(msg, style: const TextStyle(fontFamily: 'Poppins')),
-        backgroundColor: const Color(0xFFEF4444)));
 
   @override
   Widget build(BuildContext context) {
@@ -300,7 +275,9 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
                 _RegLegend(color: const Color(0xFFEF4444), label: '$rejectedCount rejected'),
             ]),
           ],
-          // ── Needs-review urgent banner ──────────────────────────────────
+          // ── Awaiting-organizer-review banner — informational, not a call
+          // to action. Admin isn't the one who reviews these; this exists so
+          // admin can see the pipeline isn't stuck, not to prompt a click.
           if (needsReview > 0) ...[
             const SizedBox(height: 10),
             MouseRegion(
@@ -326,21 +303,22 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
                     const SizedBox(width: 10),
                     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text(
-                        '$needsReview ${needsReview == 1 ? 'registration needs' : 'registrations need'} photo review',
+                        '$needsReview ${needsReview == 1 ? 'registration' : 'registrations'} awaiting organizer review',
                         style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
                             fontWeight: FontWeight.w700, color: Color(0xFF8B5CF6))),
-                      Text('Tap to filter and review submitted selfies',
+                      Text('Tap to filter and monitor submitted selfies',
                         style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.sub)),
                     ])),
                     const SizedBox(width: 10),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF8B5CF6),
+                        color: const Color(0xFF8B5CF6).withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: 0.30)),
                       ),
-                      child: const Text('Review Now', style: TextStyle(fontFamily: 'Poppins',
-                          fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
+                      child: const Text('View', style: TextStyle(fontFamily: 'Poppins',
+                          fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF8B5CF6))),
                     ),
                   ]),
                 ),
@@ -509,11 +487,11 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
                   itemCount: _filtered.length,
                   separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
                   itemBuilder: (_, i) {
-                    final r             = _filtered[i];
-                    final isNeedsReview = r['status'] == 'photo_submitted';
+                    final r       = _filtered[i];
+                    final hasPhoto = (r['selfie_url'] as String?)?.isNotEmpty == true;
                     return _RegistrationRow(
-                      reg:      r,
-                      onReview: isNeedsReview ? () => _reviewPhoto(r) : null,
+                      reg:    r,
+                      onView: hasPhoto ? () => _viewPhoto(r) : null,
                     );
                   },
                 ),
@@ -554,12 +532,17 @@ class _RegLegend extends StatelessWidget {
   }
 }
 
-class _ReviewBtn extends StatefulWidget {
+// Passive inspection action, not a decision — deliberately neutral blue
+// rather than the purple "needs your action" tone the old Review button
+// used, and available on any row with a submitted photo (not just ones
+// currently awaiting a decision), since audit means being able to look
+// back at past decisions too, not just the current queue.
+class _ViewPhotoBtn extends StatefulWidget {
   final VoidCallback onTap;
-  const _ReviewBtn({required this.onTap});
-  @override State<_ReviewBtn> createState() => _ReviewBtnState();
+  const _ViewPhotoBtn({required this.onTap});
+  @override State<_ViewPhotoBtn> createState() => _ViewPhotoBtnState();
 }
-class _ReviewBtnState extends State<_ReviewBtn> {
+class _ViewPhotoBtnState extends State<_ViewPhotoBtn> {
   bool _h = false;
   @override
   Widget build(BuildContext context) => MouseRegion(
@@ -572,17 +555,17 @@ class _ReviewBtnState extends State<_ReviewBtn> {
         duration: const Duration(milliseconds: 100),
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
-          color: _h ? const Color(0xFF8B5CF6) : const Color(0xFF8B5CF6).withValues(alpha: 0.10),
+          color: _h ? const Color(0xFF3B82F6) : const Color(0xFF3B82F6).withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(7),
-          border: Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: _h ? 0 : 0.28)),
+          border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: _h ? 0 : 0.28)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(Icons.photo_camera_outlined, size: 12,
-              color: _h ? Colors.white : const Color(0xFF8B5CF6)),
+          Icon(Icons.visibility_outlined, size: 12,
+              color: _h ? Colors.white : const Color(0xFF3B82F6)),
           const SizedBox(width: 5),
-          Text('Review', style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
+          Text('View', style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
               fontWeight: FontWeight.w700,
-              color: _h ? Colors.white : const Color(0xFF8B5CF6))),
+              color: _h ? Colors.white : const Color(0xFF3B82F6))),
         ]),
       ),
     ),
@@ -634,8 +617,8 @@ class _RegTableHeader extends StatelessWidget {
 
 class _RegistrationRow extends StatefulWidget {
   final Map<String, dynamic> reg;
-  final VoidCallback?         onReview;
-  const _RegistrationRow({required this.reg, this.onReview});
+  final VoidCallback?         onView;
+  const _RegistrationRow({required this.reg, this.onView});
   @override State<_RegistrationRow> createState() => _RegistrationRowState();
 }
 class _RegistrationRowState extends State<_RegistrationRow> {
@@ -764,11 +747,11 @@ class _RegistrationRowState extends State<_RegistrationRow> {
                       )
                     : Text('—', style: TextStyle(
                         fontFamily: 'Poppins', fontSize: 11.5, color: t.muted))),
-                  // Review Photo action
+                  // View Photo action — inspection only, no decision made here
                   SizedBox(
                     width: 76,
-                    child: widget.onReview != null
-                      ? Center(child: _ReviewBtn(onTap: widget.onReview!))
+                    child: widget.onView != null
+                      ? Center(child: _ViewPhotoBtn(onTap: widget.onView!))
                       : null,
                   ),
                 ]),
@@ -782,18 +765,22 @@ class _RegistrationRowState extends State<_RegistrationRow> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Photo review dialog — shown when admin clicks "Review Photo" on a
-// photo_submitted registration. Generates a signed URL for the private selfie
-// and presents approve / reject choices in one step (no double-confirm).
+// Photo VIEW dialog — shown when admin clicks "View" on any registration
+// with a submitted selfie. Generates a signed URL for the private photo and
+// displays it for inspection. No Approve/Reject here — that decision
+// belongs to the organizer who was physically at the event (see
+// RegistrationService.updateStatus() for where it actually happens, and the
+// Logs tab for the resulting audit trail). This dialog is read-only by
+// design, not a stripped-down version of one that used to decide anything.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _PhotoReviewDialog extends StatefulWidget {
+class _PhotoViewDialog extends StatefulWidget {
   final Map<String, dynamic> reg;
-  const _PhotoReviewDialog({required this.reg});
-  @override State<_PhotoReviewDialog> createState() => _PhotoReviewDialogState();
+  const _PhotoViewDialog({required this.reg});
+  @override State<_PhotoViewDialog> createState() => _PhotoViewDialogState();
 }
 
-class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
+class _PhotoViewDialogState extends State<_PhotoViewDialog>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double>   _scale, _fade;
@@ -840,6 +827,8 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
     final lrn         = reg['student_school_id'] as String? ?? '—';
     final eventTitle  = reg['event_title']        as String? ?? '—';
     final regDate     = webFmtDate(reg['registered_at'] as String?);
+    final status      = reg['status'] as String? ?? '';
+    final reason      = reg['rejection_reason'] as String?;
 
     return FadeTransition(
       opacity: _fade,
@@ -869,7 +858,7 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
                   child: AdminDialogHeader(
                     icon:      Icons.photo_camera_outlined,
                     iconColor: const Color(0xFF8B5CF6),
-                    title:     'Photo Verification',
+                    title:     'Submitted Photo',
                   ),
                 ),
                 // Student + event info
@@ -899,9 +888,33 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
                             fontSize: 11, color: t.muted)),
                     ])),
                     const SizedBox(width: 12),
-                    WebStatusBadge(label: 'Needs Review', color: const Color(0xFF8B5CF6)),
+                    WebStatusBadge(label: webStatusLabel(status), color: webStatusColor(status)),
                   ]),
                 ),
+                if (status == 'rejected' && reason != null && reason.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444).withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.22)),
+                      ),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Icon(Icons.block_rounded, size: 14, color: Color(0xFFEF4444)),
+                        const SizedBox(width: 8),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('Rejected by organizer',
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                                fontWeight: FontWeight.w700, color: t.text)),
+                          const SizedBox(height: 3),
+                          Text(reason, style: TextStyle(fontFamily: 'Poppins',
+                              fontSize: 11.5, color: t.sub, height: 1.4)),
+                        ])),
+                      ]),
+                    ),
+                  ),
                 // Photo area
                 Padding(
                   padding: const EdgeInsets.all(20),
@@ -951,62 +964,25 @@ class _PhotoReviewDialogState extends State<_PhotoReviewDialog>
                     ),
                   ),
                 ),
-                // Action buttons
+                // View-only — no decision is made from this dialog.
                 Divider(height: 1, color: t.border),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
-                  child: Row(children: [
-                    // Dismiss
-                    Builder(builder: (ctx) => OutlinedButton(
+                  child: Builder(builder: (ctx) => SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
                       onPressed: () => Navigator.of(ctx).pop(),
                       style: OutlinedButton.styleFrom(
                         side: BorderSide(color: t.border),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
-                        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
                       ),
-                      child: Text('Cancel',
+                      child: Text('Close',
                         style: TextStyle(fontFamily: 'Poppins',
                             fontWeight: FontWeight.w600, color: t.sub)),
-                    )),
-                    const SizedBox(width: 8),
-                    // Reject
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => Navigator.of(context).pop('reject'),
-                        icon: const Icon(Icons.cancel_outlined,
-                            size: 16, color: Color(0xFFEF4444)),
-                        label: const Text('Reject',
-                          style: TextStyle(fontFamily: 'Poppins',
-                              fontWeight: FontWeight.w700, color: Color(0xFFEF4444))),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFFEF4444)),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                        ),
-                      ),
                     ),
-                    const SizedBox(width: 8),
-                    // Approve
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => Navigator.of(context).pop('approve'),
-                        icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
-                        label: const Text('Approve',
-                          style: TextStyle(fontFamily: 'Poppins',
-                              fontWeight: FontWeight.w700)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF10B981),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                        ),
-                      ),
-                    ),
-                  ]),
+                  )),
                 ),
               ]),
             ),

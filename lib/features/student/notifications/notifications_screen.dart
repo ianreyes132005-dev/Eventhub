@@ -184,9 +184,12 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           title     = 'Photo received';
           body      = 'Your selfie for "$event" was submitted — awaiting organizer confirmation.';
         } else if (status == 'rejected') {
+          final reason = reg['rejection_reason'] as String?;
           notifType = _NotifType.rejected;
           title     = 'Registration declined';
-          body      = 'Your registration for "$event" was not approved by the organizer.';
+          body      = reason != null && reason.isNotEmpty
+              ? 'Your registration for "$event" was declined: $reason'
+              : 'Your registration for "$event" was not approved by the organizer.';
         } else {
           continue;
         }

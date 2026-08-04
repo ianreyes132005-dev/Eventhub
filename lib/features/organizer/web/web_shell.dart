@@ -1516,7 +1516,8 @@ class _NotificationBellState extends State<_NotificationBell> {
       // Query 1 — all org events (id + display fields, capped at 200)
       final evtRows = await client
           .from('events')
-          .select('event_id, title, event_date, start_time, event_status')
+          .select('event_id, title, event_date, start_time, event_status, '
+              'approval_status, rejection_reason, reviewed_at')
           .eq('organizer_id', orgId)
           .order('event_date', ascending: true)
           .limit(200);
@@ -1585,6 +1586,30 @@ class _NotificationBellState extends State<_NotificationBell> {
           subtitle: 'Starting tomorrow${t.isNotEmpty ? ' at $t' : ''}',
           icon:     Icons.calendar_month_rounded,
           color:    const Color(0xFFF59E0B),
+        ));
+      }
+
+      // Recently-decided events (approved/rejected within the last 7 days).
+      // Deliberately NOT gated by OrgNotifPrefs — matches mobile.
+      final reviewCutoff = now.subtract(const Duration(days: 7));
+      for (final e in evts.where((e) {
+        final ra = e['reviewed_at'] as String?;
+        if (ra == null) return false;
+        final approval = e['approval_status'] as String?;
+        if (approval != 'approved' && approval != 'rejected') return false;
+        final dt = DateTime.tryParse(ra);
+        return dt != null && dt.isAfter(reviewCutoff);
+      }).take(3)) {
+        final approved = e['approval_status'] == 'approved';
+        final reason   = e['rejection_reason'] as String?;
+        result.add(_AppNotif(
+          id:       'event_${e['approval_status']}_${e['event_id']}',
+          title:    e['title'] as String? ?? '—',
+          subtitle: approved
+              ? 'Your event was approved and is now live'
+              : 'Rejected${reason != null && reason.isNotEmpty ? ': $reason' : ''}',
+          icon:     approved ? Icons.check_circle_rounded : Icons.block_rounded,
+          color:    approved ? const Color(0xFF10B981) : const Color(0xFFEF4444),
         ));
       }
 

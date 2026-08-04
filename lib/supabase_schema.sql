@@ -471,3 +471,163 @@ CREATE POLICY "organizer_insert_event_logs" ON public.event_logs
 -- never held a single row.
 
 ALTER TABLE public.event_logs ALTER COLUMN organizer_id TYPE text;
+
+-- 18. EVENT APPROVAL WORKFLOW
+-- ============================================================
+-- Admin's Events tab changes purpose: from "view/cancel every live event" to
+-- "approve or reject events organizers submit" — a moderation gate before an
+-- event goes live and becomes visible/registerable to students. This section
+-- adds an approval_status column orthogonal to the existing lifecycle
+-- event_status (upcoming/ongoing/completed/cancelled stays untouched), and
+-- enforces the gate server-side via RLS + a trigger so it isn't cosmetic.
+--
+-- PRE-FLIGHT — run these two first and read the output before applying the
+-- rest of this section. event_logs (see Section 17 above) is known to be
+-- defined outside any tracked file in this repo, so its action column's
+-- constraints can't be assumed from this file:
+--   SELECT tgname FROM pg_trigger WHERE tgrelid = 'public.events'::regclass AND NOT tgisinternal;
+--   SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.event_logs'::regclass;
+-- If the second query shows a CHECK on `action` that doesn't already allow
+-- 'approved'/'rejected', extend it before relying on the audit log for
+-- those two actions:
+--   ALTER TABLE public.event_logs DROP CONSTRAINT <name>;
+--   ALTER TABLE public.event_logs ADD CONSTRAINT <name>
+--     CHECK (action IN ('created','updated','deleted','cancelled','approved','rejected'));
+
+-- New columns. DEFAULT 'approved' first so the single ADD COLUMN backfills
+-- every existing row instantly via Postgres's fast-default path — nothing
+-- currently live disappears when this runs. Only THEN flip the default to
+-- 'pending' so future inserts start out awaiting review.
+ALTER TABLE public.events ADD COLUMN IF NOT EXISTS approval_status VARCHAR NOT NULL DEFAULT 'approved';
+ALTER TABLE public.events ALTER COLUMN approval_status SET DEFAULT 'pending';
+ALTER TABLE public.events ADD CONSTRAINT events_approval_status_check
+  CHECK (approval_status IN ('pending', 'approved', 'rejected'));
+ALTER TABLE public.events ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+ALTER TABLE public.events ADD COLUMN IF NOT EXISTS reviewed_by UUID REFERENCES auth.users(id);
+ALTER TABLE public.events ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_events_approval ON public.events (approval_status);
+
+-- Guard trigger: only admins may freely set approval_status/rejection_reason/
+-- reviewed_by/reviewed_at. Organizers get exactly one allowed transition —
+-- their own rejected event, saved, moves back to 'pending' (the resubmit
+-- flow, driven from manage_event_screen.dart / events_page.dart's normal
+-- edit-save with no extra Dart logic needed) — everything else touching
+-- these columns from a non-admin is silently reverted to the previous value
+-- rather than erroring, matching this table's existing "never block the
+-- save, just don't let it lie" pattern (see AuditService's silent catches).
+CREATE OR REPLACE FUNCTION public.guard_events_approval()
+RETURNS TRIGGER AS $$
+DECLARE is_admin BOOLEAN; is_owner BOOLEAN;
+BEGIN
+  is_admin := EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid());
+  IF is_admin THEN RETURN NEW; END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    NEW.approval_status  := 'pending';
+    NEW.rejection_reason := NULL;
+    NEW.reviewed_by      := NULL;
+    NEW.reviewed_at      := NULL;
+    RETURN NEW;
+  END IF;
+
+  is_owner := NEW.organizer_id = (SELECT organizer_id FROM public.organizers WHERE user_id = auth.uid());
+
+  IF is_owner AND OLD.approval_status = 'rejected' AND NEW.approval_status = 'pending' THEN
+    NEW.rejection_reason := NULL;
+    NEW.reviewed_by      := NULL;
+    NEW.reviewed_at      := NULL;
+    RETURN NEW;
+  END IF;
+
+  NEW.approval_status  := OLD.approval_status;
+  NEW.rejection_reason := OLD.rejection_reason;
+  NEW.reviewed_by      := OLD.reviewed_by;
+  NEW.reviewed_at      := OLD.reviewed_at;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_guard_events_approval ON public.events;
+CREATE TRIGGER trg_guard_events_approval
+  BEFORE INSERT OR UPDATE ON public.events
+  FOR EACH ROW EXECUTE FUNCTION public.guard_events_approval();
+
+-- RLS: replace the old blanket "every authenticated user sees every event"
+-- policy with a role-aware split. admin_events_select (README.md) already
+-- grants admins unrestricted SELECT and is untouched by this section.
+DROP POLICY IF EXISTS "authenticated_select_events" ON public.events;
+
+CREATE POLICY "public_select_approved_events" ON public.events
+  FOR SELECT USING (auth.role() = 'authenticated' AND approval_status = 'approved');
+
+CREATE POLICY "organizer_select_own_events" ON public.events
+  FOR SELECT USING (
+    organizer_id = (SELECT organizer_id FROM public.organizers WHERE user_id = auth.uid())
+  );
+
+-- admin_update_events (Section 13 above) is USING-only with no column
+-- restriction, so admins already have unrestricted UPDATE on the new
+-- columns — no RLS change needed on the write side for admin approve/reject.
+
+-- Defense-in-depth: reject registration attempts on a non-approved event
+-- server-side too, not just via RLS hiding it from SELECT — covers a stale
+-- or deep-linked event_id a student held onto from before rejection.
+CREATE OR REPLACE FUNCTION public.enforce_registration_insert_rules()
+RETURNS TRIGGER AS $$
+DECLARE ev RECORD;
+BEGIN
+  SELECT event_status, approval_status, max_participants, current_participants, registration_deadline
+    INTO ev
+    FROM public.events
+    WHERE event_id = NEW.event_id
+    FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Event not found.';
+  END IF;
+
+  IF ev.approval_status != 'approved' THEN
+    RAISE EXCEPTION 'Registration is closed — this event has not been approved yet.';
+  END IF;
+
+  IF ev.event_status IN ('cancelled', 'completed') THEN
+    RAISE EXCEPTION 'Registration is closed — this event is no longer accepting sign-ups.';
+  END IF;
+
+  IF ev.registration_deadline IS NOT NULL AND now() > ev.registration_deadline THEN
+    RAISE EXCEPTION 'Registration is closed — the deadline has passed.';
+  END IF;
+
+  IF ev.max_participants IS NOT NULL AND ev.max_participants > 0
+     AND ev.current_participants >= ev.max_participants THEN
+    RAISE EXCEPTION 'This event is full — no spots remaining.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Trigger trg_enforce_registration_insert_rules (Section 10 above) already
+-- points at this function by name — CREATE OR REPLACE picks up the new body
+-- with no need to re-create the trigger itself.
+
+-- 19. REGISTRATIONS — REVIEWER TRAIL + ADMIN ROLE NARROWED TO OVERSIGHT
+-- ============================================================
+-- Same "organizer executes, admin doesn't duplicate the same job" principle
+-- applied to Events (Section 18) now applied here: admin's photo-review
+-- Approve/Reject was a remote, weaker duplicate of the in-person check the
+-- organizer is already best placed to make (they can compare the selfie to
+-- the actual person standing in front of them; admin can't). Admin's
+-- Registrations tab becomes view/audit-only; organizer gains the reviewer
+-- trail these columns provide, and — for the first time — an explicit
+-- Reject action of its own (confirmed via full-codebase search: no
+-- pre-existing code path outside the now-removed admin dialog ever set a
+-- registration to 'rejected').
+ALTER TABLE public.registrations ADD COLUMN IF NOT EXISTS reviewed_by UUID REFERENCES auth.users(id);
+ALTER TABLE public.registrations ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+
+-- No RLS change needed: organizer_update_status (Section 2 above) is a bare
+-- USING(organizer) policy with no column restriction, so organizers can
+-- already write these two new columns. admin_update_registrations (Section
+-- 15) is deliberately left in place rather than revoked — admin's UI no
+-- longer exercises it, but narrowing RLS itself wasn't part of what was
+-- agreed, so it's flagged here rather than done silently.

@@ -232,8 +232,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       if (!mounted) return;
       setState(() => _isPublishing = false);
       await AppAlert.success(context,
-        title: 'Event Published!',
-        message: 'Your event is now live and students can register.',
+        title: 'Event Submitted!',
+        message: 'Your event has been sent to the admin for approval and '
+            'will go live once reviewed.',
         buttonText: 'Done',
         onDismiss: () => Navigator.pop(context),
       );

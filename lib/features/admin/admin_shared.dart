@@ -139,7 +139,13 @@ String adminFmtIsoTime(String? iso) {
   } catch (_) { return ''; }
 }
 
-// ─── Permission-denied / load-error state (Students, Organizers, Events, Registrations, Logs) ─
+// ─── Load-error state (Students, Organizers, Events, Registrations, Logs) ───
+// Shows the ACTUAL error (message) when the caller has one — a network
+// blip, a schema mismatch (e.g. a column a pending migration hasn't added
+// yet), or a real RLS denial all look different and all need a different
+// fix, so mislabeling every failure as "Permission Required" was actively
+// misleading. Falls back to a generic hint only when a caller has no
+// message to give (some pass '').
 class AdminErrorState extends StatelessWidget {
   final String message; final VoidCallback onRetry;
   const AdminErrorState({super.key, required this.message, required this.onRetry});
@@ -147,6 +153,7 @@ class AdminErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final hasDetail = message.trim().isNotEmpty;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -157,18 +164,24 @@ class AdminErrorState extends StatelessWidget {
               color: const Color(0xFFFEF2F2), shape: BoxShape.circle,
               border: Border.all(color: const Color(0xFFFCA5A5), width: 1.5),
             ),
-            child: const Icon(Icons.lock_outline_rounded, color: Color(0xFFEF4444), size: 30),
+            child: const Icon(Icons.error_outline_rounded, color: Color(0xFFEF4444), size: 30),
           ),
           const SizedBox(height: 16),
-          Text('Permission Required',
+          Text("Couldn't Load This Tab",
             style: TextStyle(fontFamily: 'Poppins', fontSize: 15,
                 fontWeight: FontWeight.w700, color: t.text)),
           const SizedBox(height: 8),
-          Text(
-            'Run the admin RLS policies SQL in Supabase to grant\nthe admin account read access to this table.',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                color: t.sub, height: 1.6),
-            textAlign: TextAlign.center),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SelectableText(
+              hasDetail
+                  ? message
+                  : 'Run the admin RLS policies SQL in Supabase to grant\nthe admin account read access to this table.',
+              style: TextStyle(fontFamily: hasDetail ? 'monospace' : 'Poppins',
+                  fontSize: hasDetail ? 11.5 : 12,
+                  color: t.sub, height: 1.6),
+              textAlign: TextAlign.center),
+          ),
           const SizedBox(height: 20),
           WebBtn(label: 'Retry', icon: Icons.refresh_rounded, onTap: onRetry),
         ]),

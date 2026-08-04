@@ -50,6 +50,8 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
       (widget.eventData['id']       as String?) ?? '';
   int get _registered  => widget.eventData['registered']          as int? ?? 0;
   int get _capacity    => int.tryParse(_capacityCtrl.text)        ?? 0;
+  String get _approval => (widget.eventData['approval_status'] as String? ?? 'approved').toLowerCase();
+  String? get _rejectionReason => widget.eventData['rejection_reason'] as String?;
 
   // ── Date / time formatting ─────────────────────────────────────────────────
   String get _displayDate {
@@ -247,6 +249,10 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                     child: Column(
                       children: [
+                        if (_approval == 'rejected' && (_rejectionReason ?? '').isNotEmpty) ...[
+                          _buildRejectionBanner(t),
+                          const SizedBox(height: 14),
+                        ],
                         _buildEventInfoSection(t),
                         const SizedBox(height: 14),
                         _buildScheduleSection(t),
@@ -368,6 +374,40 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // ── Rejection banner ───────────────────────────────────────────────────────
+  // Saving any change here resubmits the event for review automatically
+  // (server-side trigger flips approval_status rejected → pending) — no
+  // separate "resubmit" button needed.
+
+  Widget _buildRejectionBanner(AppTk t) {
+    const color = Color(0xFFEF4444);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Icon(Icons.block_rounded, size: 18, color: color),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Rejected by admin',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                fontWeight: FontWeight.w700, color: t.text)),
+          const SizedBox(height: 3),
+          Text(_rejectionReason ?? '',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
+                color: t.sub, height: 1.4)),
+          const SizedBox(height: 6),
+          Text('Saving your changes below will resubmit this event for review.',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                color: t.muted, fontStyle: FontStyle.italic)),
+        ])),
+      ]),
     );
   }
 

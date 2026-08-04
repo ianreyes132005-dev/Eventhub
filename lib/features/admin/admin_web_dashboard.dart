@@ -78,6 +78,13 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
   bool      _error     = false;
   String?   _name;
 
+  // Live "needs review" count shown as a badge on the Events nav item —
+  // kept at the shell level (not inside AdminEventsPage) so it's visible
+  // from every tab, not just once you've already clicked into Events.
+  int              _pendingEventsCount = 0;
+  RealtimeChannel? _eventsChannel;
+  Timer?           _eventsDebounce;
+
   late final AnimationController _entryCt;
   late final Animation<double>   _sidebarFade;
   late final Animation<Offset>   _sidebarSlide;
@@ -106,7 +113,12 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
   }
 
   @override
-  void dispose() { _entryCt.dispose(); super.dispose(); }
+  void dispose() {
+    _entryCt.dispose();
+    _eventsDebounce?.cancel();
+    if (_eventsChannel != null) SupabaseService.client.removeChannel(_eventsChannel!);
+    super.dispose();
+  }
 
   Future<void> _loadProfile() async {
     try {
@@ -119,9 +131,40 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
       await ThemeStore.loadForUser(user.id, 'admin');
       setState(() { _name = row['full_name'] as String?; _loading = false; });
       _entryCt.forward();
+      _loadPendingEventsCount();
+      _subscribePendingEvents();
     } catch (_) {
       if (mounted) setState(() { _loading = false; _error = true; });
     }
+  }
+
+  Future<void> _loadPendingEventsCount() async {
+    try {
+      final rows = await SupabaseService.client
+          .from('events')
+          .select('event_id')
+          .eq('approval_status', 'pending');
+      if (mounted) setState(() => _pendingEventsCount = (rows as List).length);
+    } catch (_) {
+      // Badge is a convenience indicator, not the source of truth — the
+      // Events tab's own load still surfaces a real error if this table is
+      // genuinely unreachable, so this failure can stay silent.
+    }
+  }
+
+  void _subscribePendingEvents() {
+    _eventsChannel = SupabaseService.client.channel('admin-shell-pending-events');
+    _eventsChannel!.on(
+      RealtimeListenTypes.postgresChanges,
+      ChannelFilter(event: '*', schema: 'public', table: 'events'),
+      (_, [__]) {
+        _eventsDebounce?.cancel();
+        _eventsDebounce = Timer(const Duration(milliseconds: 600), () {
+          if (mounted) _loadPendingEventsCount();
+        });
+      },
+    );
+    _eventsChannel!.subscribe();
   }
 
   void _goLogin() {
@@ -196,6 +239,7 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
                 collapsed:    _collapsed,
                 currentPage:  _page,
                 name:         _name,
+                pendingEventsCount: _pendingEventsCount,
                 onPageChanged: _navigate,
                 onToggle:     () => setState(() => _collapsed = !_collapsed),
                 onSignOut:    _signOut,
@@ -250,12 +294,14 @@ class _AdminSidebar extends StatefulWidget {
   final bool      collapsed;
   final AdminPage currentPage;
   final String?   name;
+  final int       pendingEventsCount;
   final ValueChanged<AdminPage> onPageChanged;
   final VoidCallback onToggle;
   final VoidCallback onSignOut;
 
   const _AdminSidebar({
     required this.collapsed, required this.currentPage, required this.name,
+    required this.pendingEventsCount,
     required this.onPageChanged, required this.onToggle, required this.onSignOut,
   });
 
@@ -432,6 +478,7 @@ class _AdminSidebarState extends State<_AdminSidebar>
             icon: icon, label: label,
             isActive:  widget.currentPage == page,
             collapsed: widget.collapsed,
+            badgeCount: page == AdminPage.events ? widget.pendingEventsCount : 0,
             onTap: () => widget.onPageChanged(page),
           ),
           cIdx,
@@ -633,11 +680,14 @@ class _AdminSidebarState extends State<_AdminSidebar>
 class _AdminNavItem extends StatefulWidget {
   final IconData icon; final String label;
   final bool isActive; final bool collapsed;
+  final int badgeCount;
   final VoidCallback onTap;
 
   const _AdminNavItem({
     required this.icon, required this.label,
-    required this.isActive, required this.collapsed, required this.onTap,
+    required this.isActive, required this.collapsed,
+    this.badgeCount = 0,
+    required this.onTap,
   });
 
   @override
@@ -693,15 +743,22 @@ class _AdminNavItemState extends State<_AdminNavItem> {
               ),
               child: widget.collapsed
                   ? Center(
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 170),
-                        width: 32, height: 32,
-                        decoration: BoxDecoration(
-                          color: active ? _kAccent.withValues(alpha: 0.16) : Colors.transparent,
-                          borderRadius: BorderRadius.circular(9),
+                      child: Stack(clipBehavior: Clip.none, children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 170),
+                          width: 32, height: 32,
+                          decoration: BoxDecoration(
+                            color: active ? _kAccent.withValues(alpha: 0.16) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: Center(child: Icon(widget.icon, size: 19, color: iconColor)),
                         ),
-                        child: Center(child: Icon(widget.icon, size: 19, color: iconColor)),
-                      ),
+                        if (widget.badgeCount > 0)
+                          Positioned(
+                            top: -4, right: -6,
+                            child: _NavBadge(count: widget.badgeCount),
+                          ),
+                      ]),
                     )
                   : Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -727,12 +784,15 @@ class _AdminNavItemState extends State<_AdminNavItem> {
                             child: Text(widget.label),
                           ),
                         ),
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          width:  active ? 6.0 : 0.0,
-                          height: active ? 6.0 : 0.0,
-                          decoration: const BoxDecoration(color: _kAccent, shape: BoxShape.circle),
-                        ),
+                        if (widget.badgeCount > 0)
+                          _NavBadge(count: widget.badgeCount)
+                        else
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            width:  active ? 6.0 : 0.0,
+                            height: active ? 6.0 : 0.0,
+                            decoration: const BoxDecoration(color: _kAccent, shape: BoxShape.circle),
+                          ),
                       ]),
                     ),
             ),
@@ -741,6 +801,36 @@ class _AdminNavItemState extends State<_AdminNavItem> {
       ),
     );
   }
+}
+
+// ─── Nav badge — "needs review" count on a sidebar item ─────────────────────
+// Amber, not the accent orange — matches the "needs attention" language
+// already used for Pending Review everywhere else in this feature, rather
+// than the neutral brand accent used for "currently selected."
+class _NavBadge extends StatelessWidget {
+  final int count;
+  const _NavBadge({required this.count});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(minWidth: 18),
+    height: 18,
+    padding: const EdgeInsets.symmetric(horizontal: 5),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF59E0B),
+      borderRadius: BorderRadius.circular(9),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.85), width: 1.5),
+      boxShadow: [
+        BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 4, offset: const Offset(0, 1)),
+      ],
+    ),
+    alignment: Alignment.center,
+    child: Text(
+      count > 9 ? '9+' : '$count',
+      style: const TextStyle(fontFamily: 'Poppins', fontSize: 10,
+          fontWeight: FontWeight.w800, color: Colors.white, height: 1.0),
+    ),
+  );
 }
 
 // ─── Sign-out buttons ──────────────────────────────────────────────────────
@@ -1012,8 +1102,14 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       final results = await Future.wait([
         client.from('students').select('is_active'),
         client.from('organizers').select('is_active'),
+        // Only approved events count toward Overview's stats/lists — a
+        // still-pending submission (see the Events tab's approval queue)
+        // isn't live yet and would otherwise inflate Total/Upcoming and
+        // show up in the Upcoming Events tile indistinguishable from a
+        // real, student-visible event.
         client.from('events')
             .select('event_id, title, event_status, event_date, start_time, current_participants, max_participants, organizers(full_name)')
+            .eq('approval_status', 'approved')
             .order('event_date', ascending: true),
       ]);
 

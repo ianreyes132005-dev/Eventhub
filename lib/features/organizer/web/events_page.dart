@@ -193,12 +193,15 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     if (!mounted) return;
     if (result == true) {
       _load();
+      final wasRejected = isEdit && (existing['approval_status'] as String? ?? '') == 'rejected';
       await WebAlert.success(
         context: context,
-        title:   isEdit ? 'Event Updated!' : 'Event Created!',
-        message: isEdit
-          ? 'Your changes have been saved successfully.'
-          : 'Your new event is now live and ready for registrations.',
+        title:   isEdit ? 'Event Updated!' : 'Event Submitted!',
+        message: !isEdit
+          ? 'Your new event has been sent to the admin for approval and will go live once reviewed.'
+          : wasRejected
+            ? 'Your changes have been saved and resubmitted for admin approval.'
+            : 'Your changes have been saved successfully.',
       );
     }
   }
@@ -492,6 +495,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
           final e      = entry.value;
           final isLast = i == _displayed.length - 1;
           final status   = e['event_status'] as String?;
+          final approval = (e['approval_status'] as String? ?? 'approved').toLowerCase();
           final resolved = _resolveDisplayStatus(e);
           final isEnded  = resolved == 'ended';
           final sc       = isEnded ? const Color(0xFF6B7280) : webEventStatusColor(status);
@@ -643,9 +647,24 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                   ),
                   Expanded(
                     flex: 2,
-                    child: WebStatusBadge(
-                      label: isEnded ? 'Ended' : webEventStatusLabel(status),
-                      color: sc,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        WebStatusBadge(
+                          label: isEnded ? 'Ended' : webEventStatusLabel(status),
+                          color: sc,
+                        ),
+                        // Only shown while it needs attention — Approved is
+                        // the normal/expected state and would just be noise.
+                        if (approval != 'approved') ...[
+                          const SizedBox(height: 4),
+                          WebStatusBadge(
+                            label: approvalStatusLabel(approval),
+                            color: approvalStatusColor(approval),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   SizedBox(
@@ -2413,6 +2432,9 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
   int get _attendancePct =>
       _capacity > 0 ? (_checkedIn / _capacity * 100).clamp(0, 100).toInt() : 0;
 
+  String  get _approval => (_e['approval_status'] as String? ?? 'approved').toLowerCase();
+  String? get _rejectionReason => _e['rejection_reason'] as String?;
+
   String get _fmtTimeRange {
     final s  = _e['start_time'] as String?;
     final en = _e['end_time'] as String?;
@@ -2484,6 +2506,10 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
                       Wrap(spacing: 6, runSpacing: 6, children: [
                         WebStatusBadge(label: _type, color: typeData.$3),
                         WebStatusBadge(label: statusLbl, color: sc),
+                        if (_approval != 'approved')
+                          WebStatusBadge(
+                            label: approvalStatusLabel(_approval),
+                            color: approvalStatusColor(_approval)),
                       ]),
                     ],
                   ),
@@ -2514,6 +2540,27 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          if (_approval == 'rejected' && (_rejectionReason ?? '').isNotEmpty) ...[
+                            _DialogSection(
+                              icon: Icons.block_rounded,
+                              iconBg: const Color(0x1AEF4444),
+                              iconColor: const Color(0xFFEF4444),
+                              title: 'Rejected by Admin',
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(_rejectionReason!,
+                                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                                        color: t.text, height: 1.5)),
+                                  const SizedBox(height: 6),
+                                  Text('Edit and save this event to resubmit it for review.',
+                                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                                        color: t.muted, fontStyle: FontStyle.italic)),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                          ],
                           _buildStatsStrip(t),
                           const SizedBox(height: 14),
                           _DialogSection(

@@ -97,6 +97,10 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   String  get _status   =>
       ((_d['event_status'] as String?) ?? (_d['status'] as String?) ?? 'upcoming')
           .toLowerCase();
+  // Orthogonal to _status — admin moderation gate, not the event's own
+  // lifecycle. See admin_web_events.dart / Section 18 of supabase_schema.sql.
+  String  get _approval => (_d['approval_status'] as String? ?? 'approved').toLowerCase();
+  String? get _rejectionReason => _d['rejection_reason'] as String?;
 
   int get _capacity   => _d['max_participants'] as int? ?? _d['capacity']   as int? ?? 0;
   // Use registrations count as ground truth; fall back to DB column.
@@ -320,6 +324,15 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
               // ── Collapsible hero ───────────────────────────────────────────
               _buildHeroSliver(),
 
+              // ── Rejection reason (only when rejected) ────────────────────────
+              if (_approval == 'rejected' && (_rejectionReason ?? '').isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: _buildRejectionCard(t),
+                  ),
+                ),
+
               // ── Stats strip ────────────────────────────────────────────────
               SliverToBoxAdapter(
                 child: Padding(
@@ -435,6 +448,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                     children: [
                       _heroBadge(_type, kGold),
                       _heroBadge(_statusDisplay, _statusColor),
+                      if (_approval != 'approved')
+                        _heroBadge(approvalStatusLabel(_approval), approvalStatusColor(_approval)),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -578,6 +593,34 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
             ],
           );
         }).toList(),
+      ),
+    );
+  }
+
+  // ── Rejection reason card ───────────────────────────────────────────────────
+  // Editing and saving this event (Manage Event) resubmits it for review —
+  // no separate "resubmit" action needed, see manage_event_screen.dart.
+
+  Widget _buildRejectionCard(AppTk t) {
+    return _sectionCard(t,
+      icon: Icons.block_rounded,
+      iconBg: const Color(0xFFEF4444).withValues(alpha: 0.12),
+      iconColor: const Color(0xFFEF4444),
+      title: 'Rejected by Admin',
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(_rejectionReason ?? '',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                  color: t.text, height: 1.5)),
+            const SizedBox(height: 8),
+            Text('Edit and save this event to resubmit it for review.',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                  color: t.muted, fontStyle: FontStyle.italic)),
+          ],
+        ),
       ),
     );
   }

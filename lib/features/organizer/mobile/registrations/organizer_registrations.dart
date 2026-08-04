@@ -51,6 +51,129 @@ String _fmtDate(String iso) {
   }
 }
 
+// ── Reject reason prompt ─────────────────────────────────────────────────────
+// Shared by the main list's Reject button. Returns the typed reason, or null
+// if the organizer backed out — callers should treat null as "don't reject."
+
+Future<String?> _promptRejectReason(BuildContext context, String studentName) {
+  final ctrl = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (dialogCtx) => StatefulBuilder(
+      builder: (dialogCtx, setState) {
+        final t = AppTk(Theme.of(dialogCtx).brightness == Brightness.dark);
+        return Dialog(
+          backgroundColor: t.card,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Container(
+                  width: 38, height: 38,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDC2626).withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.block_rounded, size: 19, color: Color(0xFFDC2626)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Reject $studentName?',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 15,
+                      fontWeight: FontWeight.w700, color: t.text))),
+              ]),
+              const SizedBox(height: 6),
+              Text('This student will not be checked in. Give a reason so they know what to fix.',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.sub, height: 1.4)),
+              const SizedBox(height: 14),
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                maxLines: 3,
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
+                decoration: InputDecoration(
+                  hintText: 'e.g. Selfie doesn\'t match student ID photo',
+                  hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted),
+                  filled: true,
+                  fillColor: t.inputBg,
+                  contentPadding: const EdgeInsets.all(12),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: t.border)),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: t.border)),
+                  focusedBorder: const OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(10)), borderSide: BorderSide(color: kGold, width: 1.5)),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(dialogCtx).pop(),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: t.border),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: Text('Cancel', style: TextStyle(fontFamily: 'Poppins',
+                        fontWeight: FontWeight.w600, color: t.sub)),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: ctrl.text.trim().isEmpty
+                        ? null
+                        : () => Navigator.of(dialogCtx).pop(ctrl.text.trim()),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFDC2626),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(0xFFDC2626).withValues(alpha: 0.35),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: const Text('Confirm Reject',
+                        style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ]),
+            ]),
+          ),
+        );
+      },
+    ),
+  ).whenComplete(ctrl.dispose);
+}
+
+// ── Reject icon button — sits next to Check In on a photo_submitted row ──────
+
+class _RejectIconBtn extends StatelessWidget {
+  final VoidCallback onTap;
+  const _RejectIconBtn({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
+    return Tooltip(
+      message: 'Reject',
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: t.card,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFDC2626).withValues(alpha: 0.4), width: 1.5),
+          ),
+          child: const Icon(Icons.block_rounded, size: 16, color: Color(0xFFDC2626)),
+        ),
+      ),
+    );
+  }
+}
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 class RegistrationsScreen extends StatefulWidget {
@@ -206,7 +329,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     }).toList();
   }
 
-  Future<void> _updateStatus(String id, String newStatus) async {
+  Future<void> _updateStatus(String id, String newStatus, {String? rejectionReason}) async {
     final idx = _all.indexWhere((r) => r['id'] == id);
     if (idx < 0) return;
     final oldStatus = _all[idx]['status'] as String? ?? '';
@@ -218,7 +341,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     });
 
     try {
-      await RegistrationService.updateStatus(id, newStatus);
+      await RegistrationService.updateStatus(id, newStatus, rejectionReason: rejectionReason);
     } catch (e) {
       // Roll back to the previous status on failure.
       if (mounted) {
@@ -238,6 +361,15 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
         );
       }
     }
+  }
+
+  // Reject requires a reason and a second confirm step — this is the more
+  // consequential of the two decisions available here (it denies a student
+  // attendance), so it deliberately gets more friction than Check In.
+  Future<void> _confirmReject(String id, String name) async {
+    final reason = await _promptRejectReason(context, name);
+    if (reason == null) return;
+    await _updateStatus(id, 'rejected', rejectionReason: reason);
   }
 
   Future<void> _deleteRegistration(String id, String name) async {
@@ -970,13 +1102,17 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
       case 'photo_required':
         return _awaitingBtn();
       case 'photo_submitted':
-        return _actionBtn(
-          label: 'Check In Student',
-          icon: Icons.how_to_reg_rounded,
-          color: kGold,
-          onTap: () => _updateStatus(id, 'checked_in'),
-          t: t,
-        );
+        return Row(children: [
+          Expanded(child: _actionBtn(
+            label: 'Check In Student',
+            icon: Icons.how_to_reg_rounded,
+            color: kGold,
+            onTap: () => _updateStatus(id, 'checked_in'),
+            t: t,
+          )),
+          const SizedBox(width: 8),
+          _RejectIconBtn(onTap: () => _confirmReject(id, name)),
+        ]);
       case 'checked_in':
       default:
         return _actionBtn(
@@ -1053,6 +1189,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   }
 
   // ── Empty state ───────────────────────────────────────────────────────────
+
 
   Widget _buildEmptyState(AppTk t) {
     final isFiltered = _filter != 'All' || _search.text.isNotEmpty;

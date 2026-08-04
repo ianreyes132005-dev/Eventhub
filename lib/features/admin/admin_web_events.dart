@@ -1,6 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Admin — Events tab.
-// Split out of admin_web_dashboard.dart so each sidebar tab has its own file.
+// Purpose: the admin's only job here is approving or rejecting events
+// organizers submit — a moderation gate before an event goes live and
+// becomes visible/registerable to students (enforced server-side, see
+// Section 18 of lib/supabase_schema.sql). There is no "manage/cancel a live
+// event" affordance on this tab any more — Approved/Rejected are read-only
+// history so this stays a queue, not a second cancel mechanism.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
@@ -13,7 +18,7 @@ import '../organizer/web/web_shared.dart';
 import 'admin_shared.dart';
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Events page (read-only)
+// Events page — approval queue
 // ═════════════════════════════════════════════════════════════════════════════
 
 class AdminEventsPage extends StatefulWidget {
@@ -26,25 +31,24 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
   String _errorMsg = '';
   List<Map<String, dynamic>> _all = [], _filtered = [];
   String _search       = '';
-  String _statusFilter = 'All';
-  String _typeFilter   = 'All';
-  String _fillFilter   = 'All';
-  String _sortField    = 'event_date';
+  String _tab          = 'pending'; // pending | approved | rejected
+  String _orgFilter    = 'All';
+  String _sortField    = 'created_at';
   bool   _sortAsc      = false;
   final _searchCtrl = TextEditingController();
 
   RealtimeChannel? _channel;
   Timer?           _debounce;
 
-  List<String> get _typeOptions {
-    final types = _all
-        .map((e) => e['event_type'] as String?)
+  List<String> get _orgOptions {
+    final names = _all
+        .map((e) => (e['organizers'] as Map<String, dynamic>?)?['full_name'] as String?)
         .whereType<String>()
-        .where((t) => t.isNotEmpty)
+        .where((n) => n.isNotEmpty)
         .toSet()
         .toList()
       ..sort();
-    return ['All', ...types];
+    return ['All', ...names];
   }
 
   @override
@@ -59,13 +63,11 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
 
   void _subscribeRealtime() {
     _channel = SupabaseService.client.channel('admin-events');
-    for (final table in ['events', 'registrations']) {
-      _channel!.on(
-        RealtimeListenTypes.postgresChanges,
-        ChannelFilter(event: '*', schema: 'public', table: table),
-        (_, [__]) => _debounceLoad(),
-      );
-    }
+    _channel!.on(
+      RealtimeListenTypes.postgresChanges,
+      ChannelFilter(event: '*', schema: 'public', table: 'events'),
+      (_, [__]) => _debounceLoad(),
+    );
     _channel!.subscribe();
   }
 
@@ -80,8 +82,11 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
     if (mounted) setState(() { if (!silent) _loading = true; _error = false; });
     try {
       final rows = await SupabaseService.client.from('events')
-          .select('event_id, title, event_type, event_date, start_time, end_time, event_status, current_participants, max_participants, organizer_id, organizers(full_name, organization)')
-          .order('event_date', ascending: false);
+          .select('event_id, title, description, location, event_type, event_date, '
+              'start_time, end_time, event_image_url, max_participants, '
+              'current_participants, organizer_id, created_at, approval_status, '
+              'rejection_reason, reviewed_at, organizers(full_name, organization)')
+          .order('created_at', ascending: false);
       if (!mounted) return;
       _all     = List<Map<String, dynamic>>.from(rows as List);
       _loading = false;
@@ -94,19 +99,10 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
   void _applyFilter() {
     final q = _search.toLowerCase();
     var list = _all.where((e) {
-      if (_statusFilter != 'All') {
-        if (_statusFilter == 'ended') {
-          if (_resolveDisplayStatus(e) != 'ended') return false;
-        } else {
-          if (e['event_status'] != _statusFilter) return false;
-        }
-      }
-      if (_typeFilter   != 'All' && (e['event_type'] as String? ?? '') != _typeFilter) return false;
-      if (_fillFilter == 'At Capacity') {
-        final cur = (e['current_participants'] as int?) ?? 0;
-        final max = (e['max_participants']     as int?) ?? 0;
-        if (max == 0 || cur < max) return false;
-      }
+      final approval = (e['approval_status'] as String? ?? 'approved');
+      if (approval != _tab) return false;
+      final orgName = (e['organizers'] as Map<String, dynamic>?)?['full_name'] as String? ?? '';
+      if (_orgFilter != 'All' && orgName != _orgFilter) return false;
       if (q.isNotEmpty) {
         final title = (e['title']      as String? ?? '').toLowerCase();
         final org   = ((e['organizers'] as Map<String, dynamic>?)?['full_name'] as String? ?? '').toLowerCase();
@@ -124,19 +120,10 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
         final an = ((a['organizers'] as Map<String, dynamic>?)?['full_name'] as String? ?? '');
         final bn = ((b['organizers'] as Map<String, dynamic>?)?['full_name'] as String? ?? '');
         cmp = an.compareTo(bn);
-      } else if (_sortField == 'fill_rate') {
-        final maxA = (a['max_participants'] as int?) ?? 0;
-        final maxB = (b['max_participants'] as int?) ?? 0;
-        final rA   = maxA > 0 ? ((a['current_participants'] as int? ?? 0) / maxA) : 0.0;
-        final rB   = maxB > 0 ? ((b['current_participants'] as int? ?? 0) / maxB) : 0.0;
-        cmp = rA.compareTo(rB);
-      } else if (_sortField == 'event_status') {
-        const order = {'ongoing': 0, 'upcoming': 1, 'ended': 2, 'completed': 3, 'cancelled': 4};
-        final ao = order[_resolveDisplayStatus(a)] ?? 5;
-        final bo = order[_resolveDisplayStatus(b)] ?? 5;
-        cmp = ao.compareTo(bo);
-      } else {
+      } else if (_sortField == 'event_date') {
         cmp = ((a['event_date'] as String?) ?? '').compareTo((b['event_date'] as String?) ?? '');
+      } else {
+        cmp = ((a['created_at'] as String?) ?? '').compareTo((b['created_at'] as String?) ?? '');
       }
       return _sortAsc ? cmp : -cmp;
     });
@@ -149,42 +136,68 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
       _sortAsc = !_sortAsc;
     } else {
       _sortField = field;
-      _sortAsc   = field == 'title' || field == 'event_status' || field == 'organizer_name';
+      _sortAsc   = field == 'title' || field == 'organizer_name';
     }
     _applyFilter();
   }
 
-  Future<void> _cancelEvent(String id, String title) async {
-    final ok = await WebAlert.confirm(
-      context:      context,
-      title:        'Cancel Event?',
-      message:      '"$title" will be marked as Cancelled. Registered students will be affected. This cannot be undone.',
-      confirmLabel: 'Cancel Event',
-      confirmColor: const Color(0xFFEF4444),
-      iconColor:    const Color(0xFFEF4444),
-      iconBg:       const Color(0xFFFEF2F2),
-      icon:         Icons.cancel_rounded,
+  Future<void> _openReview(Map<String, dynamic> event) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => _EventReviewDialog(event: event),
     );
-    if (ok != true) return;
+    if (result == null) return;
+    final action = result['action'] as String?;
+    if (action == 'approve') {
+      await _decide(event, approve: true);
+    } else if (action == 'reject') {
+      await _decide(event, approve: false, reason: result['reason'] as String?);
+    }
+  }
+
+  Future<void> _decide(Map<String, dynamic> event, {required bool approve, String? reason}) async {
+    final id      = event['event_id'] as String? ?? '';
+    final title   = event['title']    as String? ?? 'this event';
+    final orgId   = event['organizer_id'] as String?;
+    final orgName = (event['organizers'] as Map<String, dynamic>?)?['full_name'] as String?;
+    final user    = SupabaseService.currentUser;
+
+    final payload = <String, dynamic>{
+      'approval_status': approve ? 'approved' : 'rejected',
+      'rejection_reason': approve ? null : reason,
+      'reviewed_by': user?.id,
+      'reviewed_at': DateTime.now().toUtc().toIso8601String(),
+    };
+
     try {
       final updated = await SupabaseService.client.from('events')
-          .update({'event_status': 'cancelled'}).eq('event_id', id).select();
+          .update(payload).eq('event_id', id).select();
       if ((updated as List).isEmpty) {
-        if (mounted) _snack('Failed: event not found or you do not have permission to cancel it.');
+        if (mounted) _snack('Failed: event not found or you do not have permission.');
         return;
       }
-      final idx    = _all.indexWhere((e) => e['event_id'] == id);
-      final orgMap = idx != -1 ? _all[idx]['organizers'] as Map<String, dynamic>? : null;
       AuditService.logEvent(
-        action: 'cancelled',
+        action: approve ? 'approved' : 'rejected',
         eventTitle: title,
         eventId: id,
-        organizerId: idx != -1 ? _all[idx]['organizer_id'] as String? : null,
-        organizerName: orgMap?['full_name'] as String?,
-        details: 'Event cancelled by an administrator',
+        organizerId: orgId,
+        organizerName: orgName,
+        details: approve
+            ? 'Event approved by an administrator'
+            : 'Event rejected — $reason',
       );
-      if (idx != -1) { _all[idx] = {..._all[idx], 'event_status': 'cancelled'}; _applyFilter(); }
-      if (mounted) WebAlert.success(context: context, title: 'Cancelled', message: 'Event has been cancelled.');
+      final idx = _all.indexWhere((e) => e['event_id'] == id);
+      if (idx != -1) { _all[idx] = {..._all[idx], ...payload}; _applyFilter(); }
+      if (mounted) {
+        WebAlert.success(
+          context: context,
+          title: approve ? 'Approved' : 'Rejected',
+          message: approve
+              ? 'Event is now live and visible to students.'
+              : 'Event was rejected. The organizer will see the reason.',
+        );
+      }
     } catch (e) { if (mounted) _snack('Failed: $e'); }
   }
 
@@ -194,31 +207,28 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final t              = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final totalCount     = _all.length;
-    final upcomingCount  = _all.where((e) => _resolveDisplayStatus(e) == 'upcoming').length;
-    final ongoingCount   = _all.where((e) => _resolveDisplayStatus(e) == 'ongoing').length;
-    final endedCount     = _all.where((e) => _resolveDisplayStatus(e) == 'ended').length;
-    final completedCount = _all.where((e) => e['event_status'] == 'completed').length;
-    final cancelledCount = _all.where((e) => e['event_status'] == 'cancelled').length;
-    final atCapacityCount = _all.where((e) {
-      final cur = (e['current_participants'] as int?) ?? 0;
-      final max = (e['max_participants']     as int?) ?? 0;
-      return max > 0 && cur >= max;
-    }).length;
-    final hasFilter = _search.isNotEmpty || _statusFilter != 'All' ||
-                      _typeFilter != 'All'   || _fillFilter  != 'All';
-    final typeOpts  = _typeOptions;
-    final filterDesc = [
-      if (_statusFilter != 'All') webEventStatusLabel(_statusFilter),
-      if (_typeFilter   != 'All' && _typeFilter.isNotEmpty)
-          '${_typeFilter[0].toUpperCase()}${_typeFilter.substring(1)}',
-      if (_fillFilter   != 'All') _fillFilter,
-      if (_search.isNotEmpty)     '"$_search"',
-    ].join(' · ');
-    final emptySubtitle = filterDesc.isEmpty
-        ? 'No events have been created yet.'
-        : 'No events match $filterDesc.';
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+
+    int countFor(String status) => _all.where((e) =>
+        (e['approval_status'] as String? ?? 'approved') == status).length;
+    final pendingCount  = countFor('pending');
+    final approvedCount = countFor('approved');
+    final rejectedCount = countFor('rejected');
+    final tabTotal      = countFor(_tab);
+
+    final hasFilter = _search.isNotEmpty || _orgFilter != 'All';
+    final orgOpts   = _orgOptions;
+    final tabLabel = switch (_tab) {
+      'pending'  => 'events pending review',
+      'approved' => 'approved events',
+      'rejected' => 'rejected events',
+      _          => 'events',
+    };
+    final emptySubtitle = hasFilter
+        ? 'No $tabLabel match your filters.'
+        : _tab == 'pending'
+            ? 'Nothing waiting for review right now.'
+            : 'No $tabLabel yet.';
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: kAdminAccent));
@@ -240,31 +250,25 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
                     fontWeight: FontWeight.w800, color: t.text)),
               const SizedBox(height: 2),
-              Text('$totalCount total · $upcomingCount upcoming · $ongoingCount ongoing',
+              Text('Review and approve events submitted by organizers',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub)),
             ])),
           ]),
           const SizedBox(height: 16),
-          // ── Stat tiles ────────────────────────────────────────────────
+          // ── Stat tiles — Pending Review first: this is the number that
+          // should drive admin attention, not an equal-weight afterthought.
+          // No "Total Events" tile — every other card here maps to a real
+          // decision state; a running historical total doesn't, and this
+          // tab's job is the queue, not a lifetime counter.
           Row(children: [
-            AdminStatCard(label: 'Total Events', value: '$totalCount',
-                color: kAdminAccent, icon: Icons.event_rounded),
+            AdminStatCard(label: 'Pending Review', value: '$pendingCount',
+                color: const Color(0xFFF59E0B), icon: Icons.pending_actions_rounded),
             const SizedBox(width: 10),
-            AdminStatCard(label: 'Upcoming', value: '$upcomingCount',
-                color: const Color(0xFF3B82F6), icon: Icons.schedule_rounded),
+            AdminStatCard(label: 'Approved', value: '$approvedCount',
+                color: const Color(0xFF10B981), icon: Icons.check_circle_rounded),
             const SizedBox(width: 10),
-            AdminStatCard(label: 'Ongoing', value: '$ongoingCount',
-                color: const Color(0xFF10B981), icon: Icons.play_circle_rounded),
-            const SizedBox(width: 10),
-            AdminStatCard(label: 'Ended', value: '${endedCount + completedCount}',
-                color: const Color(0xFF6B7280), icon: Icons.check_circle_rounded),
-            const SizedBox(width: 10),
-            AdminStatCard(
-              label: 'Cancelled',
-              value: '$cancelledCount',
-              color: cancelledCount > 0 ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-              icon: Icons.cancel_rounded,
-            ),
+            AdminStatCard(label: 'Rejected', value: '$rejectedCount',
+                color: const Color(0xFFEF4444), icon: Icons.cancel_rounded),
           ]),
         ]),
       ),
@@ -276,7 +280,6 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
           border: Border(bottom: BorderSide(color: t.border)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Status filter row
           Row(children: [
             WebSearchField(
               controller: _searchCtrl, hint: 'Search title, organizer, or type…',
@@ -284,34 +287,31 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
             const SizedBox(width: 14),
             Container(width: 1, height: 18, color: t.border),
             const SizedBox(width: 14),
-            Text('Status:',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                  fontWeight: FontWeight.w600, color: t.text)),
-            const SizedBox(width: 8),
+            // No "All" tab — Pending/Approved/Rejected are the three real
+            // outcomes; a combined view added a 4th state that mapped to
+            // nothing actionable and let the tab drift from "queue" toward
+            // "browse everything."
             WebFilterChip(
-              label: 'All', selected: _statusFilter == 'All',
-              onTap: () { _statusFilter = 'All'; _applyFilter(); },
-              count: totalCount),
+              label: 'Pending Review', selected: _tab == 'pending',
+              onTap: () { _tab = 'pending'; _applyFilter(); },
+              count: pendingCount, selectedColor: const Color(0xFFF59E0B)),
             const SizedBox(width: 6),
-            for (final s in ['upcoming', 'ongoing', 'ended', 'completed', 'cancelled']) ...[
-              WebFilterChip(
-                label: webEventStatusLabel(s),
-                selected: _statusFilter == s,
-                onTap: () { _statusFilter = s; _applyFilter(); },
-                count: s == 'upcoming' || s == 'ongoing' || s == 'ended'
-                    ? _all.where((e) => _resolveDisplayStatus(e) == s).length
-                    : _all.where((e) => e['event_status'] == s).length,
-                selectedColor: webEventStatusColor(s)),
-              const SizedBox(width: 6),
-            ],
+            WebFilterChip(
+              label: 'Approved', selected: _tab == 'approved',
+              onTap: () { _tab = 'approved'; _applyFilter(); },
+              count: approvedCount, selectedColor: const Color(0xFF10B981)),
+            const SizedBox(width: 6),
+            WebFilterChip(
+              label: 'Rejected', selected: _tab == 'rejected',
+              onTap: () { _tab = 'rejected'; _applyFilter(); },
+              count: rejectedCount, selectedColor: const Color(0xFFEF4444)),
             if (hasFilter) ...[
               const Spacer(),
               MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: GestureDetector(
                   onTap: () {
-                    _search = ''; _statusFilter = 'All';
-                    _typeFilter = 'All'; _fillFilter = 'All';
+                    _search = ''; _orgFilter = 'All';
                     _searchCtrl.clear();
                     _applyFilter();
                   },
@@ -325,109 +325,81 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
             ),
           ],
         ]),
-        // Type + Capacity — single compact row
-        if (typeOpts.length > 1 || atCapacityCount > 0) ...[
+        if (orgOpts.length > 1) ...[
           const SizedBox(height: 8),
           Row(children: [
-            if (typeOpts.length > 1) ...[
-              Text('Type:',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                    fontWeight: FontWeight.w600, color: t.text)),
-              const SizedBox(width: 8),
-              Container(
-                height: 28,
-                padding: const EdgeInsets.only(left: 10, right: 6),
-                decoration: BoxDecoration(
-                  color: _typeFilter != 'All'
-                      ? _eventTypeColor(_typeFilter).withValues(alpha: 0.07)
-                      : t.card,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: _typeFilter != 'All'
-                        ? _eventTypeColor(_typeFilter).withValues(alpha: 0.45)
-                        : t.border,
-                    width: _typeFilter != 'All' ? 1.5 : 1.0,
-                  ),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: typeOpts.contains(_typeFilter) ? _typeFilter : 'All',
-                    isDense: true,
-                    icon: Icon(Icons.keyboard_arrow_down_rounded, size: 14,
-                        color: _typeFilter != 'All'
-                            ? _eventTypeColor(_typeFilter) : t.muted),
-                    onChanged: (v) {
-                      if (v != null) { _typeFilter = v; _applyFilter(); }
-                    },
-                    selectedItemBuilder: (ctx) => typeOpts.map((typ) => Center(
-                      child: Text(
-                        typ == 'All' ? 'All Types'
-                            : '${typ[0].toUpperCase()}${typ.substring(1)}',
-                        style: TextStyle(
-                          fontFamily: 'Poppins', fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: _typeFilter != 'All'
-                              ? _eventTypeColor(_typeFilter) : t.text,
-                        )),
-                    )).toList(),
-                    items: typeOpts.map((typ) {
-                      final cnt = typ == 'All' ? totalCount
-                          : _all.where((e) =>
-                              (e['event_type'] as String? ?? '') == typ).length;
-                      final lbl = typ == 'All' ? 'All Types'
-                          : '${typ[0].toUpperCase()}${typ.substring(1)}';
-                      return DropdownMenuItem<String>(
-                        value: typ,
-                        child: Text('$lbl ($cnt)',
-                          style: TextStyle(
-                            fontFamily: 'Poppins', fontSize: 12,
-                            fontWeight: typ == _typeFilter
-                                ? FontWeight.w700 : FontWeight.w400,
-                            color: typ == 'All' ? t.text : _eventTypeColor(typ),
-                          )),
-                      );
-                    }).toList(),
-                  ),
+            Text('Organizer:',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                  fontWeight: FontWeight.w600, color: t.text)),
+            const SizedBox(width: 8),
+            Container(
+              height: 28,
+              padding: const EdgeInsets.only(left: 10, right: 6),
+              decoration: BoxDecoration(
+                color: _orgFilter != 'All'
+                    ? kAdminAccent.withValues(alpha: 0.07)
+                    : t.card,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: _orgFilter != 'All'
+                      ? kAdminAccent.withValues(alpha: 0.45)
+                      : t.border,
+                  width: _orgFilter != 'All' ? 1.5 : 1.0,
                 ),
               ),
-            ],
-            if (typeOpts.length > 1 && atCapacityCount > 0) ...[
-              const SizedBox(width: 12),
-              Container(width: 1, height: 18, color: t.border),
-              const SizedBox(width: 12),
-            ],
-            if (atCapacityCount > 0) ...[
-              Text('Capacity:',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                    fontWeight: FontWeight.w600, color: t.text)),
-                const SizedBox(width: 8),
-                WebFilterChip(
-                  label: 'At Capacity',
-                  selected: _fillFilter == 'At Capacity',
-                  onTap: () {
-                    _fillFilter = _fillFilter == 'At Capacity' ? 'All' : 'At Capacity';
-                    _applyFilter();
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: orgOpts.contains(_orgFilter) ? _orgFilter : 'All',
+                  isDense: true,
+                  icon: Icon(Icons.keyboard_arrow_down_rounded, size: 14,
+                      color: _orgFilter != 'All' ? kAdminAccent : t.muted),
+                  onChanged: (v) {
+                    if (v != null) { _orgFilter = v; _applyFilter(); }
                   },
-                  count: atCapacityCount,
-                  selectedColor: const Color(0xFFEF4444)),
-              ],
-            ]),
-          ],
-        ]),
+                  selectedItemBuilder: (ctx) => orgOpts.map((name) => Center(
+                    child: Text(
+                      name == 'All' ? 'All Organizers' : name,
+                      style: TextStyle(
+                        fontFamily: 'Poppins', fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: _orgFilter != 'All' ? kAdminAccent : t.text,
+                      )),
+                  )).toList(),
+                  items: orgOpts.map((name) {
+                    final cnt = name == 'All' ? _all.length
+                        : _all.where((e) =>
+                            ((e['organizers'] as Map<String, dynamic>?)?['full_name'] as String? ?? '') == name).length;
+                    final lbl = name == 'All' ? 'All Organizers' : name;
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text('$lbl ($cnt)',
+                        style: TextStyle(
+                          fontFamily: 'Poppins', fontSize: 12,
+                          fontWeight: name == _orgFilter
+                              ? FontWeight.w700 : FontWeight.w400,
+                          color: t.text,
+                        )),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ]),
+        ],
+      ]),
       ),
       // ── Body ─────────────────────────────────────────────────────────
         if (_filtered.isEmpty)
           Padding(
             padding: const EdgeInsets.all(kWebPad),
             child: WebEmptyState(
-              icon: Icons.event_outlined,
-              title: 'No events found',
+              icon: _tab == 'pending' ? Icons.task_alt_rounded : Icons.event_outlined,
+              title: _tab == 'pending' ? 'All caught up' : 'No events found',
               subtitle: emptySubtitle,
               action: hasFilter
                   ? TextButton(
                       onPressed: () {
-                        _search = ''; _statusFilter = 'All';
-                        _typeFilter = 'All'; _fillFilter = 'All';
+                        _search = ''; _orgFilter = 'All';
                         _searchCtrl.clear();
                         _applyFilter();
                       },
@@ -446,6 +418,7 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
                   sortField: _sortField,
                   sortAsc:   _sortAsc,
                   onSort:    _setSort,
+                  showAction: _tab == 'pending',
                 ),
                 ListView.separated(
                   shrinkWrap: true,
@@ -453,15 +426,11 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
                   itemCount: _filtered.length,
                   separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
                   itemBuilder: (_, i) {
-                    final e           = _filtered[i];
-                    final dispStatus  = _resolveDisplayStatus(e);
+                    final e = _filtered[i];
+                    final isPending = (e['approval_status'] as String? ?? 'approved') == 'pending';
                     return _EventRow(
                       event: e,
-                      onCancel: (dispStatus == 'upcoming' || dispStatus == 'ongoing')
-                          ? () => _cancelEvent(
-                              e['event_id'] as String? ?? '',
-                              e['title']    as String? ?? 'this event')
-                          : null,
+                      onReview: isPending ? () => _openReview(e) : null,
                     );
                   },
                 ),
@@ -471,8 +440,8 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
                     border: Border(top: BorderSide(color: t.border))),
                   child: Text(
                     hasFilter
-                        ? 'Showing ${_filtered.length} of $totalCount events'
-                        : '${_filtered.length} events total',
+                        ? 'Showing ${_filtered.length} of $tabTotal $tabLabel'
+                        : '${_filtered.length} $tabLabel',
                     style: TextStyle(fontFamily: 'Poppins',
                         fontSize: 11.5, color: t.muted)),
                 ),
@@ -482,37 +451,6 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
       ]),
     );
   }
-}
-
-// ─── Event display-status helper ─────────────────────────────────────────────
-// Returns 'ended' when an 'upcoming'/'ongoing' event's date/time has passed,
-// otherwise returns the raw DB status unchanged.
-
-String _resolveDisplayStatus(Map<String, dynamic> event) {
-  final db = (event['event_status'] as String? ?? '').toLowerCase();
-  if (db != 'upcoming' && db != 'ongoing') return db;
-
-  final dStr = event['event_date'] as String?;
-  if (dStr == null) return db;
-  try {
-    final d    = DateTime.parse(dStr);
-    final eDay = DateTime(d.year, d.month, d.day);
-    final now  = DateTime.now();
-    final nDay = DateTime(now.year, now.month, now.day);
-
-    if (nDay.isAfter(eDay)) return 'ended';
-
-    if (nDay == eDay) {
-      final eStr = event['end_time'] as String?;
-      if (eStr != null) {
-        final p = eStr.split(':');
-        final h = int.tryParse(p[0]) ?? 0;
-        final m = p.length > 1 ? (int.tryParse(p[1]) ?? 0) : 0;
-        if (now.isAfter(DateTime(d.year, d.month, d.day, h, m))) return 'ended';
-      }
-    }
-  } catch (_) {}
-  return db;
 }
 
 // ─── Event type color helper ──────────────────────────────────────────────────
@@ -544,9 +482,11 @@ Color _eventTypeColor(String? type) => switch ((type ?? '').toLowerCase()) {
 class _EventTableHeader extends StatelessWidget {
   final String sortField;
   final bool   sortAsc;
+  final bool   showAction;
   final void Function(String) onSort;
   const _EventTableHeader({
-    required this.sortField, required this.sortAsc, required this.onSort});
+    required this.sortField, required this.sortAsc,
+    required this.onSort, required this.showAction});
 
   Widget _sortCol(String label, String field, {int flex = 1}) => Expanded(
     flex: flex,
@@ -571,220 +511,464 @@ class _EventTableHeader extends StatelessWidget {
         const SizedBox(width: 52),
         _sortCol('EVENT',     'title',          flex: 3),
         _sortCol('ORGANIZER', 'organizer_name', flex: 2),
-        _sortCol('DATE',      'event_date',     flex: 2),
-        _sortCol('STATUS',    'event_status'),
-        _sortCol('FILL RATE', 'fill_rate',      flex: 2),
-        const SizedBox(width: 44),
+        _sortCol('EVENT DATE','event_date',     flex: 2),
+        Expanded(child: Text('STATUS',
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
+              fontWeight: FontWeight.w700, letterSpacing: 0.8, color: t.sub))),
+        SizedBox(width: showAction ? 96 : 0),
       ]),
     );
   }
 }
 
-class _EventRow extends StatefulWidget {
+class _EventRow extends StatelessWidget {
   final Map<String, dynamic> event;
-  final VoidCallback?         onCancel;
-  const _EventRow({required this.event, this.onCancel});
-  @override State<_EventRow> createState() => _EventRowState();
-}
-class _EventRowState extends State<_EventRow> {
-  bool _h = false;
+  final VoidCallback?         onReview;
+  const _EventRow({required this.event, this.onReview});
+
   @override
   Widget build(BuildContext context) {
-    final e            = widget.event;
-    final dbStatus     = e['event_status'] as String? ?? '';
-    final dispStatus   = _resolveDisplayStatus(e);
+    final e            = event;
+    final approval     = e['approval_status'] as String? ?? 'approved';
+    final isRejected   = approval == 'rejected';
     final type         = e['event_type']   as String? ?? '';
     final orgMap       = e['organizers']   as Map<String, dynamic>?;
     final orgName      = orgMap?['full_name']    as String? ?? '—';
     final orgSub       = orgMap?['organization'] as String?;
-    final cur          = e['current_participants'] as int? ?? 0;
-    final max          = e['max_participants']     as int? ?? 0;
-    final pct          = max > 0 ? (cur / max).clamp(0.0, 1.0) : 0.0;
-    final isFull       = max > 0 && cur >= max;
-    final isAlmostFull = !isFull && pct >= 0.8;
-    final isCancelled  = dbStatus == 'cancelled';
     final t            = WebTk(Theme.of(context).brightness == Brightness.dark);
     final typeColor    = type.isEmpty ? t.muted : _eventTypeColor(type);
     final timeStr      = _fmtEventTime(e['start_time'] as String?);
-    final barColor     = isCancelled  ? t.muted
-                       : isFull       ? const Color(0xFFEF4444)
-                       : isAlmostFull ? const Color(0xFFF59E0B)
-                       :                const Color(0xFF10B981);
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _h = true),
-      onExit:  (_) => setState(() => _h = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        color: _h ? kAdminAccent.withValues(alpha: 0.025) : Colors.transparent,
-        child: IntrinsicHeight(
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Container(
-              width: 3,
-              color: isCancelled
-                  ? const Color(0xFFEF4444).withValues(alpha: 0.35)
-                  : Colors.transparent,
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Row(children: [
-                  // Event type icon container
-                  Container(
-                    width: 40, height: 40,
-                    decoration: BoxDecoration(
-                      color: typeColor.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: typeColor.withValues(alpha: 0.18)),
-                    ),
-                    child: Icon(
-                      type.isEmpty ? Icons.event_note_rounded : Icons.event_rounded,
-                      size: 20,
-                      color: typeColor.withValues(alpha: isCancelled ? 0.45 : 1.0),
-                    ),
+    return Container(
+      color: Colors.transparent,
+      child: IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Container(
+            width: 3,
+            color: approval == 'pending'
+                ? const Color(0xFFF59E0B).withValues(alpha: 0.45)
+                : Colors.transparent,
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Row(children: [
+                Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(
+                    color: typeColor.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: typeColor.withValues(alpha: 0.18)),
                   ),
-                  const SizedBox(width: 12),
-                  // Event title + type badge
-                  Expanded(flex: 3, child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(e['title'] as String? ?? '—',
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: isCancelled ? t.muted : t.text),
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                      if (type.isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: typeColor.withValues(alpha: 0.10),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text('${type[0].toUpperCase()}${type.substring(1)}',
-                            style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                                fontWeight: FontWeight.w700, color: typeColor,
-                                letterSpacing: 0.3)),
-                        ),
-                      ],
-                    ],
-                  )),
-                  // Organizer name + org subtitle
-                  Expanded(flex: 2, child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(orgName,
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                            fontWeight: FontWeight.w500, color: t.sub),
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                      if (orgSub != null && orgSub.isNotEmpty)
-                        Text(orgSub,
-                          style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
-                              color: t.muted),
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                    ],
-                  )),
-                  // Date + time
-                  Expanded(flex: 2, child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(webFmtDate(e['event_date'] as String?),
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                            color: isCancelled ? t.muted : t.sub)),
-                      if (timeStr.isNotEmpty)
-                        Text(timeStr, style: TextStyle(fontFamily: 'Poppins',
-                            fontSize: 10.5, color: t.muted)),
-                    ],
-                  )),
-                  // Status badge
-                  Expanded(child: WebStatusBadge(
-                    label: webEventStatusLabel(dispStatus),
-                    color: webEventStatusColor(dispStatus))),
-                  // Fill rate: count + capacity badge + gradient bar
-                  Expanded(flex: 2, child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Row(children: [
-                        Text(max > 0 ? '$cur / $max' : '$cur / ∞',
-                          style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: isCancelled ? t.muted : t.text)),
-                        const SizedBox(width: 6),
-                        if (isFull)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFEF4444).withValues(alpha: 0.10),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Text('Full',
-                              style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFFEF4444))),
-                          )
-                        else if (isAlmostFull)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF59E0B).withValues(alpha: 0.10),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Text('Almost Full',
-                              style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFFF59E0B))),
-                          ),
-                      ]),
-                      const SizedBox(height: 5),
+                  child: Icon(
+                    type.isEmpty ? Icons.event_note_rounded : Icons.event_rounded,
+                    size: 20,
+                    color: typeColor.withValues(alpha: isRejected ? 0.45 : 1.0),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(flex: 3, child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(e['title'] as String? ?? '—',
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isRejected ? t.muted : t.text),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                    if (type.isNotEmpty) ...[
+                      const SizedBox(height: 3),
                       Container(
-                        height: 4,
-                        clipBehavior: Clip.hardEdge,
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                         decoration: BoxDecoration(
-                          color: t.border,
-                          borderRadius: BorderRadius.circular(4),
+                          color: typeColor.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(6),
                         ),
-                        child: pct > 0
-                          ? Align(
-                              alignment: Alignment.centerLeft,
-                              child: FractionallySizedBox(
-                                widthFactor: pct,
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [barColor.withValues(alpha: 0.60), barColor],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            )
-                          : null,
+                        child: Text('${type[0].toUpperCase()}${type.substring(1)}',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
+                              fontWeight: FontWeight.w700, color: typeColor,
+                              letterSpacing: 0.3)),
                       ),
                     ],
-                  )),
-                  // Cancel action — fades in on hover; placeholder keeps layout stable
-                  AnimatedOpacity(
-                    opacity: _h && widget.onCancel != null ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 150),
-                    child: SizedBox(
-                      width: 44,
-                      child: widget.onCancel != null
-                          ? AdminActBtn(
-                              icon:  Icons.cancel_outlined,
-                              color: const Color(0xFFEF4444),
-                              tip:   'Cancel Event',
-                              onTap: widget.onCancel!,
-                            )
-                          : null,
-                    ),
-                  ),
-                ]),
-              ),
+                  ],
+                )),
+                Expanded(flex: 2, child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(orgName,
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                          fontWeight: FontWeight.w500, color: t.sub),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                    if (orgSub != null && orgSub.isNotEmpty)
+                      Text(orgSub,
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
+                            color: t.muted),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                )),
+                Expanded(flex: 2, child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(webFmtDate(e['event_date'] as String?),
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                          color: isRejected ? t.muted : t.sub)),
+                    if (timeStr.isNotEmpty)
+                      Text(timeStr, style: TextStyle(fontFamily: 'Poppins',
+                          fontSize: 10.5, color: t.muted)),
+                  ],
+                )),
+                Expanded(child: WebStatusBadge(
+                  label: approvalStatusLabel(approval),
+                  color: approvalStatusColor(approval))),
+                if (onReview != null)
+                  SizedBox(width: 96, child: Align(
+                    alignment: Alignment.centerRight,
+                    child: _EventReviewBtn(onTap: onReview!),
+                  ))
+                else
+                  const SizedBox(width: 0),
+              ]),
             ),
-          ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─── Review action button — always visible (not hover-gated) on Pending rows;
+// mirrors _ReviewBtn in admin_web_registrations.dart. Hover-only reveal on a
+// consequential action was flagged as a discoverability/accessibility gap
+// elsewhere in this dashboard — don't repeat it for the one action this tab
+// exists to support.
+class _EventReviewBtn extends StatefulWidget {
+  final VoidCallback onTap;
+  const _EventReviewBtn({required this.onTap});
+  @override State<_EventReviewBtn> createState() => _EventReviewBtnState();
+}
+class _EventReviewBtnState extends State<_EventReviewBtn> {
+  bool _h = false;
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: SystemMouseCursors.click,
+    onEnter: (_) => setState(() => _h = true),
+    onExit:  (_) => setState(() => _h = false),
+    child: GestureDetector(
+      onTap: widget.onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 100),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: _h ? const Color(0xFFF59E0B) : const Color(0xFFF59E0B).withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: _h ? 0 : 0.28)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.rate_review_outlined, size: 12,
+              color: _h ? Colors.white : const Color(0xFFF59E0B)),
+          const SizedBox(width: 5),
+          Text('Review', style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: _h ? Colors.white : const Color(0xFFF59E0B))),
+        ]),
+      ),
+    ),
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Event review dialog — shown when admin clicks "Review" on a pending event.
+// Structured like _PhotoReviewDialog (admin_web_registrations.dart): header,
+// scrollable detail body, action row. Deliberately DIFFERENT from that dialog
+// in one respect — Reject requires a reason and a second confirm step rather
+// than popping immediately, because a same-shaped no-confirmation Reject was
+// flagged as this dashboard's single highest-risk UX gap elsewhere; this is
+// the more consequential of the two (it decides whether an event can exist
+// at all), so it gets the extra step.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _EventReviewDialog extends StatefulWidget {
+  final Map<String, dynamic> event;
+  const _EventReviewDialog({required this.event});
+  @override State<_EventReviewDialog> createState() => _EventReviewDialogState();
+}
+
+class _EventReviewDialogState extends State<_EventReviewDialog>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double>   _scale, _fade;
+
+  bool _rejecting = false;
+  final _reasonCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl  = AnimationController(vsync: this, duration: const Duration(milliseconds: 260));
+    _scale = Tween<double>(begin: 0.88, end: 1.0)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack));
+    _fade  = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); _reasonCtrl.dispose(); super.dispose(); }
+
+  Widget _infoTile(BuildContext context, IconData icon, String label, String value) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return Expanded(
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, size: 14, color: t.muted),
+        const SizedBox(width: 6),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5,
+              fontWeight: FontWeight.w700, color: t.muted, letterSpacing: 0.4)),
+          const SizedBox(height: 2),
+          Text(value, style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
+              fontWeight: FontWeight.w600, color: t.text),
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+        ])),
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t          = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final e          = widget.event;
+    final title      = e['title']       as String? ?? '—';
+    final desc       = e['description'] as String? ?? '';
+    final type       = e['event_type']  as String? ?? '';
+    final location   = e['location']    as String? ?? '—';
+    final bannerUrl  = e['event_image_url'] as String?;
+    final orgMap     = e['organizers']  as Map<String, dynamic>?;
+    final orgName    = orgMap?['full_name']    as String? ?? '—';
+    final orgSub     = orgMap?['organization'] as String?;
+    final max        = e['max_participants'] as int?;
+    final dateStr    = webFmtDate(e['event_date'] as String?);
+    final startStr   = _fmtEventTime(e['start_time'] as String?);
+    final endStr     = _fmtEventTime(e['end_time']   as String?);
+    final timeStr    = [startStr, endStr].where((s) => s.isNotEmpty).join(' – ');
+
+    return FadeTransition(
+      opacity: _fade,
+      child: ScaleTransition(
+        scale: _scale,
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 40),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
+            child: Container(
+              decoration: BoxDecoration(
+                color: t.card,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.14),
+                    blurRadius: 40, offset: const Offset(0, 14)),
+                ],
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: t.border))),
+                  child: AdminDialogHeader(
+                    icon:      Icons.rate_review_outlined,
+                    iconColor: const Color(0xFFF59E0B),
+                    title:     'Review Event',
+                  ),
+                ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      // Banner — hero element; this is what the admin is
+                      // actually here to look at first.
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          width: double.infinity,
+                          height: 180,
+                          color: t.inputBg,
+                          child: (bannerUrl == null || bannerUrl.isEmpty)
+                              ? Center(child: Icon(Icons.image_outlined, size: 40, color: t.muted))
+                              : Image.network(
+                                  bannerUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => Center(
+                                    child: Icon(Icons.broken_image_rounded, size: 36, color: t.muted)),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Expanded(child: Text(title,
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 17,
+                              fontWeight: FontWeight.w800, color: t.text))),
+                        if (type.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: _eventTypeColor(type).withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(7),
+                            ),
+                            child: Text('${type[0].toUpperCase()}${type.substring(1)}',
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
+                                  fontWeight: FontWeight.w700, color: _eventTypeColor(type))),
+                          ),
+                        ],
+                      ]),
+                      const SizedBox(height: 4),
+                      Text('$orgName${orgSub != null && orgSub.isNotEmpty ? ' · $orgSub' : ''}',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.sub)),
+                      const SizedBox(height: 16),
+                      Row(children: [
+                        _infoTile(context, Icons.calendar_today_rounded, 'DATE', dateStr),
+                        _infoTile(context, Icons.access_time_rounded, 'TIME',
+                            timeStr.isEmpty ? '—' : timeStr),
+                      ]),
+                      const SizedBox(height: 14),
+                      Row(children: [
+                        _infoTile(context, Icons.location_on_outlined, 'VENUE', location),
+                        _infoTile(context, Icons.groups_outlined, 'CAPACITY',
+                            max != null && max > 0 ? '$max participants' : 'Unlimited'),
+                      ]),
+                      if (desc.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Text('DESCRIPTION',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5,
+                              fontWeight: FontWeight.w700, color: t.muted, letterSpacing: 0.4)),
+                        const SizedBox(height: 6),
+                        Text(desc,
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
+                              color: t.sub, height: 1.5)),
+                      ],
+                      if (_rejecting) ...[
+                        const SizedBox(height: 18),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444).withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.25)),
+                          ),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text('Reason for rejection',
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                                  fontWeight: FontWeight.w700, color: t.text)),
+                            const SizedBox(height: 4),
+                            Text('Shown to the organizer — be specific so they can fix and resubmit.',
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.sub)),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _reasonCtrl,
+                              autofocus: true,
+                              maxLines: 3,
+                              style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.text),
+                              decoration: webInputDeco('e.g. Venue conflicts with another approved event',
+                                  dark: t.dark),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ]),
+                        ),
+                      ],
+                    ]),
+                  ),
+                ),
+                Divider(height: 1, color: t.border),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
+                  child: _rejecting
+                      ? Row(children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => setState(() => _rejecting = false),
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(color: t.border),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                padding: const EdgeInsets.symmetric(vertical: 13),
+                              ),
+                              child: Text('Back',
+                                style: TextStyle(fontFamily: 'Poppins',
+                                    fontWeight: FontWeight.w600, color: t.sub)),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: _reasonCtrl.text.trim().isEmpty
+                                  ? null
+                                  : () => Navigator.of(context).pop({
+                                      'action': 'reject',
+                                      'reason': _reasonCtrl.text.trim(),
+                                    }),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFEF4444),
+                                foregroundColor: Colors.white,
+                                disabledBackgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.35),
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                padding: const EdgeInsets.symmetric(vertical: 13),
+                              ),
+                              child: const Text('Confirm Reject',
+                                style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                        ])
+                      : Row(children: [
+                          Builder(builder: (ctx) => OutlinedButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: t.border),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 16),
+                            ),
+                            child: Text('Cancel',
+                              style: TextStyle(fontFamily: 'Poppins',
+                                  fontWeight: FontWeight.w600, color: t.sub)),
+                          )),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => setState(() => _rejecting = true),
+                              icon: const Icon(Icons.cancel_outlined,
+                                  size: 16, color: Color(0xFFEF4444)),
+                              label: const Text('Reject',
+                                style: TextStyle(fontFamily: 'Poppins',
+                                    fontWeight: FontWeight.w700, color: Color(0xFFEF4444))),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Color(0xFFEF4444)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                padding: const EdgeInsets.symmetric(vertical: 13),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => Navigator.of(context).pop({'action': 'approve'}),
+                              icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                              label: const Text('Approve',
+                                style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                padding: const EdgeInsets.symmetric(vertical: 13),
+                              ),
+                            ),
+                          ),
+                        ]),
+                ),
+              ]),
+            ),
+          ),
         ),
       ),
     );

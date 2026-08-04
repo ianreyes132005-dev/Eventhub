@@ -76,6 +76,26 @@ Color eventStatusColor(String label) {
   }
 }
 
+// ── Event approval status helpers ────────────────────────────────────────────
+// Orthogonal to eventStatusLabel/Color above — approval_status (pending /
+// approved / rejected) tracks admin moderation, event_status tracks the
+// event's own lifecycle. Shared by organizer mobile, organizer web, and
+// admin web so the three platforms agree on wording/color.
+
+String approvalStatusLabel(String? s) => switch (s) {
+  'pending'  => 'Pending Review',
+  'approved' => 'Approved',
+  'rejected' => 'Rejected',
+  _          => 'Approved', // pre-migration rows / unset — grandfathered live
+};
+
+Color approvalStatusColor(String? s) => switch (s) {
+  'pending'  => const Color(0xFFF59E0B),
+  'approved' => const Color(0xFF10B981),
+  'rejected' => const Color(0xFFEF4444),
+  _          => const Color(0xFF10B981),
+};
+
 // ── LRN display formatter ────────────────────────────────────────────────────
 // Formats a raw 12-digit LRN (e.g. "123456261234") → "123456 - 26 - 1234".
 // Returns the input unchanged if it is not exactly 12 digits.
