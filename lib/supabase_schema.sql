@@ -472,6 +472,19 @@ CREATE POLICY "organizer_insert_event_logs" ON public.event_logs
 
 ALTER TABLE public.event_logs ALTER COLUMN organizer_id TYPE text;
 
+-- 17.5. EVENT DATE RANGE SUPPORT
+-- Keep a separate end_date for multi-day events while preserving event_date as
+-- the start date used throughout the app.
+ALTER TABLE public.events ADD COLUMN IF NOT EXISTS end_date DATE;
+ALTER TABLE public.events
+  DROP CONSTRAINT IF EXISTS events_end_date_check;
+ALTER TABLE public.events
+  ADD CONSTRAINT events_end_date_check
+  CHECK (end_date IS NULL OR end_date >= event_date);
+UPDATE public.events
+SET end_date = event_date
+WHERE end_date IS NULL;
+
 -- 18. EVENT APPROVAL WORKFLOW
 -- ============================================================
 -- Admin's Events tab changes purpose: from "view/cancel every live event" to

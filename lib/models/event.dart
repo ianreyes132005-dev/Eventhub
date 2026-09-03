@@ -5,6 +5,7 @@ class Event {
   final String? description;
   final String? location;
   final String? eventDate;
+  final String? endDate;
   final String? startTime;
   final String? endTime;
   final String? eventStatus;
@@ -22,6 +23,7 @@ class Event {
     this.description,
     this.location,
     this.eventDate,
+    this.endDate,
     this.startTime,
     this.endTime,
     this.eventStatus,
@@ -40,6 +42,7 @@ class Event {
     description:          m['description']           as String?,
     location:             m['location']              as String?,
     eventDate:            m['event_date']            as String?,
+    endDate:              m['end_date']              as String?,
     startTime:            m['start_time']            as String?,
     endTime:              m['end_time']              as String?,
     eventStatus:          m['event_status']          as String?,
@@ -58,6 +61,7 @@ class Event {
     'description':           description,
     'location':              location,
     'event_date':            eventDate,
+    'end_date':              endDate,
     'start_time':            startTime,
     'end_time':              endTime,
     'event_status':          eventStatus,

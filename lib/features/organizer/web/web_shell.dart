@@ -416,7 +416,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
       OrganizerPage.dashboard     => WebDashboardPage(orgId: _orgId, name: _name),
       OrganizerPage.events        => WebEventsPage(orgId: _orgId),
       OrganizerPage.registrations => WebRegistrationsPage(orgId: _orgId),
-      OrganizerPage.announcements => const WebAnnouncementsPage(),
+      OrganizerPage.announcements => WebAnnouncementsPage(orgId: _orgId),
       OrganizerPage.settings      => WebSettingsPage(
           key:          _settingsKey,
           orgId:        _orgId,

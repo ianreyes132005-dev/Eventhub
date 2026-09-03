@@ -6,7 +6,8 @@ import '../../../core/services/supabase_service.dart';
 import 'web_shared.dart';
 
 class WebAnnouncementsPage extends StatefulWidget {
-  const WebAnnouncementsPage({super.key});
+  final String? orgId;
+  const WebAnnouncementsPage({super.key, this.orgId});
 
   @override
   State<WebAnnouncementsPage> createState() => _WebAnnouncementsPageState();
@@ -93,7 +94,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
 
   Future<void> _load() async {
     try {
-      final rows = await SupabaseService.getAnnouncements();
+      final rows = await SupabaseService.getAnnouncements(organizerId: widget.orgId);
       if (mounted) {
         setState(() { _announcements = rows; _loading = false; });
         _staggerCtrl.forward(from: 0);
@@ -115,7 +116,11 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
     }
     setState(() { _posting = true; _error = null; });
     try {
-      await SupabaseService.createAnnouncement(title: title, message: msg);
+      await SupabaseService.createAnnouncement(
+        title: title,
+        message: msg,
+        organizerId: widget.orgId,
+      );
       _titleCtrl.clear();
       _msgCtrl.clear();
       await _load();
@@ -142,7 +147,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
     );
     if (ok != true) return;
     try {
-      await SupabaseService.deleteAnnouncement(id);
+      await SupabaseService.deleteAnnouncement(id, organizerId: widget.orgId);
       await _load();
     } catch (e) {
       if (mounted) {

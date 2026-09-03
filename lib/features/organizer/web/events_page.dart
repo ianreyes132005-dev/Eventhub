@@ -727,9 +727,11 @@ class _EventDialogState extends State<_EventDialog> {
   String    _type         = 'Concert';
   String    _status       = 'upcoming';
   DateTime? _date;
+  DateTime? _endDate;
   TimeOfDay?_startTime;
   TimeOfDay?_endTime;
   bool      _showCalendar     = false;
+  bool      _showEndCalendar  = false;
   bool      _showStartPicker  = false;
   bool      _showEndPicker    = false;
 
@@ -747,10 +749,11 @@ class _EventDialogState extends State<_EventDialog> {
     int done = 0;
     if (_titleCtrl.text.trim().isNotEmpty) done++;
     if (_date != null)                     done++;
+    if (_endDate != null)                  done++;
     if (_startTime != null)                done++;
     if (_endTime != null)                  done++;
     if (_locationCtrl.text.trim().isNotEmpty) done++;
-    return done / 5;
+    return done / 6;
   }
 
   @override
@@ -778,6 +781,8 @@ class _EventDialogState extends State<_EventDialog> {
       _existingBannerUrl = e['event_image_url'] as String?;
       final dateStr      = e['event_date'] as String?;
       if (dateStr != null) _date = DateTime.tryParse(dateStr);
+      final endDateStr   = e['end_date'] as String?;
+      if (endDateStr != null) _endDate = DateTime.tryParse(endDateStr);
       final st = e['start_time'] as String?;
       final et = e['end_time']   as String?;
       if (st != null) {
@@ -835,7 +840,15 @@ class _EventDialogState extends State<_EventDialog> {
       return;
     }
     if (_date == null) {
-      setState(() => _error = 'Please select an event date.');
+      setState(() => _error = 'Please select a start date.');
+      return;
+    }
+    if (_endDate == null) {
+      setState(() => _error = 'Please select an end date.');
+      return;
+    }
+    if (_endDate!.isBefore(_date!)) {
+      setState(() => _error = 'End date must be on or after the start date.');
       return;
     }
     if (_locationCtrl.text.trim().isEmpty) {
@@ -907,11 +920,12 @@ class _EventDialogState extends State<_EventDialog> {
         imageUrl = client.storage.from('event-banners').getPublicUrl(path);
       }
 
-      final dateStr  = _date!.toIso8601String().split('T').first;
-      final startStr = _startTime != null
+      final dateStr    = _date!.toIso8601String().split('T').first;
+      final endDateStr = _endDate!.toIso8601String().split('T').first;
+      final startStr   = _startTime != null
         ? '${_startTime!.hour.toString().padLeft(2,'0')}:${_startTime!.minute.toString().padLeft(2,'0')}:00'
         : null;
-      final endStr   = _endTime != null
+      final endStr     = _endTime != null
         ? '${_endTime!.hour.toString().padLeft(2,'0')}:${_endTime!.minute.toString().padLeft(2,'0')}:00'
         : null;
 
@@ -924,11 +938,11 @@ class _EventDialogState extends State<_EventDialog> {
             : _type,
         'event_status':       _status,
         'event_date':         dateStr,
-        'start_time':      ?startStr,
-        'end_time':        ?endStr,
-        'event_image_url': ?imageUrl,
-        'max_participants':
-            int.tryParse(_capacityCtrl.text.trim()) ?? 0,
+        'end_date':           endDateStr,
+        'start_time':         startStr,
+        'end_time':           endStr,
+        'event_image_url':    imageUrl,
+        'max_participants':   int.tryParse(_capacityCtrl.text.trim()) ?? 0,
       };
 
       if (_isEdit) {
@@ -1201,6 +1215,9 @@ class _EventDialogState extends State<_EventDialog> {
                         children: [
                           _buildDateTrigger(),
                           _buildInlineCalendar(),
+                          const SizedBox(height: 12),
+                          _buildEndDateTrigger(),
+                          _buildInlineEndCalendar(),
                           const SizedBox(height: 12),
                           Row(children: [
                             Expanded(child: _buildTimeCard(
@@ -1607,7 +1624,15 @@ class _EventDialogState extends State<_EventDialog> {
     ),
   );
 
-  void _toggleCalendar() => setState(() => _showCalendar = !_showCalendar);
+  void _toggleCalendar() => setState(() {
+    _showCalendar = !_showCalendar;
+    if (_showCalendar) _showEndCalendar = false;
+  });
+
+  void _toggleEndCalendar() => setState(() {
+    _showEndCalendar = !_showEndCalendar;
+    if (_showEndCalendar) _showCalendar = false;
+  });
 
   String _weekdayAbbr(int w) {
     const d = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
@@ -1709,6 +1734,132 @@ class _EventDialogState extends State<_EventDialog> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildEndDateTrigger() {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final filled = _endDate != null;
+    const accent = Color(0xFFEF4444);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: _toggleEndCalendar,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: filled ? accent.withValues(alpha: 0.04) : t.inputBg,
+            borderRadius: BorderRadius.only(
+              topLeft:     const Radius.circular(12),
+              topRight:    const Radius.circular(12),
+              bottomLeft:  Radius.circular(_showEndCalendar ? 0 : 12),
+              bottomRight: Radius.circular(_showEndCalendar ? 0 : 12),
+            ),
+            border: Border.all(
+              color: _showEndCalendar
+                  ? accent.withValues(alpha: 0.50)
+                  : filled
+                  ? accent.withValues(alpha: 0.30)
+                  : t.border,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                  color: filled ? accent : t.divider,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: filled
+                  ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Text(_weekdayAbbr(_endDate!.weekday),
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 7,
+                          fontWeight: FontWeight.w700, color: Colors.white60, letterSpacing: 0.5)),
+                      Text('${_endDate!.day}',
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 20,
+                          fontWeight: FontWeight.w800, color: Colors.white, height: 1.1)),
+                    ])
+                  : Icon(Icons.date_range_rounded, color: t.muted, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: filled
+                  ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(webFmtDate(_endDate!.toIso8601String()),
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
+                          fontWeight: FontWeight.w700, color: t.text)),
+                      const SizedBox(height: 2),
+                      Text(_weekdayFull(_endDate!.weekday),
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
+                    ])
+                  : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Text('End Date', style: TextStyle(fontFamily: 'Poppins',
+                          fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
+                        const Text(' *', style: TextStyle(fontFamily: 'Poppins',
+                          fontSize: 13, color: Color(0xFFEF4444), fontWeight: FontWeight.w700)),
+                      ]),
+                      const SizedBox(height: 2),
+                      Text('Tap to choose end date',
+                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
+                    ]),
+              ),
+              AnimatedRotation(
+                turns: _showEndCalendar ? 0.5 : 0.0,
+                duration: const Duration(milliseconds: 250),
+                child: Container(
+                  width: 26, height: 26,
+                  decoration: BoxDecoration(
+                    color: _showEndCalendar ? accent.withValues(alpha: 0.10) : t.divider,
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Icon(Icons.keyboard_arrow_down_rounded, size: 16,
+                    color: _showEndCalendar ? accent : t.muted),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInlineEndCalendar() {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    const accent = Color(0xFFEF4444);
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      child: _showEndCalendar
+        ? Container(
+            decoration: BoxDecoration(
+              color: t.card,
+              borderRadius: const BorderRadius.only(
+                bottomLeft:  Radius.circular(12),
+                bottomRight: Radius.circular(12),
+              ),
+              border: Border(
+                left:   BorderSide(color: accent.withValues(alpha: 0.50), width: 1.5),
+                right:  BorderSide(color: accent.withValues(alpha: 0.50), width: 1.5),
+                bottom: BorderSide(color: accent.withValues(alpha: 0.50), width: 1.5),
+              ),
+            ),
+            child: _WebCalendar(
+              selectedDate:   _endDate,
+              firstDate:      _date ?? DateUtils.dateOnly(DateTime.now()),
+              lastDate:       DateTime.now().add(const Duration(days: 365 * 3)),
+              accentColor:    accent,
+              onDateSelected: (date) => setState(() {
+                _endDate        = date;
+                _showEndCalendar = false;
+              }),
+            ),
+          )
+        : const SizedBox.shrink(),
     );
   }
 

@@ -5,6 +5,7 @@ import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../core/app_colors.dart';
 import '../../../../core/services/audit_service.dart';
+import '../../../../core/services/supabase_service.dart';
 
 
 // ── Static lookup tables ───────────────────────────────────────────────────
@@ -136,6 +137,11 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
 
     setState(() => _isSaving = true);
     try {
+      final organizerId = await SupabaseService.getCurrentOrganizerId();
+      if (organizerId == null || organizerId.isEmpty) {
+        throw Exception('Your organizer profile could not be found.');
+      }
+
       final eventType = _selectedType == 'Other'
           ? _otherTypeCtrl.text.trim()
           : _selectedType;
@@ -147,7 +153,7 @@ class _ManageEventScreenState extends State<ManageEventScreen> {
         'event_type':       eventType,
         'max_participants': int.tryParse(_capacityCtrl.text),
         'event_status':     _currentStatus,
-      }).eq('event_id', _eventId);
+      }).eq('event_id', _eventId).eq('organizer_id', organizerId);
 
       AuditService.logEvent(
         action: 'updated',

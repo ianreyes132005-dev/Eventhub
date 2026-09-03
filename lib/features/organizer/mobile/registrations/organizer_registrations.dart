@@ -55,96 +55,115 @@ String _fmtDate(String iso) {
 // Shared by the main list's Reject button. Returns the typed reason, or null
 // if the organizer backed out — callers should treat null as "don't reject."
 
+class _RejectReasonDialog extends StatefulWidget {
+  final String studentName;
+  const _RejectReasonDialog({required this.studentName});
+
+  @override
+  State<_RejectReasonDialog> createState() => _RejectReasonDialogState();
+}
+
+class _RejectReasonDialogState extends State<_RejectReasonDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
+
+    return Dialog(
+      backgroundColor: t.card,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+              width: 38, height: 38,
+              decoration: BoxDecoration(
+                color: const Color(0xFFDC2626).withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.block_rounded, size: 19, color: Color(0xFFDC2626)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text('Reject ${widget.studentName}?',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 15,
+                  fontWeight: FontWeight.w700, color: t.text))),
+          ]),
+          const SizedBox(height: 6),
+          Text('This student will not be checked in. Give a reason so they know what to fix.',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.sub, height: 1.4)),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            maxLines: 3,
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
+            decoration: InputDecoration(
+              hintText: 'e.g. Selfie doesn\'t match student ID photo',
+              hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted),
+              filled: true,
+              fillColor: t.inputBg,
+              contentPadding: const EdgeInsets.all(12),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: t.border)),
+              enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: t.border)),
+              focusedBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(10)), borderSide: BorderSide(color: kGold, width: 1.5)),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: t.border),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: Text('Cancel', style: TextStyle(fontFamily: 'Poppins',
+                    fontWeight: FontWeight.w600, color: t.sub)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: _controller.text.trim().isEmpty
+                    ? null
+                    : () => Navigator.of(context).pop(_controller.text.trim()),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFDC2626),
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: const Color(0xFFDC2626).withValues(alpha: 0.35),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: const Text('Confirm Reject',
+                    style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ]),
+        ]),
+      ),
+    );
+  }
+}
+
 Future<String?> _promptRejectReason(BuildContext context, String studentName) {
-  final ctrl = TextEditingController();
   return showDialog<String>(
     context: context,
-    builder: (dialogCtx) => StatefulBuilder(
-      builder: (dialogCtx, setState) {
-        final t = AppTk(Theme.of(dialogCtx).brightness == Brightness.dark);
-        return Dialog(
-          backgroundColor: t.card,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Container(
-                  width: 38, height: 38,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFDC2626).withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.block_rounded, size: 19, color: Color(0xFFDC2626)),
-                ),
-                const SizedBox(width: 12),
-                Expanded(child: Text('Reject $studentName?',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 15,
-                      fontWeight: FontWeight.w700, color: t.text))),
-              ]),
-              const SizedBox(height: 6),
-              Text('This student will not be checked in. Give a reason so they know what to fix.',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.sub, height: 1.4)),
-              const SizedBox(height: 14),
-              TextField(
-                controller: ctrl,
-                autofocus: true,
-                maxLines: 3,
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
-                decoration: InputDecoration(
-                  hintText: 'e.g. Selfie doesn\'t match student ID photo',
-                  hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted),
-                  filled: true,
-                  fillColor: t.inputBg,
-                  contentPadding: const EdgeInsets.all(12),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: t.border)),
-                  enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: t.border)),
-                  focusedBorder: const OutlineInputBorder(
-                      borderRadius: BorderRadius.all(Radius.circular(10)), borderSide: BorderSide(color: kGold, width: 1.5)),
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: 16),
-              Row(children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(dialogCtx).pop(),
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: t.border),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    child: Text('Cancel', style: TextStyle(fontFamily: 'Poppins',
-                        fontWeight: FontWeight.w600, color: t.sub)),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: ctrl.text.trim().isEmpty
-                        ? null
-                        : () => Navigator.of(dialogCtx).pop(ctrl.text.trim()),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFDC2626),
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: const Color(0xFFDC2626).withValues(alpha: 0.35),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    child: const Text('Confirm Reject',
-                        style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
-                  ),
-                ),
-              ]),
-            ]),
-          ),
-        );
-      },
-    ),
-  ).whenComplete(ctrl.dispose);
+    builder: (_) => _RejectReasonDialog(studentName: studentName),
+  );
 }
 
 // ── Reject icon button — sits next to Check In on a photo_submitted row ──────
@@ -189,9 +208,11 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   List<Map<String, dynamic>> _filtered = [];
   bool   _loading = true;
   String _filter  = 'All';
+  String _eventFilter = 'All';
   final  _search  = TextEditingController();
   RealtimeChannel? _channel;
   final Map<String, String> _selfieUrls = {};
+  List<String> _eventTitles = ['All'];
 
   // Organizer identity — resolved once and reused for scoped queries.
   String?     _organizerId;
@@ -246,7 +267,8 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
       if (!mounted) return;
       setState(() {
-        _all     = rows;
+        _all = rows;
+        _refreshEventTitles();
         _loading = false;
         _applyFilter();
       });
@@ -310,11 +332,17 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   void _applyFilter() {
     final q = _search.text.toLowerCase();
+    final validEventTitles = _eventTitles.toSet();
+    if (!validEventTitles.contains(_eventFilter)) {
+      _eventFilter = 'All';
+    }
+
     _filtered = _all.where((r) {
       final status = r['status']            as String? ?? '';
       final name   = (r['student_name']      as String? ?? '').toLowerCase();
       final sid    = (r['student_school_id'] as String? ?? '').toLowerCase();
-      final evt    = (r['event_title']        as String? ?? '').toLowerCase();
+      final evt    = (r['event_title']        as String? ?? '').trim();
+      final eventTitle = evt.toLowerCase();
 
       final matchesFilter = _filter == 'All' ||
           (_filter == 'Pending'         && (status == 'pending' || status == 'qr_scanned')) ||
@@ -322,11 +350,30 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
           (_filter == 'Photo Submitted' && status == 'photo_submitted') ||
           (_filter == 'Checked In'      && status == 'checked_in');
 
+      final matchesEvent = _eventFilter == 'All' || evt == _eventFilter;
       final matchesSearch = q.isEmpty ||
-          name.contains(q) || sid.contains(q) || evt.contains(q);
+          name.contains(q) || sid.contains(q) || eventTitle.contains(q);
 
-      return matchesFilter && matchesSearch;
+      return matchesFilter && matchesEvent && matchesSearch;
     }).toList();
+  }
+
+  void _refreshEventTitles() {
+    final titles = _all
+        .map((r) => (r['event_title'] as String? ?? '').trim())
+        .where((title) => title.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    _eventTitles = ['All', ...titles];
+    if (!titles.contains(_eventFilter)) {
+      _eventFilter = 'All';
+    }
+  }
+
+  int _countForEvent(String title) {
+    if (title == 'All') return _all.length;
+    return _all.where((r) => (r['event_title'] as String? ?? '').trim() == title).length;
   }
 
   Future<void> _updateStatus(String id, String newStatus, {String? rejectionReason}) async {
@@ -432,6 +479,8 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                           SliverToBoxAdapter(child: _buildPageHeader(t)),
                           SliverToBoxAdapter(child: _buildFilterRow(t)),
                           SliverToBoxAdapter(child: _buildSearchBar(t)),
+                          if (_eventTitles.length > 2)
+                            SliverToBoxAdapter(child: _buildEventFilterSection(t)),
                           SliverToBoxAdapter(child: _buildResultCount(t)),
                           if (_filtered.isEmpty)
                             SliverFillRemaining(
@@ -702,6 +751,131 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  // ── Event filter section ──────────────────────────────────────────────────
+
+  Widget _buildEventFilterSection(AppTk t) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 3,
+                height: 14,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8B5CF6),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Filter by Event',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: t.sub,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '(${_eventTitles.length - 1})',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 10,
+                  color: t.muted,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _eventTitles.map((title) {
+              final selected = _eventFilter == title;
+              final count = _countForEvent(title);
+              return GestureDetector(
+                onTap: () {
+                  setState(() => _eventFilter = title);
+                  _applyFilter();
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: selected ? const Color(0xFF8B5CF6).withValues(alpha: 0.10) : t.card,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: selected ? const Color(0xFF8B5CF6).withValues(alpha: 0.35) : t.border,
+                      width: selected ? 1.5 : 1,
+                    ),
+                    boxShadow: selected
+                        ? [
+                            BoxShadow(
+                              color: const Color(0xFF8B5CF6).withValues(alpha: 0.18),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (selected)
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF8B5CF6),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      if (selected) const SizedBox(width: 6),
+                      Text(
+                        title.length > 26 ? '${title.substring(0, 26)}…' : title,
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 11.5,
+                          fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                          color: selected ? const Color(0xFF8B5CF6) : t.sub,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? const Color(0xFF8B5CF6).withValues(alpha: 0.14)
+                              : t.divider,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '$count',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: selected ? const Color(0xFF8B5CF6) : t.muted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ),
     );
   }
@@ -1503,7 +1677,7 @@ class _RegistrationDetailsSheet extends StatelessWidget {
                                                   strokeWidth: 3),
                                             ),
                                           ),
-                                errorBuilder: (_, __, e2) => Container(
+                                errorBuilder: (_, _, e2) => Container(
                                   height: 100,
                                   decoration: BoxDecoration(
                                     color: kGold.withValues(alpha: 0.05),

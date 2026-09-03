@@ -55,21 +55,24 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── State ────────────────────────────────────────────────────────────────────
   DateTime?  _selectedDate;
+  DateTime?  _selectedEndDate;
   TimeOfDay? _startTime;
   TimeOfDay? _endTime;
   String     _selectedEventType = 'Concert';
   File?      _selectedBanner;
   bool       _isPublishing  = false;
   bool       _showCalendar  = false;
+  bool       _showEndCalendar = false;
 
   double get _formProgress {
     int done = 0;
     if (_nameCtrl.text.trim().isNotEmpty) done++;
     if (_selectedDate != null)            done++;
+    if (_selectedEndDate != null)         done++;
     if (_startTime != null)               done++;
     if (_endTime != null)                 done++;
     if (_venueCtrl.text.trim().isNotEmpty) done++;
-    return done / 5;
+    return done / 6;
   }
 
   @override
@@ -93,12 +96,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   bool _validateForm() {
     if (_nameCtrl.text.trim().isEmpty)  { _snack('Event name is required', isError: true); return false; }
-    if (_selectedDate == null)           { _snack('Event date is required', isError: true); return false; }
+    if (_selectedDate == null)           { _snack('Start date is required', isError: true); return false; }
+    if (_selectedEndDate == null)        { _snack('End date is required', isError: true); return false; }
+    if (_selectedEndDate!.isBefore(_selectedDate!)) {
+      _snack('End date must be on or after the start date', isError: true);
+      return false;
+    }
     if (_startTime == null)              { _snack('Start time is required', isError: true); return false; }
     if (_endTime == null)                { _snack('End time is required',   isError: true); return false; }
     final startMin = _startTime!.hour * 60 + _startTime!.minute;
     final endMin   = _endTime!.hour   * 60 + _endTime!.minute;
-    if (endMin <= startMin) { _snack('End time must be after start time', isError: true); return false; }
+    if (_selectedEndDate!.isAtSameMomentAs(_selectedDate!)) {
+      if (endMin <= startMin) { _snack('End time must be after start time', isError: true); return false; }
+    }
     final now = DateTime.now();
     if (DateUtils.isSameDay(DateUtils.dateOnly(_selectedDate!), DateUtils.dateOnly(now))) {
       final nowMin = now.hour * 60 + now.minute;
@@ -115,6 +125,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   // ── Pickers ──────────────────────────────────────────────────────────────────
 
   void _toggleCalendar() => setState(() => _showCalendar = !_showCalendar);
+  void _toggleEndCalendar() => setState(() => _showEndCalendar = !_showEndCalendar);
 
   Future<void> _pickStartTime() async {
     final now     = DateTime.now();
@@ -204,6 +215,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         bannerUrl = supabase.storage.from('event-banners').getPublicUrl(fileName);
       }
       final d = _selectedDate!;
+      final endDate = _selectedEndDate ?? _selectedDate!;
       await supabase.from('events').insert({
         'organizer_id':         customOrgId,
         'title':                _nameCtrl.text.trim(),
@@ -214,6 +226,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         'current_participants': 0,
         'event_status':         'upcoming',
         'event_date': '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}',
+        'end_date': '${endDate.year}-${endDate.month.toString().padLeft(2,'0')}-${endDate.day.toString().padLeft(2,'0')}',
         'start_time': _startTime != null
             ? '${_startTime!.hour.toString().padLeft(2,'0')}:${_startTime!.minute.toString().padLeft(2,'0')}:00' : null,
         'end_time': _endTime != null
@@ -472,7 +485,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildDateField(t),
+          _buildDateField(t, label: 'Start Date', required: true, selectedDate: _selectedDate, showCalendar: _showCalendar, onTap: _toggleCalendar, onDateSelected: (date) { setState(() { _selectedDate = date; _showCalendar = false; if (_selectedEndDate == null || _selectedEndDate!.isBefore(date)) _selectedEndDate = date; }); }),
+          const SizedBox(height: 16),
+          _buildDateField(t, label: 'End Date', required: true, selectedDate: _selectedEndDate, showCalendar: _showEndCalendar, onTap: _toggleEndCalendar, onDateSelected: (date) => setState(() { _selectedEndDate = date; _showEndCalendar = false; })),
           const SizedBox(height: 16),
           _buildTimeRow(t),
         ],
@@ -482,16 +497,23 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Date field with inline collapsible calendar ───────────────────────────────
 
-  Widget _buildDateField(AppTk t) {
-    final filled = _selectedDate != null;
+  Widget _buildDateField(
+    AppTk t, {
+    required String label,
+    required bool required,
+    required DateTime? selectedDate,
+    required bool showCalendar,
+    required VoidCallback onTap,
+    required ValueChanged<DateTime> onDateSelected,
+  }) {
+    final filled = selectedDate != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _fieldLabel('Event Date', required: true, t: t),
+        _fieldLabel(label, required: required, t: t),
         const SizedBox(height: 8),
-        // Trigger card
         GestureDetector(
-          onTap: _toggleCalendar,
+          onTap: onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 220),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -500,11 +522,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               borderRadius: BorderRadius.only(
                 topLeft:     const Radius.circular(14),
                 topRight:    const Radius.circular(14),
-                bottomLeft:  Radius.circular(_showCalendar ? 0 : 14),
-                bottomRight: Radius.circular(_showCalendar ? 0 : 14),
+                bottomLeft:  Radius.circular(showCalendar ? 0 : 14),
+                bottomRight: Radius.circular(showCalendar ? 0 : 14),
               ),
               border: Border.all(
-                color: _showCalendar
+                color: showCalendar
                     ? _kBlue.withValues(alpha: 0.5)
                     : filled
                     ? _kBlue.withValues(alpha: 0.3)
@@ -514,7 +536,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             ),
             child: Row(
               children: [
-                // Day badge or calendar icon
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   width: 48, height: 48,
@@ -527,11 +548,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
-                              _weekdayFull(_selectedDate!.weekday).substring(0, 3).toUpperCase(),
+                              _weekdayFull(selectedDate.weekday).substring(0, 3).toUpperCase(),
                               style: const TextStyle(fontFamily: 'Poppins', fontSize: 8, fontWeight: FontWeight.w700, color: Colors.white60, letterSpacing: 0.5),
                             ),
                             Text(
-                              '${_selectedDate!.day}',
+                              '${selectedDate.day}',
                               style: const TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, height: 1.1),
                             ),
                           ],
@@ -544,11 +565,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                       ? Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(_fmtDate(_selectedDate!),
+                            Text(_fmtDate(selectedDate),
                               style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: t.text)),
                             const SizedBox(height: 2),
                             Text(
-                              _weekdayFull(_selectedDate!.weekday),
+                              _weekdayFull(selectedDate.weekday),
                               style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted),
                             ),
                           ],
@@ -558,8 +579,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                           children: [
                             Row(
                               children: [
-                                Text('Event Date', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
-                                const Text(' *', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Colors.red, fontWeight: FontWeight.w700)),
+                                Text(label, style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600, color: t.text)),
+                                if (required) const Text(' *', style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: Colors.red, fontWeight: FontWeight.w700)),
                               ],
                             ),
                             const SizedBox(height: 2),
@@ -568,27 +589,26 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                         ),
                 ),
                 AnimatedRotation(
-                  turns: _showCalendar ? 0.5 : 0.0,
+                  turns: showCalendar ? 0.5 : 0.0,
                   duration: const Duration(milliseconds: 250),
                   child: Container(
                     width: 28, height: 28,
                     decoration: BoxDecoration(
-                      color: _showCalendar ? _kBlue.withValues(alpha: 0.1) : t.divider,
+                      color: showCalendar ? _kBlue.withValues(alpha: 0.1) : t.divider,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(Icons.keyboard_arrow_down_rounded, size: 18,
-                      color: _showCalendar ? _kBlue : t.muted),
+                      color: showCalendar ? _kBlue : t.muted),
                   ),
                 ),
               ],
             ),
           ),
         ),
-        // Inline calendar — AnimatedSize expand/collapse
         AnimatedSize(
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
-          child: _showCalendar
+          child: showCalendar
               ? Container(
                   decoration: BoxDecoration(
                     color: t.card,
@@ -603,14 +623,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                     ),
                   ),
                   child: _InlineCalendar(
-                    selectedDate:    _selectedDate,
+                    selectedDate:    selectedDate,
                     firstDate:       DateTime.now(),
                     lastDate:        DateTime.now().add(const Duration(days: 730)),
                     accentColor:     _kBlue,
-                    onDateSelected:  (date) => setState(() {
-                      _selectedDate  = date;
-                      _showCalendar  = false;
-                    }),
+                    onDateSelected:  onDateSelected,
                   ),
                 )
               : const SizedBox.shrink(),

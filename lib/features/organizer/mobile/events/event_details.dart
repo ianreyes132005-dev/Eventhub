@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../core/services/supabase_service.dart';
 
 class EventDetailsScreen extends StatefulWidget {
   final Map<String, dynamic>? eventData;
@@ -45,12 +46,15 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
     try {
       final sb = Supabase.instance.client;
+      final organizerId = await SupabaseService.getCurrentOrganizerId();
+
+      var eventQuery = sb.from('events').select().eq('event_id', eventId);
+      if (organizerId != null && organizerId.isNotEmpty) {
+        eventQuery = eventQuery.eq('organizer_id', organizerId);
+      }
 
       final results = await Future.wait([
-        sb.from('events')
-            .select()
-            .eq('event_id', eventId)
-            .maybeSingle(),
+        eventQuery.maybeSingle(),
         sb.from('registrations')
             .select()
             .eq('event_id', eventId)
@@ -1068,7 +1072,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                     ),
                   ),
                 ),
-                if (trailing case final w?) w,
+                if (trailing case final Widget w) w,
               ],
             ),
           ),
