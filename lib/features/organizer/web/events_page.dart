@@ -671,13 +671,15 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                     width: 112,
                     child: Row(
                       children: [
-                        _IconBtn(
-                          icon: Icons.edit_rounded,
-                          color: const Color(0xFF3B82F6),
-                          tooltip: 'Edit',
-                          onTap: () => _openDialog(existing: e),
-                        ),
-                        const SizedBox(width: 6),
+                        if (!isEnded) ...[
+                          _IconBtn(
+                            icon: Icons.edit_rounded,
+                            color: const Color(0xFF3B82F6),
+                            tooltip: 'Edit',
+                            onTap: () => _openDialog(existing: e),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
                         _IconBtn(
                           icon: Icons.visibility_outlined,
                           color: kGold,

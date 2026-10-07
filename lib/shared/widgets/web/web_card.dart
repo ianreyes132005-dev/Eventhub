@@ -69,11 +69,15 @@ class WebColHeader extends StatelessWidget {
   const WebColHeader(this.text, {super.key});
 
   @override
-  Widget build(BuildContext context) => Text(text,
-    style: const TextStyle(
-      fontFamily: 'Poppins', fontSize: 10.5, fontWeight: FontWeight.w700,
-      color: kText, letterSpacing: 0.8,
-    ));
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Text(text,
+      style: TextStyle(
+        fontFamily: 'Poppins', fontSize: 10.5, fontWeight: FontWeight.w700,
+        color: dark ? const Color(0xFFE7EAEE) : kText,
+        letterSpacing: 0.8,
+      ));
+  }
 }
 
 class WebHoverTile extends StatefulWidget {

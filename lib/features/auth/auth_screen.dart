@@ -16,6 +16,7 @@ import '../organizer/mobile/dashboard/organizer_dashboard.dart';
 import '../student/dashboard/student_dashboard.dart';
 import '../../core/app_colors.dart';
 import '../../core/theme_store.dart';
+import 'terms_content.dart';
 
 // ── Enums ──────────────────────────────────────────────────────────────────────
 enum _LegalType  { terms, privacy }
@@ -1195,30 +1196,14 @@ class _LegalSheet extends StatelessWidget {
     );
   }
 
-  List<Widget> _termsContent() => [
-        _section(Icons.handshake_outlined, 'Acceptance of Terms',
-            'By accessing or using the J-Jireh EventHub application, you agree to be bound by these Terms and Conditions. If you do not agree to these terms, please do not use the application.'),
-        _section(Icons.school_outlined, 'Eligibility',
-            'EventHub is intended exclusively for currently enrolled students and authorized school personnel of J-Jireh. Access is granted only through school-provisioned accounts.'),
-        _section(Icons.manage_accounts_outlined, 'Account Responsibility',
-            'Your account credentials are personal and confidential. You are responsible for all activity that occurs under your account. Do not share your login credentials with others. If you believe your account has been compromised, contact your school administrator immediately.'),
-        _section(Icons.check_circle_outline_rounded, 'Permitted Use',
-            'You may use EventHub solely for legitimate school event registration, attendance, and communication purposes — including browsing events, registering for activities, viewing QR tickets, and receiving school announcements.'),
-        _section(Icons.block_outlined, 'Prohibited Conduct',
-            '• Accessing accounts that do not belong to you\n'
-                '• Using the app for commercial or non-school purposes\n'
-                '• Sharing or tampering with event QR codes\n'
-                '• Uploading inappropriate or misleading selfie photos\n'
-                '• Circumventing the check-in verification system'),
-        _section(Icons.camera_alt_outlined, 'Check-In Media',
-            'Selfie photos submitted during check-in are used solely for identity verification. They are stored securely and accessible only to authorized event organizers within the school.'),
-        _section(Icons.shield_outlined, 'Limitation of Liability',
-            'EventHub is provided "as is" without warranties of any kind. The school shall not be liable for damages arising from your use of or inability to use the application.'),
-        _section(Icons.edit_note_outlined, 'Amendments',
-            'These Terms and Conditions may be updated from time to time. Continued use of the application after changes are posted constitutes acceptance of the revised terms.'),
-        _section(Icons.mail_outline_rounded, 'Contact Us',
-            'For questions about these Terms and Conditions, please contact your school administrator or the EventHub support team.',
-            isLast: true),
+    List<Widget> _termsContent() => [
+      for (var i = 0; i < eventHubTerms.length; i++)
+        _section(
+        eventHubTerms[i].icon,
+        eventHubTerms[i].title,
+        eventHubTerms[i].body,
+        isLast: i == eventHubTerms.length - 1,
+        ),
       ];
 
   List<Widget> _privacyContent() => [

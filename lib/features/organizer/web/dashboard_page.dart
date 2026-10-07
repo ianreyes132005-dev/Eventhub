@@ -40,16 +40,12 @@ class _WebDashboardPageState extends State<WebDashboardPage>
 
   // ── Animations ────────────────────────────────────────────────────────────
   late final AnimationController _staggerCtrl;
-  late final AnimationController _pulseCtrl;   // powers the "Live" dot
 
   @override
   void initState() {
     super.initState();
     _staggerCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 900));
-    _pulseCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1800))
-      ..repeat(reverse: true);
     _load();
     _subscribeRealtime();
     // 30 s fallback keeps stats fresh even if a realtime event is missed.
@@ -64,7 +60,6 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     _autoRefreshTimer?.cancel();
     if (_rtChannel != null) SupabaseService.client.removeChannel(_rtChannel!);
     _staggerCtrl.dispose();
-    _pulseCtrl.dispose();
     super.dispose();
   }
 
@@ -405,29 +400,6 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             fontWeight: FontWeight.w800, color: t.text, height: 1.1,
           ),
         ),
-        const SizedBox(width: 10),
-        // Pulsing green dot — indicates the 30-second auto-refresh is active.
-        AnimatedBuilder(
-          animation: _pulseCtrl,
-          builder: (_, _) => Opacity(
-            opacity: 0.45 + 0.55 * _pulseCtrl.value,
-            child: Container(
-              width: 7, height: 7,
-              decoration: const BoxDecoration(
-                color: Color(0xFF10B981),
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 4),
-        const Text('Live',
-          style: TextStyle(
-            fontFamily: 'Poppins', fontSize: 9,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF10B981),
-            letterSpacing: 0.5,
-          )),
       ],
     );
   }

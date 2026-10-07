@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'features/auth/auth_screen.dart';
+import 'features/auth/terms_and_conditions_page.dart';
 import 'features/student/dashboard/student_dashboard.dart';
 import 'features/organizer/mobile/dashboard/organizer_dashboard.dart';
 import 'features/organizer/web/web_shell.dart';
@@ -30,6 +31,7 @@ class JirehEventHubApp extends StatelessWidget {
             data: AppTheme.lightTheme,
             child: const AuthScreen(),
           ),
+          TermsAndConditionsPage.routeName: (context) => const TermsAndConditionsPage(),
           '/student': (context) => const StudentDashboard(),
           '/organizer': (context) => const OrganizerDashboardScreen(),
         },
@@ -55,6 +57,7 @@ class JirehEventHubWebApp extends StatelessWidget {
         initialRoute: '/',
         routes: {
           '/': (context) => const WebAuthScreen(),
+          TermsAndConditionsPage.routeName: (context) => const TermsAndConditionsPage(),
           '/organizer': (context) => const OrganizerWebDashboard(),
         },
       ),

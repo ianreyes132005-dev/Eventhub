@@ -113,7 +113,6 @@ class AdminLogsPage extends StatefulWidget {
 class _AdminLogsPageState extends State<AdminLogsPage>
     with TickerProviderStateMixin {
   late final TabController       _tab;
-  late final AnimationController _pulseCtrl;
   final _searchCtrl = TextEditingController();
   String _search    = '';
   String _dateRange = 'all';
@@ -133,6 +132,7 @@ class _AdminLogsPageState extends State<AdminLogsPage>
   String _eventOrg     = 'All';
   List<Map<String, dynamic>> _eventAll      = [];
   List<Map<String, dynamic>> _eventFiltered = [];
+  bool _clearingLogs = false;
 
   RealtimeChannel? _loginCh;
   RealtimeChannel? _eventCh;
@@ -143,9 +143,6 @@ class _AdminLogsPageState extends State<AdminLogsPage>
     super.initState();
     _tab = TabController(length: 2, vsync: this)
       ..addListener(() { if (mounted) setState(() {}); });
-    _pulseCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1800))
-      ..repeat(reverse: true);
     _searchCtrl.addListener(_onSearch);
     _loadLogin();
     _loadEvent();
@@ -155,7 +152,6 @@ class _AdminLogsPageState extends State<AdminLogsPage>
   @override
   void dispose() {
     _debounce?.cancel();
-    _pulseCtrl.dispose();
     _tab.dispose();
     _searchCtrl.dispose();
     if (_loginCh != null) SupabaseService.client.removeChannel(_loginCh!);
@@ -168,6 +164,18 @@ class _AdminLogsPageState extends State<AdminLogsPage>
     _applyLogin();
     _applyEvent();
   }
+
+      bool get _hasLoginFilters =>
+        _loginRole != 'All' ||
+        _loginPlat != 'All' ||
+        _dateRange != 'all' ||
+        _search.isNotEmpty;
+
+      bool get _hasEventFilters =>
+        _eventAction != 'All' ||
+        _eventOrg != 'All' ||
+        _dateRange != 'all' ||
+        _search.isNotEmpty;
 
   DateTime? get _cutoff {
     final now = DateTime.now();
@@ -336,9 +344,110 @@ class _AdminLogsPageState extends State<AdminLogsPage>
 
   void _downloadCsv(String content, String name) => downloadCsv(content, name);
 
+  Future<void> _clearCurrentTabLogs() async {
+    if (_clearingLogs) return;
+
+    final isLoginTab = _tab.index == 0;
+    final hasFilters = isLoginTab ? _hasLoginFilters : _hasEventFilters;
+    final table = isLoginTab ? 'login_logs' : 'event_logs';
+    final logType = isLoginTab ? 'login' : 'event';
+    final tabLabel = isLoginTab ? 'Login' : 'Event';
+    final filteredRows = isLoginTab ? _loginFiltered : _eventFiltered;
+    final matchingIds = filteredRows
+        .map((row) => row['id'] as String? ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+
+    if (hasFilters && matchingIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('There are no matching logs to clear.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+
+    final confirmed = await WebAlert.confirm(
+      context: context,
+      title: hasFilters ? 'Clear Matching $tabLabel Logs?' : 'Clear $tabLabel Logs?',
+      message: hasFilters
+          ? 'This permanently deletes ${matchingIds.length} $logType log entries matching the current filters. This action cannot be undone.'
+          : 'This permanently deletes all $logType log entries. This action cannot be undone.',
+      confirmLabel: hasFilters ? 'Clear Matching' : 'Clear Logs',
+      icon: Icons.delete_sweep_rounded,
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _clearingLogs = true);
+    try {
+      if (hasFilters) {
+        await SupabaseService.client
+            .from(table)
+            .delete()
+            .in_('id', matchingIds)
+            .select('id');
+      } else {
+        await SupabaseService.client
+            .from(table)
+            .delete()
+            .not('id', 'is', null)
+            .select('id');
+      }
+
+      if (isLoginTab) {
+        await _loadLogin(silent: true);
+        if (hasFilters && _loginAll.any((row) => matchingIds.contains(row['id']))) {
+          throw StateError(
+            'Supabase blocked deletion. Apply the admin_delete_login_logs policy from lib/supabase_schema.sql and retry.',
+          );
+        }
+        if (!hasFilters && _loginAll.isNotEmpty) {
+          throw StateError(
+            'Supabase blocked deletion. Apply the admin_delete_login_logs policy from lib/supabase_schema.sql and retry.',
+          );
+        }
+      } else {
+        await _loadEvent(silent: true);
+        if (hasFilters && _eventAll.any((row) => matchingIds.contains(row['id']))) {
+          throw StateError(
+            'Supabase blocked deletion. Apply the admin_delete_event_logs policy from lib/supabase_schema.sql and retry.',
+          );
+        }
+        if (!hasFilters && _eventAll.isNotEmpty) {
+          throw StateError(
+            'Supabase blocked deletion. Apply the admin_delete_event_logs policy from lib/supabase_schema.sql and retry.',
+          );
+        }
+      }
+
+      if (mounted) {
+        await WebAlert.success(
+          context: context,
+          title: 'Logs cleared',
+          message: hasFilters
+              ? '${matchingIds.length} matching $logType log entries were deleted.'
+              : 'All $logType log entries were deleted.',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            'Could not clear logs: ${e.toString().replaceFirst('Bad state: ', '').replaceFirst('Exception: ', '').trim()}',
+            style: const TextStyle(fontFamily: 'Poppins'),
+          ),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _clearingLogs = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final t             = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final activeTabHasFilters = _tab.index == 0 ? _hasLoginFilters : _hasEventFilters;
     final loginFiltered = _loginFiltered.length;
     final eventFiltered = _eventFiltered.length;
     final loginTotal    = _loginAll.length;
@@ -364,23 +473,6 @@ class _AdminLogsPageState extends State<AdminLogsPage>
                       '${loginTotal + eventTotal} total entries · real-time audit trail',
                       style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
                           color: t.sub)),
-                    const SizedBox(width: 8),
-                    AnimatedBuilder(
-                      animation: _pulseCtrl,
-                      builder: (_, _c) => Opacity(
-                        opacity: 0.45 + 0.55 * _pulseCtrl.value,
-                        child: Container(
-                          width: 6, height: 6,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF10B981), shape: BoxShape.circle),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    const Text('Live',
-                      style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF10B981), letterSpacing: 0.5)),
                   ]),
                 ]),
               ),
@@ -392,6 +484,15 @@ class _AdminLogsPageState extends State<AdminLogsPage>
                 icon: Icons.event_note_rounded, label: 'Event Actions',
                 count: eventFiltered, color: const Color(0xFF7C3AED)),
               const SizedBox(width: 12),
+              WebBtn(
+                label: activeTabHasFilters ? 'Clear Filtered' : 'Clear Logs',
+                icon: Icons.delete_sweep_rounded,
+                onTap: _clearCurrentTabLogs,
+                small: true,
+                outlined: true,
+                color: const Color(0xFFEF4444),
+              ),
+              const SizedBox(width: 8),
               WebBtn(
                 label: 'Export CSV',
                 icon:  Icons.download_rounded,
@@ -605,24 +706,24 @@ class _AdminLogsPageState extends State<AdminLogsPage>
             ),
             const SizedBox(width: 6),
           ],
-          if (_loginRole != 'All' || _loginPlat != 'All') ...[
             const Spacer(),
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: () {
-                  setState(() { _loginRole = 'All'; _loginPlat = 'All'; });
-                  _applyLogin();
-                },
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.close_rounded, size: 13, color: t.muted),
-                  const SizedBox(width: 4),
-                  Text('Clear', style: TextStyle(fontFamily: 'Poppins',
-                      fontSize: 11.5, fontWeight: FontWeight.w600, color: t.muted)),
-                ]),
+            Tooltip(
+              message: _hasLoginFilters
+                  ? 'Delete the login logs matching the current filters'
+                  : 'Delete all login logs',
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: _clearCurrentTabLogs,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                    Icon(Icons.delete_outline_rounded, size: 13, color: Color(0xFFEF4444)),
+                    SizedBox(width: 4),
+                    Text('Clear', style: TextStyle(fontFamily: 'Poppins',
+                        fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFFEF4444))),
+                  ]),
+                ),
               ),
             ),
-          ],
         ]),
       ),
       // KPI insight strip
@@ -838,24 +939,32 @@ class _AdminLogsPageState extends State<AdminLogsPage>
               ),
             ]),
           ),
-          if (_eventAction != 'All' || _eventOrg != 'All') ...[
-            const SizedBox(width: 8),
-            MouseRegion(
+          const SizedBox(width: 12),
+          Tooltip(
+            message: _hasEventFilters
+                ? 'Delete the event logs matching the current filters'
+                : 'Delete all event logs',
+            child: MouseRegion(
               cursor: SystemMouseCursors.click,
               child: GestureDetector(
-                onTap: () {
-                  setState(() { _eventAction = 'All'; _eventOrg = 'All'; });
-                  _applyEvent();
-                },
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.close_rounded, size: 13, color: t.muted),
-                  const SizedBox(width: 4),
-                  Text('Clear', style: TextStyle(fontFamily: 'Poppins',
-                      fontSize: 11.5, fontWeight: FontWeight.w600, color: t.muted)),
+                onTap: _clearCurrentTabLogs,
+                child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                  Icon(Icons.delete_outline_rounded,
+                      size: 13, color: Color(0xFFEF4444)),
+                  SizedBox(width: 4),
+                  Text(
+                    'Clear',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFEF4444),
+                    ),
+                  ),
                 ]),
               ),
             ),
-          ],
+          ),
         ]),
       ),
       // Organizer filter bar (only shown when there are multiple organizers)

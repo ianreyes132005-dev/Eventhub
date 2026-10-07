@@ -11,6 +11,7 @@ import '../../core/theme_store.dart';
 import '../../shared/widgets/app_alert.dart';
 import '../organizer/web/web_shell.dart';
 import '../admin/admin_web_dashboard.dart';
+import 'terms_content.dart';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -2093,23 +2094,15 @@ class _WebLegalDialog extends StatelessWidget {
     );
   }
 
-  List<Widget> _termsContent() => [
-    _section(Icons.handshake_outlined, 'Acceptance of Terms',
-        'By accessing or using the J-Jireh EventHub application, you agree to be bound by these Terms and Conditions. If you do not agree to these terms, please do not use the application.'),
-    _section(Icons.school_outlined, 'Eligibility',
-        'EventHub is intended exclusively for currently enrolled students and authorized school personnel of J-Jireh. Access is granted only through school-provisioned accounts.'),
-    _section(Icons.manage_accounts_outlined, 'Account Responsibility',
-        'You are responsible for maintaining the confidentiality of your login credentials. Do not share your password with others. Report any unauthorized access to your school administrator immediately.'),
-    _section(Icons.rule_outlined, 'Acceptable Use',
-        'EventHub must only be used for school-related event management. Misuse, including unauthorized data access or disruption of services, may result in account suspension.'),
-    _section(Icons.shield_outlined, 'Limitation of Liability',
-        'EventHub is provided "as is" without warranties of any kind. The school shall not be liable for damages arising from your use of or inability to use the application.'),
-    _section(Icons.edit_note_outlined, 'Amendments',
-        'These Terms and Conditions may be updated from time to time. Continued use of the application after changes are posted constitutes acceptance of the revised terms.'),
-    _section(Icons.mail_outline_rounded, 'Contact Us',
-        'For questions about these Terms and Conditions, please contact your school administrator or the EventHub support team.',
-        isLast: true),
-  ];
+    List<Widget> _termsContent() => [
+    for (var i = 0; i < eventHubTerms.length; i++)
+      _section(
+      eventHubTerms[i].icon,
+      eventHubTerms[i].title,
+      eventHubTerms[i].body,
+      isLast: i == eventHubTerms.length - 1,
+      ),
+    ];
 
   List<Widget> _privacyContent() => [
     _section(Icons.info_outline_rounded, 'Information We Collect',

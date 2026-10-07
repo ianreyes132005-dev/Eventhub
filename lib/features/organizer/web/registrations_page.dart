@@ -24,6 +24,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
   List<String>               _eventTitles = [];
   final Map<String, String>  _selfieUrls  = {};
   final Set<String>          _processingIds = {};
+  final Set<String>          _selectedIds = {};
 
   // Realtime subscription — scoped to this organizer's events.
   RealtimeChannel? _channel;
@@ -176,7 +177,11 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
             }
           } else {
             final idx = _all.indexWhere((r) => r['id'] == id);
-            if (idx >= 0) _all[idx] = record; else _all.insert(0, record);
+            if (idx >= 0) {
+              _all[idx] = record;
+            } else {
+              _all.insert(0, record);
+            }
           }
           _applyFilter();
         });
@@ -209,6 +214,149 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
         return matchStatus && matchEvent && matchSearch;
       }).toList();
     });
+  }
+
+  bool get _allVisibleSelected =>
+      _displayed.isNotEmpty &&
+      _displayed.every((r) {
+        final id = r['id'] as String? ?? '';
+        return id.isNotEmpty && _selectedIds.contains(id);
+      });
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  void _toggleSelectAllVisible() {
+    final visibleIds = _displayed
+        .map((r) => r['id'] as String? ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    setState(() {
+      if (visibleIds.every(_selectedIds.contains)) {
+        for (final id in visibleIds) {
+          _selectedIds.remove(id);
+        }
+      } else {
+        _selectedIds.addAll(visibleIds);
+      }
+    });
+  }
+
+  Future<void> _bulkApproveSelected() async {
+    final ids = _selectedIds.toList();
+    if (ids.isEmpty) return;
+
+    final processing = <String>{...ids};
+    setState(() => _processingIds.addAll(processing));
+
+    try {
+      for (final id in ids) {
+        await RegistrationService.updateStatus(id, 'checked_in');
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${ids.length} ${ids.length == 1 ? 'student was' : 'students were'} approved.',
+              style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
+            ),
+            backgroundColor: const Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _selectedIds.clear();
+          _processingIds.removeAll(processing);
+        });
+      }
+
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            'Failed to approve selected students: ${e.toString().replaceAll('Exception:', '').trim()}',
+            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
+          ),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _processingIds.removeAll(processing));
+      }
+    }
+  }
+
+  Future<void> _bulkRejectSelected() async {
+    final ids = _selectedIds.toList();
+    if (ids.isEmpty) return;
+
+    final reason = await _promptBulkRejectReason(context, ids.length);
+    if (reason == null || reason.trim().isEmpty) return;
+
+    final processing = <String>{...ids};
+    setState(() => _processingIds.addAll(processing));
+
+    try {
+      for (final id in ids) {
+        await RegistrationService.updateStatus(id, 'rejected', rejectionReason: reason);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${ids.length} ${ids.length == 1 ? 'student was' : 'students were'} rejected.',
+              style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
+            ),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _selectedIds.clear();
+          _processingIds.removeAll(processing);
+        });
+      }
+
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            'Failed to reject selected students: ${e.toString().replaceAll('Exception:', '').trim()}',
+            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
+          ),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _processingIds.removeAll(processing));
+      }
+    }
   }
 
   static const _statusKeyMap = {
@@ -470,6 +618,68 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
 
   // ── Build ─────────────────────────────────────────────────────────────────────
 
+  Widget _buildBulkActionsBar(WebTk t) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: t.inputBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: t.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF8B5CF6).withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: 0.22)),
+            ),
+            child: Text(
+              '${_selectedIds.length} selected',
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF8B5CF6),
+              ),
+            ),
+          ),
+          const Spacer(),
+          OutlinedButton.icon(
+            onPressed: _bulkApproveSelected,
+            icon: const Icon(Icons.check_circle_rounded, size: 16),
+            label: const Text('Approve', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF10B981),
+              side: const BorderSide(color: Color(0xFF10B981), width: 1.2),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const SizedBox(width: 10),
+          OutlinedButton.icon(
+            onPressed: _bulkRejectSelected,
+            icon: const Icon(Icons.block_rounded, size: 16),
+            label: const Text('Reject', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFFEF4444),
+              side: const BorderSide(color: Color(0xFFEF4444), width: 1.2),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const SizedBox(width: 10),
+          TextButton.icon(
+            onPressed: () => setState(() => _selectedIds.clear()),
+            icon: const Icon(Icons.close_rounded, size: 16),
+            label: const Text('Clear', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
@@ -484,7 +694,11 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           _buildPageHeader(t),
           const SizedBox(height: 20),
           _stagger(_buildFilterBar(t), start: 0.36, end: 0.66),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
+          if (_selectedIds.isNotEmpty) ...[
+            _buildBulkActionsBar(t),
+            const SizedBox(height: 12),
+          ],
           WebCard(
             padding: EdgeInsets.zero,
             child: _displayed.isEmpty
@@ -743,12 +957,21 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
               border: Border(bottom: BorderSide(color: t.border)),
             ),
-            child: const Row(children: [
+            child: Row(children: [
+              SizedBox(
+                width: 36,
+                child: Checkbox(
+                  value: _allVisibleSelected && _displayed.isNotEmpty,
+                  onChanged: (_) => _toggleSelectAllVisible(),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  activeColor: const Color(0xFF8B5CF6),
+                ),
+              ),
               Expanded(flex: 4, child: WebColHeader('STUDENT')),
               Expanded(flex: 3, child: WebColHeader('EVENT')),
               Expanded(flex: 2, child: WebColHeader('STATUS')),
               Expanded(flex: 2, child: WebColHeader('REGISTERED')),
-              SizedBox(width: 146, child: WebColHeader('ACTIONS')),
+              const SizedBox(width: 146, child: WebColHeader('ACTIONS')),
             ]),
           ),
           start: 0.48, end: 0.68,
@@ -775,71 +998,81 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
 
           final regAt        = reg['registered_at'] as String?;
           final isProcessing = _processingIds.contains(id);
+          final isSelected   = _selectedIds.contains(id);
           final s            = 0.55 + (i * 0.07).clamp(0.0, 0.27);
 
           return _stagger(
             _RegHoverRow(
               isLast: isLast,
               child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 36,
+                      child: Checkbox(
+                        value: isSelected,
+                        onChanged: (_) => _toggleSelection(id),
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        activeColor: const Color(0xFF8B5CF6),
+                      ),
+                    ),
 
-                  // ── Student (avatar + name + LRN) ──
-                  Expanded(
-                    flex: 4,
-                    child: Row(children: [
-                      Container(
-                        width: 38, height: 38,
-                        decoration: BoxDecoration(
-                          color: sc.withValues(alpha: 0.10),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: sc.withValues(alpha: 0.28)),
-                        ),
-                        child: Center(
-                          child: Text(initials,
-                            style: TextStyle(
-                              fontFamily: 'Poppins', fontSize: 12.5,
-                              fontWeight: FontWeight.w700, color: sc,
-                            )),
-                        ),
-                      ),
-                      const SizedBox(width: 11),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(name,
+                    // ── Student (avatar + name + LRN) ──
+                    Expanded(
+                      flex: 4,
+                      child: Row(children: [
+                        Container(
+                          width: 38, height: 38,
+                          decoration: BoxDecoration(
+                            color: sc.withValues(alpha: 0.10),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: sc.withValues(alpha: 0.28)),
+                          ),
+                          child: Center(
+                            child: Text(initials,
                               style: TextStyle(
-                                fontFamily: 'Poppins', fontSize: 13,
-                                fontWeight: FontWeight.w600, color: t.text,
-                              ),
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                            const SizedBox(height: 2),
-                            Row(children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: t.inputBg,
-                                  borderRadius: BorderRadius.circular(5),
-                                ),
-                                child: Text(lrn,
-                                  style: TextStyle(
-                                    fontFamily: 'Courier',
-                                    fontSize: 10.5,
-                                    color: t.sub,
-                                    letterSpacing: 0.3,
-                                  )),
-                              ),
-                            ]),
-                          ],
+                                fontFamily: 'Poppins', fontSize: 12.5,
+                                fontWeight: FontWeight.w700, color: sc,
+                              )),
+                          ),
                         ),
-                      ),
-                    ]),
-                  ),
+                        const SizedBox(width: 11),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(name,
+                                style: TextStyle(
+                                  fontFamily: 'Poppins', fontSize: 13,
+                                  fontWeight: FontWeight.w600, color: t.text,
+                                ),
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                              const SizedBox(height: 2),
+                              Row(children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: t.inputBg,
+                                    borderRadius: BorderRadius.circular(5),
+                                  ),
+                                  child: Text(lrn,
+                                    style: TextStyle(
+                                      fontFamily: 'Courier',
+                                      fontSize: 10.5,
+                                      color: t.sub,
+                                      letterSpacing: 0.3,
+                                    )),
+                                ),
+                              ]),
+                            ],
+                          ),
+                        ),
+                      ]),
+                    ),
 
                   // ── Event ──
                   Expanded(
@@ -977,7 +1210,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                   ),
                 ],
               ),
-            ),
+              ),
             ),
             start: s, end: (s + 0.20).clamp(0.0, 1.0),
           );
@@ -1072,6 +1305,101 @@ Future<String?> _promptRejectReason(BuildContext context, String studentName) {
                   ),
                 ]),
               ]),
+            ),
+          ),
+        );
+      },
+    ),
+  ).whenComplete(ctrl.dispose);
+}
+
+Future<String?> _promptBulkRejectReason(BuildContext context, int count) {
+  final ctrl = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (dialogCtx) => StatefulBuilder(
+      builder: (dialogCtx, setState) {
+        final t = WebTk(Theme.of(dialogCtx).brightness == Brightness.dark);
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Container(
+              decoration: BoxDecoration(
+                color: t.card,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.14), blurRadius: 40, offset: const Offset(0, 14))],
+              ),
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 38, height: 38,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444).withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.block_rounded, size: 19, color: Color(0xFFEF4444)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text('Reject $count selected?',
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 16,
+                              fontWeight: FontWeight.w800, color: t.text)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text('This will reject the selected registrations and record the same reason for every student.',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub, height: 1.5)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    maxLines: 3,
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.text),
+                    decoration: webInputDeco('e.g. Attendance criteria not met', dark: t.dark),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(dialogCtx).pop(),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: t.border),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                          ),
+                          child: Text('Cancel', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, color: t.sub)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: ctrl.text.trim().isEmpty
+                              ? null
+                              : () => Navigator.of(dialogCtx).pop(ctrl.text.trim()),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEF4444),
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.35),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                          ),
+                          child: const Text('Reject Selected', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -1371,7 +1699,7 @@ class _RegHoverRowState extends State<_RegHoverRow> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         decoration: BoxDecoration(
-          color: _h ? const Color(0xFFFFFBF0) : t.card,
+          color: _h ? t.divider : t.card,
           borderRadius: widget.isLast
             ? const BorderRadius.vertical(bottom: Radius.circular(16))
             : BorderRadius.zero,

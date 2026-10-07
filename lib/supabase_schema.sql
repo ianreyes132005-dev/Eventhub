@@ -439,6 +439,19 @@ CREATE POLICY "admin_select_login_logs" ON public.login_logs
     EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
   );
 
+-- Allow admins to clear the active audit-log tab from the Logs dashboard.
+DROP POLICY IF EXISTS "admin_delete_event_logs" ON public.event_logs;
+CREATE POLICY "admin_delete_event_logs" ON public.event_logs
+  FOR DELETE USING (
+    EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
+  );
+
+DROP POLICY IF EXISTS "admin_delete_login_logs" ON public.login_logs;
+CREATE POLICY "admin_delete_login_logs" ON public.login_logs
+  FOR DELETE USING (
+    EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
+  );
+
 -- 16. ORGANIZER WRITE ACCESS — EVENT LOGS
 -- ============================================================
 -- The real root cause: event_logs had RLS enabled with no INSERT policy for

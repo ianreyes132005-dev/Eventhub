@@ -61,7 +61,22 @@ String eventStatusLabel(Map<String, dynamic> event) {
     try {
       final d = DateTime.parse(dateStr);
       final now = DateTime.now();
-      if (d.isBefore(DateTime(now.year, now.month, now.day))) return 'Ended';
+      final eventDay = DateTime(d.year, d.month, d.day);
+      final today = DateTime(now.year, now.month, now.day);
+      if (eventDay.isBefore(today)) return 'Ended';
+      if (eventDay == today) {
+        final endTime = event['end_time'] as String?;
+        if (endTime != null && endTime.isNotEmpty) {
+          final parts = endTime.split(':');
+          final hour = int.tryParse(parts[0]);
+          final minute = parts.length > 1 ? int.tryParse(parts[1]) : null;
+          if (hour != null && minute != null &&
+              hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 &&
+              now.isAfter(DateTime(eventDay.year, eventDay.month, eventDay.day, hour, minute))) {
+            return 'Ended';
+          }
+        }
+      }
     } catch (_) {}
   }
   return 'Upcoming';

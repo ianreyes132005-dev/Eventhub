@@ -202,6 +202,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   }
 
   void _openManage(Map<String, dynamic> e) {
+    if (_statusLabel(e) == 'Ended') return;
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => ManageEventScreen(eventData: e)),
@@ -623,6 +624,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     final capacity    = e['max_participants']     as int?;
     final checkedIn   = _checkedInMap[eventId] ?? 0;
     final statusLabel    = _statusLabel(e);
+    final isEnded        = statusLabel == 'Ended';
     final statusColor    = _statusColor(statusLabel);
     final approval       = e['approval_status'] as String? ?? 'approved';
     final needsAttention = approval != 'approved';
@@ -879,28 +881,30 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                 // ── Actions ─────────────────────────────────────────────
                 Row(
                   children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 46,
-                        child: ElevatedButton(
-                          onPressed: () => _openManage(e),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: kGold,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14)),
+                    if (!isEnded) ...[
+                      Expanded(
+                        child: SizedBox(
+                          height: 46,
+                          child: ElevatedButton(
+                            onPressed: () => _openManage(e),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: kGold,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14)),
+                            ),
+                            child: const Text('Edit',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              )),
                           ),
-                          child: const Text('Edit',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            )),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
+                      const SizedBox(width: 12),
+                    ],
                     Expanded(
                       child: SizedBox(
                         height: 46,
