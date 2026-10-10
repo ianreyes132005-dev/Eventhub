@@ -4,6 +4,44 @@ import 'supabase_service.dart';
 
 // ── Data models ───────────────────────────────────────────────────────────────
 
+String _cleanAssistantText(String value) {
+  return value
+      .replaceAll(
+        RegExp(r'<think>[\s\S]*?</think>', caseSensitive: false),
+        ' ',
+      )
+      .replaceAll(RegExp(r'<\/?think>', caseSensitive: false), ' ')
+      .replaceAll(RegExp(r'<\|[^|]{1,48}\|>'), ' ')
+      .replaceAll(RegExp(r'â€™|â€˜|â\u0092|â\u0098'), "'")
+      .replaceAll(RegExp(r'â€œ|â€�|â€|â€|â\u0093|â\u0094'), '"')
+      .replaceAll(RegExp(r'â€“|â€”|â\u0096|â\u0097'), '-')
+      .replaceAll('â€¦', '...')
+      .replaceAll('â€¢', '-')
+      .replaceAll(
+        RegExp(r'J(?:â[\u0080-\u00BF\uFFFD]*|�)Jireh', caseSensitive: false),
+        'J-Jireh',
+      )
+      .replaceAll('**', '')
+      .replaceAllMapped(RegExp(r'__([^_]+)__'), (match) => match[1] ?? '')
+      .replaceAll(RegExp(r'`{1,3}'), '')
+      .replaceAll(RegExp(r'^\s{0,3}#{1,6}\s*', multiLine: true), '')
+      .replaceAllMapped(
+        RegExp(r'\[([^\]]+)\]\([^)]+\)'),
+        (match) => match[1] ?? '',
+      )
+      .replaceAll(RegExp(r'(?:â[\u0080-\u00BF\uFFFD]+|ï¿½|�)'), ' ')
+      .replaceAll(
+        RegExp(
+          r'[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFFFD]',
+        ),
+        ' ',
+      )
+      .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
+      .replaceAll(RegExp(r'[ \t]+\n'), '\n')
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+      .trim();
+}
+
 class ChatMessage {
   final String   id;
   final String   role;       // 'user' | 'assistant'
@@ -19,12 +57,16 @@ class ChatMessage {
     this.isError = false,
   });
 
-  factory ChatMessage.fromRow(Map<String, dynamic> row) => ChatMessage(
-    id:        row['id']        as String,
-    role:      row['role']      as String,
-    content:   row['content']   as String,
-    createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
-  );
+  factory ChatMessage.fromRow(Map<String, dynamic> row) {
+    final role = row['role'] as String;
+    final content = row['content'] as String;
+    return ChatMessage(
+      id: row['id'] as String,
+      role: role,
+      content: role == 'assistant' ? _cleanAssistantText(content) : content,
+      createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
+    );
+  }
 
   Map<String, dynamic> toApiMap() => {'role': role, 'content': content};
 }
@@ -105,7 +147,9 @@ class ChatService {
 
     String assistantText;
     try {
-      assistantText = await _callEdgeFn(allMsgs, userRole);
+      assistantText = _cleanAssistantText(
+        await _callEdgeFn(allMsgs, userRole),
+      );
     } catch (e) {
       debugPrint('[ChatService] Edge function error: $e');
       final detail = e.toString().replaceFirst('Exception: ', '');

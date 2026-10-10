@@ -65,6 +65,7 @@ CREATE POLICY "organizer_update_status" ON public.registrations
 -- ============================================================
 -- Enable Realtime so the Flutter app receives live updates.
 ALTER PUBLICATION supabase_realtime ADD TABLE public.registrations;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.announcements;
 
 -- 4. STORAGE BUCKET FOR SELFIES
 -- ============================================================

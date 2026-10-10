@@ -3,7 +3,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const GROQ_URL    = 'https://api.groq.com/openai/v1/chat/completions'
-const GROQ_MODEL  = 'llama-3.1-8b-instant'
+const GROQ_MODEL  = Deno.env.get('GROQ_MODEL')?.trim() || 'llama-3.3-70b-versatile'
+const GROQ_FALLBACK_MODELS = [
+  'llama-4-scout-17b-16e-instruct',
+  'openai/gpt-oss-20b',
+  'qwen/qwen3-32b',
+]
 const DAILY_LIMIT = 100   // max user messages per user per calendar day (UTC)
 
 const cors = {
@@ -112,22 +117,38 @@ serve(async (req) => {
       return errRes(500, 'config_error', 'The AI service is not configured. Contact your administrator.')
     }
 
-    const groqRes = await fetch(GROQ_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${groqKey}`,
-        'Content-Type':  'application/json',
-      },
-      body: JSON.stringify({
-        model:       GROQ_MODEL,
-        max_tokens:  1024,
-        temperature: 0.7,
-        messages: [
-          { role: 'system', content: buildSystemPrompt(realRole) },
-          ...messages,
-        ],
-      }),
-    })
+    const models = [...new Set([GROQ_MODEL, ...GROQ_FALLBACK_MODELS])]
+    let groqRes: Response | null = null
+    for (const [index, model] of models.entries()) {
+      const response = await fetch(GROQ_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${groqKey}`,
+          'Content-Type':  'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens:  1024,
+          temperature: 0.7,
+          messages: [
+            { role: 'system', content: buildSystemPrompt(realRole) },
+            ...messages,
+          ],
+        }),
+      })
+
+      if (response.status === 404 && index < models.length - 1) {
+        console.warn(`[ai-chat] Groq model unavailable: ${model}; trying fallback.`)
+        continue
+      }
+
+      groqRes = response
+      break
+    }
+
+    if (!groqRes) {
+      return errRes(502, 'model_unavailable', 'No Groq models could be attempted.')
+    }
 
     // ── 5. Handle Groq-level errors ──────────────────────────────────────────
     if (!groqRes.ok) {
@@ -144,18 +165,52 @@ serve(async (req) => {
       }
       if (groqRes.status === 401) {
         console.error('[ai-chat] Groq rejected the API key.')
-        return errRes(502, 'ai_auth_error', 'AI service authentication failed. Contact your administrator.')
+        return errRes(
+          502,
+          'ai_auth_error',
+          'Groq rejected the configured API key (HTTP 401). Update GROQ_API_KEY in Supabase secrets.',
+        )
       }
       const errBody = await groqRes.text()
+      if (groqRes.status === 404) {
+        console.error(`[ai-chat] No configured Groq model is available. Tried: ${models.join(', ')}.`, errBody)
+        return errRes(
+          502,
+          'model_unavailable',
+          `None of the configured Groq models are available to this API key. Tried: ${models.join(', ')}. Check the models enabled for the key's Groq project.`,
+          { providerStatus: groqRes.status },
+        )
+      }
       console.error(`[ai-chat] Groq ${groqRes.status}:`, errBody)
-      return errRes(502, 'ai_error', 'The AI service returned an error. Please try again.')
+      let providerMessage = 'No error details were returned.'
+      try {
+        const parsed = JSON.parse(errBody) as {
+          error?: string | { message?: string }
+        }
+        if (typeof parsed.error === 'string') {
+          providerMessage = parsed.error
+        } else if (parsed.error?.message) {
+          providerMessage = parsed.error.message
+        }
+      } catch (_) {
+        if (errBody.trim()) providerMessage = errBody.trim()
+      }
+      providerMessage = providerMessage.replace(/\s+/g, ' ').slice(0, 240)
+      return errRes(
+        502,
+        'ai_error',
+        `Groq request failed (HTTP ${groqRes.status}): ${providerMessage}`,
+        { providerStatus: groqRes.status },
+      )
     }
 
     // ── 6. Return the reply ──────────────────────────────────────────────────
     const groqBody = await groqRes.json() as {
       choices: Array<{ message: { content: string } }>
     }
-    const text = groqBody.choices?.[0]?.message?.content ?? ''
+    const rawText = groqBody.choices?.[0]?.message?.content ?? ''
+    const text = cleanAssistantText(rawText) ||
+      'I could not produce a readable answer. Please try rephrasing your question.'
 
     return new Response(
       JSON.stringify({ text }),
@@ -167,6 +222,31 @@ serve(async (req) => {
     return errRes(500, 'internal_error', 'An unexpected error occurred.')
   }
 })
+
+function cleanAssistantText(value: string): string {
+  return value
+    .replace(/<think>[\s\S]*?<\/think>/gi, ' ')
+    .replace(/<\/?think>/gi, ' ')
+    .replace(/<\|[^|]{1,48}\|>/g, ' ')
+    .replace(/â€™|â€˜|â\u0092|â\u0098/g, "'")
+    .replace(/â€œ|â€�|â€|â€|â\u0093|â\u0094/g, '"')
+    .replace(/â€“|â€”|â\u0096|â\u0097/g, '-')
+    .replace(/â€¦/g, '...')
+    .replace(/â€¢/g, '-')
+    .replace(/^[ \t]*(?:analysis|final|assistant)\s*:?[ \t]*$/gim, '')
+    .replace(/J(?:â[\u0080-\u00BF\uFFFD]*|�)Jireh/gi, 'J-Jireh')
+    .replace(/\*\*/g, '')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/`{1,3}/g, '')
+    .replace(/^\s{0,3}#{1,6}\s*/gm, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/(?:â[\u0080-\u00BF\uFFFD]+|ï¿½|�)/g, ' ')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFFFD]/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
 
 // ── System prompt ──────────────────────────────────────────────────────────────
 // Lives server-side so clients cannot inspect or tamper with it.
@@ -207,6 +287,9 @@ J-Jireh EventHub is a mobile app for managing school events with three user type
 ## Rules
 - Keep replies short: 2–4 sentences for simple questions; numbered steps for processes.
 - Friendly and professional tone, suitable for a school setting.
+- Respond in clear, natural English unless the user asks for another language.
+- Use plain text only. Do not use Markdown, bold markers, code fences, emojis, or decorative symbols.
+- Return only the user-facing answer. Never include hidden reasoning, channel labels, or model control tokens.
 - If unsure, say so and suggest contacting the school administrator.
 - Never invent app features not listed above.`
 }
