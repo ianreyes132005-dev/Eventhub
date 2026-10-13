@@ -105,13 +105,14 @@ class _AuthScreenState extends State<AuthScreen> {
   bool get _isOrganizer => _mode == _LoginMode.organizer;
 
   void _switchMode() {
+    _loginFormKey.currentState?.reset();
+    _emailCtrl.clear();
+    _lrnCtrl.clear();
+    _passwordCtrl.clear();
+
     setState(() {
       _mode = _isOrganizer ? _LoginMode.student : _LoginMode.organizer;
-      _emailCtrl.clear();
-      _lrnCtrl.clear();
-      _passwordCtrl.clear();
       _loginShowPassword = false;
-      _loginFormKey.currentState?.reset();
     });
   }
 
