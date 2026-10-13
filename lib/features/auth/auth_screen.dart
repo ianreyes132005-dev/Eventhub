@@ -301,7 +301,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   children: [
                     // Greeting — restyled as the form-sheet heading
                     const Text(
-                      'Welcome back',
+                      'Welcome back!',
                       style: TextStyle(
                         fontFamily: 'Poppins',
                         fontSize: 26,
