@@ -2202,7 +2202,7 @@ class _NextEventBannerState extends State<_NextEventBanner> {
       badgeText  = 'ENDED';
       badgeColor = const Color(0xFF6B7280);
     } else if (started) {
-      badgeText  = 'LIVE NOW';
+      badgeText  = 'ONGOING';
       badgeColor = const Color(0xFF10B981);
     } else {
       badgeText  = 'NEXT EVENT';
