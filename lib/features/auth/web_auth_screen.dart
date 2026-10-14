@@ -719,7 +719,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
 
           // Heading
           const Text(
-            'Welcome back',
+            'Welcome Back!',
             style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 28,

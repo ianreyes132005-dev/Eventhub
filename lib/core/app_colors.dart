@@ -49,37 +49,97 @@ class AppTk {
 }
 
 // ── Shared event status helpers ──────────────────────────────────────────────
-// Single source of truth for mobile event status label and color.
+// Shared event lifecycle resolution for mobile and web status displays.
+
+String eventStatusValue(Map<String, dynamic> event) {
+  final stored = (event['event_status'] as String? ?? '').toLowerCase();
+  if (stored == 'active') return 'ongoing';
+  if (stored == 'cancelled') return 'cancelled';
+  if (stored == 'completed' || stored == 'past' || stored == 'ended') {
+    return 'ended';
+  }
+
+  final dateStr = event['event_date'] as String?;
+  if (dateStr == null) return stored == 'ongoing' ? 'ongoing' : 'upcoming';
+
+  try {
+    final eventDate = DateTime.tryParse(dateStr);
+    if (eventDate == null) {
+      return stored == 'ongoing' ? 'ongoing' : 'upcoming';
+    }
+    final startDate = DateTime(eventDate.year, eventDate.month, eventDate.day);
+    final endDateRaw = event['end_date'] as String?;
+    final parsedEndDate = endDateRaw == null || endDateRaw.isEmpty
+        ? eventDate
+        : DateTime.tryParse(endDateRaw) ?? eventDate;
+    final endDate = DateTime(
+      parsedEndDate.year,
+      parsedEndDate.month,
+      parsedEndDate.day,
+    );
+    final startTime = _eventTime(event['start_time'] as String?, 8, 0);
+    final endTime = _eventTime(event['end_time'] as String?, 23, 59, 59);
+    final start = DateTime(
+      startDate.year,
+      startDate.month,
+      startDate.day,
+      startTime.$1,
+      startTime.$2,
+    );
+    final end = DateTime(
+      endDate.year,
+      endDate.month,
+      endDate.day,
+      endTime.$1,
+      endTime.$2,
+      endTime.$3,
+    );
+    final now = DateTime.now();
+
+    if (now.isBefore(start)) return 'upcoming';
+    if (!now.isBefore(end)) return 'ended';
+    return 'ongoing';
+  } on RangeError {
+    return stored == 'ongoing' ? 'ongoing' : 'upcoming';
+  }
+}
+
+(int, int, int) _eventTime(
+  String? value,
+  int fallbackHour,
+  int fallbackMinute, [
+  int fallbackSecond = 0,
+]) {
+  if (value == null || value.isEmpty) {
+    return (fallbackHour, fallbackMinute, fallbackSecond);
+  }
+  final parts = value.split(':');
+  final hour = int.tryParse(parts[0]);
+  final minute = parts.length > 1 ? int.tryParse(parts[1]) : null;
+  final second = parts.length > 2
+      ? int.tryParse(parts[2].split('.').first)
+      : 0;
+  if (hour == null ||
+      minute == null ||
+      second == null ||
+      hour < 0 ||
+      hour > 23 ||
+      minute < 0 ||
+      minute > 59 ||
+      second < 0 ||
+      second > 59) {
+    return (fallbackHour, fallbackMinute, fallbackSecond);
+  }
+  return (hour, minute, second);
+}
 
 String eventStatusLabel(Map<String, dynamic> event) {
-  final s = (event['event_status'] as String? ?? '').toLowerCase();
-  if (s == 'ongoing' || s == 'active')                return 'Ongoing';
-  if (s == 'completed' || s == 'past' || s == 'ended') return 'Ended';
-  if (s == 'cancelled')                               return 'Cancelled';
-  final dateStr = event['event_date'] as String?;
-  if (dateStr != null) {
-    try {
-      final d = DateTime.parse(dateStr);
-      final now = DateTime.now();
-      final eventDay = DateTime(d.year, d.month, d.day);
-      final today = DateTime(now.year, now.month, now.day);
-      if (eventDay.isBefore(today)) return 'Ended';
-      if (eventDay == today) {
-        final endTime = event['end_time'] as String?;
-        if (endTime != null && endTime.isNotEmpty) {
-          final parts = endTime.split(':');
-          final hour = int.tryParse(parts[0]);
-          final minute = parts.length > 1 ? int.tryParse(parts[1]) : null;
-          if (hour != null && minute != null &&
-              hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 &&
-              now.isAfter(DateTime(eventDay.year, eventDay.month, eventDay.day, hour, minute))) {
-            return 'Ended';
-          }
-        }
-      }
-    } catch (_) {}
-  }
-  return 'Upcoming';
+  return switch (eventStatusValue(event)) {
+    'ongoing' => 'Ongoing',
+    'ended' => 'Ended',
+    'cancelled' => 'Cancelled',
+    _ => 'Upcoming',
+  };
 }
 
 Color eventStatusColor(String label) {

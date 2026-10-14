@@ -144,7 +144,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
       final eventRows = await client
           .from('events')
-          .select('event_id, title, event_date, start_time, end_time, event_status, '
+          .select('event_id, title, event_date, end_date, start_time, end_time, event_status, '
               'event_image_url, max_participants, approval_status, rejection_reason, reviewed_at')
           .eq('organizer_id', organizerId)
           .order('event_date', ascending: true);
@@ -186,8 +186,9 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       // yet — including them would deflate the rate misleadingly.
       final pastEvents = List<Map<String, dynamic>>.from(allEvents)
         ..retainWhere((e) {
-          final status = (e['event_status'] as String? ?? '').toLowerCase();
-          if (status == 'upcoming' || status == 'ongoing') return false;
+          if (const {'upcoming', 'ongoing'}.contains(eventStatusValue(e))) {
+            return false;
+          }
           final d = DateTime.tryParse(e['event_date'] as String? ?? '');
           return d != null && !DateTime(d.year, d.month, d.day).isAfter(todayStart);
         })
@@ -230,14 +231,10 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       // Find the next upcoming event (allEvents sorted ascending by event_date)
       Map<String, dynamic>? nextEvt;
       for (final e in allEvents) {
-        final status = (e['event_status'] as String? ?? '').toLowerCase();
-        if (status == 'cancelled' || status == 'completed' || status == 'past') continue;
-        final dStr = e['event_date'] as String?;
-        if (dStr == null) continue;
-        try {
-          final d = DateTime.parse(dStr);
-          if (!d.isBefore(todayStart)) { nextEvt = e; break; }
-        } catch (_) {}
+        if (const {'upcoming', 'ongoing'}.contains(eventStatusValue(e))) {
+          nextEvt = e;
+          break;
+        }
       }
 
       // Build notifications from already-loaded data (no extra queries needed)
@@ -262,7 +259,9 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
         ));
       }
 
-      for (final e in allEvents.where((e) => e['event_status'] == 'ongoing').take(3)) {
+      for (final e in allEvents
+          .where((e) => eventStatusValue(e) == 'ongoing')
+          .take(3)) {
         notifResult.add(_AppNotif(
           id:       'event_live_${e['event_id']}',
           title:    e['title'] as String? ?? '—',
@@ -273,7 +272,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       }
 
       for (final e in allEvents.where((e) =>
-          e['event_status'] == 'upcoming' &&
+          eventStatusValue(e) == 'upcoming' &&
           (e['event_date'] as String?) == notifTodayStr).take(3)) {
         final t = _fmtNotifTime(e['start_time'] as String?);
         notifResult.add(_AppNotif(
@@ -286,7 +285,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       }
 
       for (final e in allEvents.where((e) =>
-          e['event_status'] == 'upcoming' &&
+          eventStatusValue(e) == 'upcoming' &&
           (e['event_date'] as String?) == notifTomStr).take(2)) {
         final t = _fmtNotifTime(e['start_time'] as String?);
         notifResult.add(_AppNotif(
@@ -1689,12 +1688,18 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       } else {
         start = DateTime(d.year, d.month, d.day, 8);
       }
+      final endDateRaw = e['end_date'] as String?;
+      final endDate = endDateRaw == null || endDateRaw.isEmpty
+          ? d
+          : DateTime.tryParse(endDateRaw) ?? d;
       final eTime = e['end_time'] as String?;
       if (eTime != null && eTime.isNotEmpty) {
         final p = eTime.split(':');
         final h = int.tryParse(p[0]) ?? 0;
         final m = p.length > 1 ? (int.tryParse(p[1]) ?? 0) : 0;
-        end = DateTime(d.year, d.month, d.day, h, m);
+        end = DateTime(endDate.year, endDate.month, endDate.day, h, m);
+      } else {
+        end = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
       }
     } catch (_) {
       return const SizedBox.shrink();
@@ -2318,4 +2323,3 @@ class _NextEventBannerState extends State<_NextEventBanner> {
     );
   }
 }
-

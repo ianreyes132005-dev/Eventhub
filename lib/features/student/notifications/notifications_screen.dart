@@ -128,14 +128,18 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       final annUids = annRows.map((a) => a['created_by'] as String?).whereType<String>().toSet().toList();
       final Map<String, String> orgNames = {};
       if (annUids.isNotEmpty) {
-        final orgRows = List<Map<String, dynamic>>.from(
-          await SupabaseService.client
-              .from('organizers')
-              .select('user_id, full_name')
-              .filter('user_id', 'in', '(${annUids.join(',')})'),
-        );
-        for (final o in orgRows) {
-          orgNames[o['user_id'] as String] = o['full_name'] as String? ?? '—';
+        try {
+          final orgRows = List<Map<String, dynamic>>.from(
+            await SupabaseService.client
+                .from('organizer_directory')
+                .select('user_id, full_name')
+                .in_('user_id', annUids),
+          );
+          for (final o in orgRows) {
+            orgNames[o['user_id'] as String] = o['full_name'] as String? ?? '—';
+          }
+        } catch (e) {
+          debugPrint('NotificationsScreen organizer name lookup error: $e');
         }
       }
 
@@ -347,7 +351,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                                 Icon(Icons.person_outline_rounded, size: 10, color: t.muted),
                                 const SizedBox(width: 3),
                                 Text(
-                                  'by ${item.orgName}',
+                                  'Posted by ${item.orgName}',
                                   style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
                                 ),
                               ],
@@ -799,7 +803,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                                     Icon(Icons.person_outline_rounded, size: 10, color: t.muted),
                                     const SizedBox(width: 3),
                                     Text(
-                                      item.orgName!,
+                                      'Posted by ${item.orgName}',
                                       style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
                                     ),
                                   ],

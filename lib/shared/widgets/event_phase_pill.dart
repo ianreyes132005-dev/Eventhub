@@ -49,7 +49,7 @@ class EventPhasePill extends StatelessWidget {
             children: [
               Icon(Icons.circle, size: 7, color: Colors.white),
               SizedBox(width: 5),
-              Text('LIVE NOW', style: TextStyle(fontFamily: 'Poppins', fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: Colors.white)),
+              Text('Ongoing', style: TextStyle(fontFamily: 'Poppins', fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.2, color: Colors.white)),
             ],
           ),
         );
@@ -71,6 +71,25 @@ class EventPhasePill extends StatelessWidget {
             ],
           ),
         );
+
+    case EventPhase.cancelled:
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0xFFEF4444).withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: const Text(
+          'CANCELLED',
+          style: TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.8,
+            color: Colors.white,
+          ),
+        ),
+      );
     }
   }
 }
@@ -80,7 +99,13 @@ class EventPhasePill extends StatelessWidget {
 class EventStatusTimer extends StatefulWidget {
   final DateTime  start;
   final DateTime? end;
-  const EventStatusTimer({super.key, required this.start, this.end});
+  final Map<String, dynamic>? statusEvent;
+  const EventStatusTimer({
+    super.key,
+    required this.start,
+    this.end,
+    this.statusEvent,
+  });
 
   @override
   State<EventStatusTimer> createState() => _EventStatusTimerState();
@@ -103,7 +128,9 @@ class _EventStatusTimerState extends State<EventStatusTimer> {
     super.dispose();
   }
 
-  EventPhase get _phase => resolveEventPhase(widget.start, widget.end);
+  EventPhase get _phase => widget.statusEvent == null
+      ? resolveEventPhase(widget.start, widget.end)
+      : eventPhaseFromStatus(eventStatusValue(widget.statusEvent!));
 
   String _countdown() {
     final diff = widget.start.difference(DateTime.now());
@@ -129,7 +156,7 @@ class _EventStatusTimerState extends State<EventStatusTimer> {
   Widget build(BuildContext context) {
     final phase = _phase;
 
-    if (phase == EventPhase.completed) {
+    if (phase == EventPhase.completed || phase == EventPhase.cancelled) {
       _timer?.cancel();
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -138,12 +165,26 @@ class _EventStatusTimerState extends State<EventStatusTimer> {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white.withValues(alpha: 0.30)),
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.check_circle_rounded, size: 13, color: Colors.white70),
-            SizedBox(width: 5),
-            Text('Completed', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white70)),
+            Icon(
+              phase == EventPhase.cancelled
+                  ? Icons.cancel_rounded
+                  : Icons.check_circle_rounded,
+              size: 13,
+              color: Colors.white70,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              phase == EventPhase.cancelled ? 'Cancelled' : 'Completed',
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Colors.white70,
+              ),
+            ),
           ],
         ),
       );

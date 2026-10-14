@@ -92,7 +92,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
 
       final eventRows = await client
           .from('events')
-          .select('event_id, title, event_date, start_time, end_time, location, '
+          .select('event_id, title, event_date, end_date, start_time, end_time, location, '
                   'event_status, max_participants, organizer_id')
           .eq('organizer_id', widget.orgId!);
 
@@ -111,13 +111,15 @@ class _WebDashboardPageState extends State<WebDashboardPage>
       }
 
       // ── Stats ─────────────────────────────────────────────────────────
-      final activeStatuses = {'upcoming', 'ongoing'};
-      _activeEvents = events.where((e) => activeStatuses.contains(e['event_status'])).length;
+      const activeStatuses = {'upcoming', 'ongoing'};
+      _activeEvents = events
+          .where((e) => activeStatuses.contains(eventStatusValue(e)))
+          .length;
       _totalRegs    = orgRegs.length;
 
       // ── Upcoming events ───────────────────────────────────────────────
       final upcoming = events
-          .where((e) => e['event_status'] == 'upcoming' || e['event_status'] == 'ongoing')
+          .where((e) => activeStatuses.contains(eventStatusValue(e)))
           .toList()
         ..sort((a, b) {
           final da = DateTime.tryParse(a['event_date'] ?? '') ?? DateTime(9999);
@@ -153,8 +155,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
       final today      = DateUtils.dateOnly(now);
       final pastEvents = List<Map<String, dynamic>>.from(events)
         ..retainWhere((e) {
-          final status = (e['event_status'] as String? ?? '').toLowerCase();
-          if (status == 'upcoming' || status == 'ongoing') return false;
+          if (activeStatuses.contains(eventStatusValue(e))) return false;
           final d = DateTime.tryParse(e['event_date'] as String? ?? '');
           return d != null && !DateUtils.dateOnly(d).isAfter(today);
         })
@@ -1140,33 +1141,7 @@ class _DashStatCardState extends State<_DashStatCard> {
 // with 'ended' when the event's end time (or the event day itself) has passed.
 // This handles the case where the backend hasn't yet updated the status.
 String _resolveDisplayStatus(Map<String, dynamic> event) {
-  final db = (event['event_status'] as String? ?? '').toLowerCase();
-  if (db != 'upcoming' && db != 'ongoing') return db;
-
-  final dStr = event['event_date'] as String?;
-  if (dStr == null) return db;
-
-  try {
-    final now  = DateTime.now();
-    final d    = DateTime.parse(dStr);
-    final eDay = DateTime(d.year, d.month, d.day);
-    final nDay = DateTime(now.year, now.month, now.day);
-
-    // Entire event day has passed → definitely ended
-    if (nDay.isAfter(eDay)) return 'ended';
-
-    // Same day: ended if we're past end_time
-    if (nDay == eDay) {
-      final eStr = event['end_time'] as String?;
-      if (eStr != null && eStr.isNotEmpty) {
-        final p = eStr.split(':');
-        final h = int.tryParse(p[0]) ?? 0;
-        final m = p.length > 1 ? (int.tryParse(p[1]) ?? 0) : 0;
-        if (now.isAfter(DateTime(d.year, d.month, d.day, h, m))) return 'ended';
-      }
-    }
-  } catch (_) {}
-  return db;
+  return eventStatusValue(event);
 }
 
 // ── Upcoming event row ────────────────────────────────────────────────────────
@@ -1177,14 +1152,10 @@ class _EventListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final dbStatus = event['event_status'] as String?;
     final resolved = _resolveDisplayStatus(event);
-    final isEnded  = resolved == 'ended';
-    final color    = isEnded
-        ? const Color(0xFF6B7280)
-        : webEventStatusColor(dbStatus);
-    final label    = isEnded ? 'Ended' : webEventStatusLabel(dbStatus);
-    final isLive   = dbStatus == 'ongoing' && !isEnded;
+    final color    = webEventStatusColor(resolved);
+    final label    = webEventStatusLabel(resolved);
+    final isLive   = resolved == 'ongoing';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),

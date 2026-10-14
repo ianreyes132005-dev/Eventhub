@@ -48,6 +48,49 @@ String _fmtTime(String? ts) {
   } catch (_) { return 'Recently'; }
 }
 
+DateTime? _eventDateTime(Map event, {required bool isEnd}) {
+  final eventDate = event['event_date'] as String?;
+  final dateValue = isEnd
+      ? (event['end_date'] as String? ?? eventDate)
+      : eventDate;
+  if (dateValue == null || dateValue.isEmpty) return null;
+
+  final date = DateTime.tryParse(dateValue);
+  if (date == null) return null;
+
+  final timeValue = event[isEnd ? 'end_time' : 'start_time'] as String?;
+  final fallbackHour = isEnd ? 23 : 8;
+  final fallbackMinute = isEnd ? 59 : 0;
+  final fallbackSecond = isEnd ? 59 : 0;
+  var hour = fallbackHour;
+  var minute = fallbackMinute;
+  var second = fallbackSecond;
+
+  if (timeValue != null && timeValue.isNotEmpty) {
+    final parts = timeValue.split(':');
+    final parsedHour = int.tryParse(parts[0]);
+    final parsedMinute = parts.length > 1 ? int.tryParse(parts[1]) : null;
+    final parsedSecond = parts.length > 2
+        ? int.tryParse(parts[2].split('.').first)
+        : 0;
+    if (parsedHour != null &&
+        parsedMinute != null &&
+        parsedSecond != null &&
+        parsedHour >= 0 &&
+        parsedHour <= 23 &&
+        parsedMinute >= 0 &&
+        parsedMinute <= 59 &&
+        parsedSecond >= 0 &&
+        parsedSecond <= 59) {
+      hour = parsedHour;
+      minute = parsedMinute;
+      second = parsedSecond;
+    }
+  }
+
+  return DateTime(date.year, date.month, date.day, hour, minute, second);
+}
+
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -157,7 +200,7 @@ class _StudentDashboardState extends State<StudentDashboard>
       // Registrations fetched separately (needs user.id, not parallelizable cleanly)
       final regRows = await client
           .from('registrations')
-          .select('*, events(event_id, title, event_date, start_time, end_time, '
+          .select('*, events(event_id, title, event_date, end_date, start_time, end_time, '
                   'location, event_image_url, description, event_status, '
                   'max_participants, event_type)')
           .eq('student_user_id', user.id)
@@ -201,25 +244,11 @@ class _StudentDashboardState extends State<StudentDashboard>
 
       final sortedUpcoming = regList.where((r) {
         final evMap = r['events'] as Map?;
-        final dStr  = evMap?['event_date'] as String?;
-        if (dStr == null) return false;
-        try {
-          final d        = DateTime.parse(dStr);
-          final eTimeStr = evMap?['end_time'] as String?;
-          if (eTimeStr != null) {
-            // Keep until 1 hour after event ends so "Completed" can display
-            final ep       = eTimeStr.split(':');
-            final eh       = int.tryParse(ep[0]) ?? 23;
-            final em       = ep.length > 1 ? (int.tryParse(ep[1]) ?? 59) : 59;
-            final endTime  = DateTime(d.year, d.month, d.day, eh, em);
-            return endTime.isAfter(today.subtract(const Duration(hours: 1)));
-          } else {
-            // No end_time: show for the whole event day
-            final eventMid = DateTime(d.year, d.month, d.day);
-            final todayMid = DateTime(today.year, today.month, today.day);
-            return !eventMid.isBefore(todayMid);
-          }
-        } catch (_) { return false; }
+        if (evMap == null) return false;
+        final endTime = _eventDateTime(evMap, isEnd: true);
+        if (endTime == null) return false;
+        // Keep the event for an hour after its final end time so Completed can display.
+        return endTime.isAfter(today.subtract(const Duration(hours: 1)));
       }).toList()
         ..sort((a, b) {
           final da = DateTime.tryParse(((a['events'] as Map?) ?? {})['event_date'] as String? ?? '') ?? DateTime(9999);
@@ -414,43 +443,6 @@ class _StudentDashboardState extends State<StudentDashboard>
         builder: (_) => EventDetailsPage(event: evMap, registration: reg),
       ),
     ).then((_) { if (mounted) _loadHomeData(silent: true); });
-  }
-
-  // Returns true if any registration in [regs] has an event that is currently
-  // ongoing (started but not yet ended), so the LIVE chip is only shown when
-  // something is actually happening right now.
-  bool _isAnyEventLive(List<Map<String, dynamic>> regs) {
-    final now = DateTime.now();
-    for (final reg in regs) {
-      final evMap = reg['events'] as Map?;
-      final dStr  = evMap?['event_date'] as String?;
-      if (dStr == null) continue;
-      try {
-        final d = DateTime.parse(dStr);
-        final sTime = evMap?['start_time'] as String?;
-        DateTime startTime;
-        if (sTime != null) {
-          final p = sTime.split(':');
-          startTime = DateTime(d.year, d.month, d.day,
-              int.tryParse(p[0]) ?? 8,
-              p.length > 1 ? (int.tryParse(p[1]) ?? 0) : 0);
-        } else {
-          startTime = DateTime(d.year, d.month, d.day, 8);
-        }
-        final eTime = evMap?['end_time'] as String?;
-        DateTime? endTime;
-        if (eTime != null) {
-          final ep = eTime.split(':');
-          endTime = DateTime(d.year, d.month, d.day,
-              int.tryParse(ep[0]) ?? 23,
-              ep.length > 1 ? (int.tryParse(ep[1]) ?? 59) : 59);
-        }
-        final started = !now.isBefore(startTime);
-        final ended   = endTime != null && now.isAfter(endTime);
-        if (started && !ended) return true;
-      } catch (_) {}
-    }
-    return false;
   }
 
   void _onNavBarTapped(int index) {
@@ -683,8 +675,6 @@ class _StudentDashboardState extends State<StudentDashboard>
     final regs = _upcomingRegistrations;
     if (regs.isEmpty) return _buildExploreCard(t);
 
-    final hasLive = _isAnyEventLive(regs);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -693,29 +683,6 @@ class _StudentDashboardState extends State<StudentDashboard>
           child: Row(
             children: [
               _SectionLabel(label: 'MY UPCOMING EVENTS', t: t),
-              if (hasLive) ...[
-                const SizedBox(width: 10),
-                const _LivePulseDot(),
-                const SizedBox(width: 5),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.25)),
-                  ),
-                  child: const Text(
-                    'LIVE',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 9,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.0,
-                      color: Color(0xFF10B981),
-                    ),
-                  ),
-                ),
-              ],
               if (regs.length > 1) ...[
                 const Spacer(),
                 Container(
@@ -843,35 +810,19 @@ class _StudentDashboardState extends State<StudentDashboard>
     final evMap   = reg['events'] as Map?;
     final title   = reg['event_title'] as String? ?? '—';
     final dStr    = evMap?['event_date'] as String?;
-    if (dStr == null) return const SizedBox.shrink();
+    if (dStr == null || evMap == null) return const SizedBox.shrink();
 
-    DateTime  startTime;
-    DateTime? endTime;
-    try {
-      final d     = DateTime.parse(dStr);
-      final sTime = evMap?['start_time'] as String?;
-      if (sTime != null) {
-        final p = sTime.split(':');
-        final h = int.tryParse(p[0]) ?? 8;
-        final m = p.length > 1 ? (int.tryParse(p[1]) ?? 0) : 0;
-        startTime = DateTime(d.year, d.month, d.day, h, m);
-      } else {
-        startTime = DateTime(d.year, d.month, d.day, 8);
-      }
-      final eTime = evMap?['end_time'] as String?;
-      if (eTime != null) {
-        final ep = eTime.split(':');
-        final eh = int.tryParse(ep[0]) ?? 23;
-        final em = ep.length > 1 ? (int.tryParse(ep[1]) ?? 59) : 59;
-        endTime = DateTime(d.year, d.month, d.day, eh, em);
-      }
-    } catch (_) { return const SizedBox.shrink(); }
+    final statusEvent = Map<String, dynamic>.from(evMap);
+    final startTime = _eventDateTime(evMap, isEnd: false);
+    final endTime = _eventDateTime(evMap, isEnd: true);
+    if (startTime == null) return const SizedBox.shrink();
 
-    final EventPhase initPhase = resolveEventPhase(startTime, endTime);
+    final EventPhase initPhase =
+        eventPhaseFromStatus(eventStatusValue(statusEvent));
     final target = startTime;
 
-    final location = evMap?['location'] as String? ?? '';
-    final imageUrl = evMap?['event_image_url'] as String?;
+    final location = evMap['location'] as String? ?? '';
+    final imageUrl = evMap['event_image_url'] as String?;
     final hasImage = imageUrl != null && imageUrl.isNotEmpty;
     const months   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     final fmtDate  = '${months[target.month - 1]} ${target.day}';
@@ -992,7 +943,11 @@ class _StudentDashboardState extends State<StudentDashboard>
                       ),
                     ),
                     const SizedBox(width: 16),
-                    EventStatusTimer(start: startTime, end: endTime),
+                    EventStatusTimer(
+                      start: startTime,
+                      end: endTime,
+                      statusEvent: statusEvent,
+                    ),
                   ],
                 ),
               ),
@@ -1696,45 +1651,6 @@ class _DateChip extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _LivePulseDot extends StatefulWidget {
-  const _LivePulseDot();
-  @override
-  State<_LivePulseDot> createState() => _LivePulseDotState();
-}
-
-class _LivePulseDotState extends State<_LivePulseDot>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double>   _fade;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 900))
-      ..repeat(reverse: true);
-    _fade = Tween<double>(begin: 0.25, end: 1.0)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _fade,
-      child: Container(
-        width: 7, height: 7,
-        decoration: const BoxDecoration(
-          color: Color(0xFF10B981),
-          shape: BoxShape.circle,
-        ),
       ),
     );
   }

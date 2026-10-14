@@ -823,29 +823,30 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   Widget _buildPageHeader(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Title
+          Container(
+            width: 3,
+            height: 36,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFC49230), kGold, Color(0xFFEAB866)],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 14),
           Text(
             'Registrations',
             style: TextStyle(
               fontFamily: 'Poppins',
-              fontSize: 28,
+              fontSize: 26,
               fontWeight: FontWeight.w800,
               color: t.text,
-              height: 1.1,
-            ),
-          ),
-          const SizedBox(height: 7),
-
-          // Gold accent underline
-          Container(
-            width: 38,
-            height: 3,
-            decoration: BoxDecoration(
-              gradient: kGoldGradient,
-              borderRadius: BorderRadius.circular(2),
+              height: 1.15,
             ),
           ),
         ],

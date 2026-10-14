@@ -102,18 +102,33 @@ class _WebAiChatbotState extends State<WebAiChatbot>
     final text = (quickText ?? _msgCtrl.text).trim();
     if (text.isEmpty || _sending || _sessionId == null) return;
     if (quickText == null) _msgCtrl.clear();
-    setState(() => _sending = true);
+    final history = List<ChatMessage>.from(_history);
+    final pendingMessage = ChatMessage(
+      id: 'pending_${DateTime.now().microsecondsSinceEpoch}',
+      role: 'user',
+      content: text,
+      createdAt: DateTime.now(),
+    );
+    setState(() {
+      _sending = true;
+      _history.add(pendingMessage);
+    });
+    _scrollToBottom();
 
     try {
       final result = await ChatService.chat(
         sessionId:   _sessionId!,
         userMessage: text,
-        history:     List.from(_history),
+        history:     history,
         userRole:    'organizer',
       );
       if (mounted) {
         setState(() {
-          _history.add(result.userMessage);
+          final pendingIndex =
+              _history.indexWhere((message) => message.id == pendingMessage.id);
+          if (pendingIndex >= 0) {
+            _history[pendingIndex] = result.userMessage;
+          }
           _history.add(result.assistantMessage);
           _sending = false;
         });

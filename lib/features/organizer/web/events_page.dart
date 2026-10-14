@@ -24,31 +24,7 @@ String _bannerContentType(String ext) {
 // Returns the display status for an event, overriding 'upcoming'/'ongoing'
 // with 'ended' when the event's end time (or whole event day) has passed.
 String _resolveDisplayStatus(Map<String, dynamic> event) {
-  final db = (event['event_status'] as String? ?? '').toLowerCase();
-  if (db != 'upcoming' && db != 'ongoing') return db;
-
-  final dStr = event['event_date'] as String?;
-  if (dStr == null) return db;
-
-  try {
-    final now  = DateTime.now();
-    final d    = DateTime.parse(dStr);
-    final eDay = DateTime(d.year, d.month, d.day);
-    final nDay = DateTime(now.year, now.month, now.day);
-
-    if (nDay.isAfter(eDay)) return 'ended';
-
-    if (nDay == eDay) {
-      final eStr = event['end_time'] as String?;
-      if (eStr != null && eStr.isNotEmpty) {
-        final p = eStr.split(':');
-        final h = int.tryParse(p[0]) ?? 0;
-        final m = p.length > 1 ? (int.tryParse(p[1]) ?? 0) : 0;
-        if (now.isAfter(DateTime(d.year, d.month, d.day, h, m))) return 'ended';
-      }
-    }
-  } catch (_) {}
-  return db;
+  return eventStatusValue(event);
 }
 
 // Event type definitions
@@ -75,13 +51,14 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   List<Map<String, dynamic>> _events    = [];
   List<Map<String, dynamic>> _displayed = [];
 
-  final _filters = ['All', 'Upcoming', 'Ongoing', 'Ended', 'Cancelled'];
+  final _filters = ['All', 'Upcoming', 'Ongoing', 'Ended'];
 
   String? _hoveredTab;
 
   late final AnimationController _staggerCtrl;
   RealtimeChannel? _channel;
   Timer?           _debounce;
+  Timer?           _statusTimer;
 
   @override
   void initState() {
@@ -90,11 +67,15 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     _search.addListener(_applyFilter);
     _load();
     _subscribeRealtime();
+    _statusTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) _applyFilter();
+    });
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _statusTimer?.cancel();
     if (_channel != null) SupabaseService.client.removeChannel(_channel!);
     _staggerCtrl.dispose();
     _search.dispose();
@@ -165,7 +146,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     final q = _search.text.toLowerCase();
     setState(() {
       _displayed = _events.where((e) {
-        final status = e['event_status'] as String? ?? '';
+        final status = _resolveDisplayStatus(e);
         final title  = (e['title'] as String? ?? '').toLowerCase();
         final loc    = (e['location'] as String? ?? '').toLowerCase();
         final type   = (e['event_type'] as String? ?? '').toLowerCase();
@@ -353,7 +334,6 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
         final r = _resolveDisplayStatus(e);
         return r == 'completed' || r == 'ended';
       }).length,
-      'Cancelled': _events.where((e) => e['event_status'] == 'cancelled').length,
     };
 
     return Row(
@@ -384,7 +364,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     final t        = WebTk(Theme.of(context).brightness == Brightness.dark);
     final selected = _filter == f;
     final hovered  = _hoveredTab == f;
-    final accent   = f == 'All' ? kGold : webEventStatusColor(f.toLowerCase());
+    const accent = kGold;
 
     return MouseRegion(
       cursor:  SystemMouseCursors.click,
@@ -494,11 +474,10 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
           final i      = entry.key;
           final e      = entry.value;
           final isLast = i == _displayed.length - 1;
-          final status   = e['event_status'] as String?;
           final approval = (e['approval_status'] as String? ?? 'approved').toLowerCase();
           final resolved = _resolveDisplayStatus(e);
           final isEnded  = resolved == 'ended';
-          final sc       = isEnded ? const Color(0xFF6B7280) : webEventStatusColor(status);
+          final sc       = webEventStatusColor(resolved);
           final type   = e['event_type'] as String?;
           final typeData = _kTypes.firstWhere(
             (t) => t.$1 == type,
@@ -621,7 +600,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                               fontWeight: FontWeight.w700,
                               color: isFull ? const Color(0xFFEF4444) : t.text,
                             )),
-                          Text(max > 0 ? ' / $max' : ' / âˆž',
+                          Text(' / ${max > 0 ? max : '∞'}',
                             style: TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 12,
@@ -652,7 +631,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         WebStatusBadge(
-                          label: isEnded ? 'Ended' : webEventStatusLabel(status),
+                          label: webEventStatusLabel(resolved),
                           color: sc,
                         ),
                         // Only shown while it needs attention — Approved is
@@ -2604,11 +2583,9 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
   @override
   Widget build(BuildContext context) {
     final t         = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final status    = _e['event_status'] as String?;
     final resolved  = _resolveDisplayStatus(_e);
-    final isEnded   = resolved == 'ended';
-    final sc        = isEnded ? const Color(0xFF6B7280) : webEventStatusColor(status);
-    final statusLbl = isEnded ? 'Ended' : webEventStatusLabel(status);
+    final sc        = webEventStatusColor(resolved);
+    final statusLbl = webEventStatusLabel(resolved);
     final typeData  = _kTypes.firstWhere(
       (tp) => tp.$1 == _type,
       orElse: () => _kTypes.last,
