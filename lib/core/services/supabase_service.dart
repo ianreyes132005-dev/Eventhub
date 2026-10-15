@@ -83,6 +83,7 @@ class SupabaseService {
     final res = await client
         .from('events')
         .select()
+        .eq('approval_status', 'approved')
         .order('created_at', ascending: false)
         .limit(limit);
     if (res is List) {

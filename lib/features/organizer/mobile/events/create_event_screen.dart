@@ -624,8 +624,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   ),
                   child: _InlineCalendar(
                     selectedDate:    selectedDate,
-                    firstDate:       DateTime.now(),
-                    lastDate:        DateTime.now().add(const Duration(days: 730)),
+                    firstDate:       DateUtils.dateOnly(DateTime.now()),
+                    lastDate:        DateUtils.dateOnly(
+                      DateTime.now().add(const Duration(days: 730)),
+                    ),
                     accentColor:     _kBlue,
                     onDateSelected:  onDateSelected,
                   ),
@@ -1486,4 +1488,3 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
     );
   }
 }
-

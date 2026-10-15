@@ -162,6 +162,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   }
 
   Future<void> _openDialog({Map<String, dynamic>? existing}) async {
+    if (existing != null && !_canEditEvent(existing)) return;
     final isEdit = existing != null;
     final result = await showDialog<bool>(
       context: context,
@@ -185,6 +186,11 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
             : 'Your changes have been saved successfully.',
       );
     }
+  }
+
+  bool _canEditEvent(Map<String, dynamic> event) {
+    final status = _resolveDisplayStatus(event);
+    return status != 'ongoing' && status != 'ended';
   }
 
   void _openDetails(Map<String, dynamic> e) {
@@ -476,7 +482,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
           final isLast = i == _displayed.length - 1;
           final approval = (e['approval_status'] as String? ?? 'approved').toLowerCase();
           final resolved = _resolveDisplayStatus(e);
-          final isEnded  = resolved == 'ended';
+          final canEdit = _canEditEvent(e);
           final sc       = webEventStatusColor(resolved);
           final type   = e['event_type'] as String?;
           final typeData = _kTypes.firstWhere(
@@ -650,7 +656,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                     width: 112,
                     child: Row(
                       children: [
-                        if (!isEnded) ...[
+                        if (canEdit) ...[
                           _IconBtn(
                             icon: Icons.edit_rounded,
                             color: const Color(0xFF3B82F6),

@@ -579,17 +579,26 @@ CREATE TRIGGER trg_guard_events_approval
   BEFORE INSERT OR UPDATE ON public.events
   FOR EACH ROW EXECUTE FUNCTION public.guard_events_approval();
 
--- RLS: replace the old blanket "every authenticated user sees every event"
--- policy with a role-aware split. admin_events_select (README.md) already
--- grants admins unrestricted SELECT and is untouched by this section.
+-- RLS: replace blanket event visibility with role-specific access. Students
+-- only see approved events; organizers retain their own events and admins
+-- retain access to the full review queue.
 DROP POLICY IF EXISTS "authenticated_select_events" ON public.events;
+DROP POLICY IF EXISTS "Anyone can view events" ON public.events;
 
+DROP POLICY IF EXISTS "public_select_approved_events" ON public.events;
 CREATE POLICY "public_select_approved_events" ON public.events
   FOR SELECT USING (auth.role() = 'authenticated' AND approval_status = 'approved');
 
+DROP POLICY IF EXISTS "organizer_select_own_events" ON public.events;
 CREATE POLICY "organizer_select_own_events" ON public.events
   FOR SELECT USING (
     organizer_id = (SELECT organizer_id FROM public.organizers WHERE user_id = auth.uid())
+  );
+
+DROP POLICY IF EXISTS "admin_events_select" ON public.events;
+CREATE POLICY "admin_events_select" ON public.events
+  FOR SELECT USING (
+    EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid())
   );
 
 -- admin_update_events (Section 13 above) is USING-only with no column

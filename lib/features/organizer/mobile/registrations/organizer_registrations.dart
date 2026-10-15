@@ -313,6 +313,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   final Map<String, String> _selfieUrls = {};
   List<String> _eventTitles = ['All'];
   final Set<String> _selectedIds = {};
+  final Set<String> _statusUpdatingIds = {};
   bool _bulkProcessing = false;
 
   // Organizer identity — resolved once and reused for scoped queries.
@@ -600,11 +601,14 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     String newStatus, {
     String? rejectionReason,
   }) async {
+    if (_statusUpdatingIds.contains(id)) return;
     final idx = _all.indexWhere((r) => r['id'] == id);
     if (idx < 0) return;
     final oldStatus = _all[idx]['status'] as String? ?? '';
+    if (newStatus == 'photo_required' && oldStatus != 'qr_scanned') return;
 
     // Optimistic update — reflect the change immediately.
+    _statusUpdatingIds.add(id);
     setState(() {
       _all[idx] = {..._all[idx], 'status': newStatus};
       _applyFilter();
@@ -640,6 +644,9 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
           ),
         );
       }
+    } finally {
+      _statusUpdatingIds.remove(id);
+      if (mounted) setState(() {});
     }
   }
 
@@ -1691,16 +1698,17 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   ) {
     switch (status) {
       case 'pending':
+        return _scanRequiredBtn();
       case 'qr_scanned':
         return _actionBtn(
-          label: 'Confirm & Request Selfie',
-          icon: Icons.camera_alt_outlined,
+          label: 'Request Selfie',
+          icon: Icons.add_a_photo_rounded,
           color: const Color(0xFF16A34A),
           onTap: () => _updateStatus(id, 'photo_required'),
           t: t,
         );
       case 'photo_required':
-        return _awaitingBtn();
+        return _awaitingBtn(sending: _statusUpdatingIds.contains(id));
       case 'photo_submitted':
         return Row(
           children: [
@@ -1730,32 +1738,67 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     }
   }
 
-  Widget _awaitingBtn() {
-    return OutlinedButton.icon(
-      onPressed: null,
-      icon: const SizedBox(
-        width: 14,
-        height: 14,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          color: Color(0xFF9333EA),
+  Widget _scanRequiredBtn() {
+    return Tooltip(
+      message: "Scan the student's QR code before requesting a selfie.",
+      child: OutlinedButton.icon(
+        onPressed: null,
+        icon: const Icon(Icons.qr_code_scanner_rounded, size: 14),
+        label: const Text(
+          'Scan QR Code First',
+          style: TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          disabledForegroundColor: Colors.grey,
+          side: BorderSide(color: Colors.grey.withValues(alpha: 0.35)),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       ),
-      label: const Text(
-        'Awaiting Selfie',
-        style: TextStyle(
-          fontFamily: 'Poppins',
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF9333EA),
+    );
+  }
+
+  Widget _awaitingBtn({required bool sending}) {
+    return Tooltip(
+      message: sending
+          ? 'Sending selfie request to student'
+          : 'Awaiting selfie from student',
+      child: OutlinedButton.icon(
+        onPressed: null,
+        icon: sending
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Color(0xFF9333EA),
+                ),
+              )
+            : const Icon(Icons.photo_camera_outlined, size: 15),
+        label: Text(
+          sending ? 'Sending Request' : 'Awaiting Selfie',
+          style: const TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF9333EA),
+          ),
         ),
-      ),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: const Color(0xFF9333EA),
-        disabledForegroundColor: const Color(0xFF9333EA),
-        side: const BorderSide(color: Color(0x669333EA), width: 1.5),
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF9333EA),
+          disabledForegroundColor: const Color(0xFF9333EA),
+          side: const BorderSide(color: Color(0x669333EA), width: 1.5),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
       ),
     );
   }

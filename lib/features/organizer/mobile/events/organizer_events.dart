@@ -251,11 +251,16 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   }
 
   void _openManage(Map<String, dynamic> e) {
-    if (_statusLabel(e) == 'Ended') return;
+    if (!_canEditEvent(e)) return;
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => ManageEventScreen(eventData: e)),
     ).then((_) => _loadData());
+  }
+
+  bool _canEditEvent(Map<String, dynamic> event) {
+    final status = _statusLabel(event);
+    return status != 'Ongoing' && status != 'Ended';
   }
 
   Future<void> _confirmDeleteEvent(Map<String, dynamic> event) async {
@@ -834,7 +839,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     final capacity = e['max_participants'] as int?;
     final checkedIn = _checkedInMap[eventId] ?? 0;
     final statusLabel = _statusLabel(e);
-    final isEnded = statusLabel == 'Ended';
+    final canEdit = _canEditEvent(e);
     final statusColor = _statusColor(statusLabel);
     final approval = e['approval_status'] as String? ?? 'approved';
     final needsAttention = approval != 'approved';
@@ -1151,9 +1156,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                               fontFamily: 'Poppins',
                               fontSize: 12.5,
                               fontWeight: FontWeight.w600,
-                              color: isFull
-                                  ? const Color(0xFFEF4444)
-                                  : t.sub,
+                              color: isFull ? const Color(0xFFEF4444) : t.sub,
                             ),
                           ),
                         ],
@@ -1191,7 +1194,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                 // ── Actions ─────────────────────────────────────────────
                 Row(
                   children: [
-                    if (!isEnded) ...[
+                    if (canEdit) ...[
                       Expanded(
                         child: SizedBox(
                           height: 46,

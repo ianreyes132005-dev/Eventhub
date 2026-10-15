@@ -1143,12 +1143,19 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                       : Row(
                           children: [
                             // Slot 0 - Send selfie request
-                            if (status == 'pending' || status == 'qr_scanned')
+                            if (status == 'qr_scanned')
                               _RegAction(
                                 icon:    Icons.add_a_photo_rounded,
                                 color:   const Color(0xFFF97316),
                                 tooltip: 'Send selfie request',
                                 onTap:   () => _sendSelfieRequest(id, name),
+                              )
+                            else if (status == 'pending')
+                              _RegAction(
+                                icon:    Icons.add_a_photo_rounded,
+                                color:   const Color(0xFF9CA3AF),
+                                tooltip: "Scan the student's QR code before requesting a selfie",
+                                onTap:   null,
                               )
                             else
                               const SizedBox(width: 32),
@@ -1435,7 +1442,7 @@ class _StatusMenuState extends State<_StatusMenu> {
   // rejected is only reachable from photo_submitted (the same point admin's
   // now-removed dialog used to decide from).
   static const _allowed = <String, Set<String>>{
-    'pending':         {'qr_scanned', 'photo_required', 'photo_submitted', 'checked_in'},
+    'pending':         {'photo_submitted', 'checked_in'},
     'qr_scanned':      {'photo_required', 'photo_submitted', 'checked_in'},
     'photo_required':  {'photo_submitted', 'checked_in'},
     'photo_submitted': {'checked_in', 'rejected'},
@@ -1719,7 +1726,7 @@ class _RegAction extends StatefulWidget {
   final IconData     icon;
   final Color        color;
   final String       tooltip;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   const _RegAction({
     required this.icon,
     required this.color,
@@ -1736,8 +1743,10 @@ class _RegActionState extends State<_RegAction> {
 
   @override
   Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    onEnter: (_) => setState(() => _h = true),
+    cursor: widget.onTap == null
+        ? SystemMouseCursors.basic
+        : SystemMouseCursors.click,
+    onEnter: (_) => setState(() => _h = widget.onTap != null),
     onExit:  (_) => setState(() => _h = false),
     child: GestureDetector(
       onTap: widget.onTap,
