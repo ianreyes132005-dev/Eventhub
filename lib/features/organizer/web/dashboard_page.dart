@@ -5,7 +5,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
-import '../../../core/services/organizer_session_guard.dart';
+import '../../../core/services/account_session_guard.dart';
 import '../../../shared/widgets/event_phase_pill.dart';
 import 'web_shared.dart';
 
@@ -103,7 +103,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
       if (organizer == null) {
         throw StateError('Could not find your organizer profile.');
       }
-      if (!await OrganizerSessionGuard.ensureActive(
+      if (!await AccountSessionGuard.ensureActive(
         context,
         isActive: organizer['is_active'] == true,
       )) return;

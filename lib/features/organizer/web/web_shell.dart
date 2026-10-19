@@ -6,6 +6,7 @@ import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/services/org_notif_prefs.dart';
 import '../../../core/services/organizer_notices.dart';
+import '../../../core/services/account_session_guard.dart';
 import 'web_shared.dart';
 import 'dashboard_page.dart';
 import 'events_page.dart';
@@ -35,6 +36,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   String?       _email;
   String?       _organization;
   String?       _photoUrl;
+  RealtimeChannel? _accountChannel;
   bool          _loading      = true;
   bool          _profileError = false;
 
@@ -65,12 +67,23 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
             curve: const Interval(0.00, 0.60, curve: Curves.easeOutCubic)));
     _contentFade  = CurvedAnimation(parent: _entryCt,
         curve: const Interval(0.12, 0.78, curve: Curves.easeOut));
+    final userId = SupabaseService.currentUser?.id;
+    if (userId != null) {
+      _accountChannel = AccountSessionGuard.watch(
+        context,
+        table: 'organizers',
+        userId: userId,
+      );
+    }
     _loadTheme();
     _loadProfile();
   }
 
   @override
   void dispose() {
+    if (_accountChannel != null) {
+      SupabaseService.client.removeChannel(_accountChannel!);
+    }
     _entryCt.dispose();
     super.dispose();
   }

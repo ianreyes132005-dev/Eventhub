@@ -16,7 +16,7 @@ import '../../../../shared/widgets/app_alert.dart';
 import '../../../../shared/widgets/live_countdown.dart';
 import '../../../../core/app_colors.dart';
 import '../../../../core/services/org_notif_prefs.dart';
-import '../../../../core/services/organizer_session_guard.dart';
+import '../../../../core/services/account_session_guard.dart';
 import '../../../../core/services/organizer_notices.dart';
 import '../../../../shared/utils/event_labels.dart' show monthDayLabel;
 import '../../../../shared/widgets/error_alert.dart';
@@ -138,6 +138,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
   // Live updates — see _watchEvents.
   RealtimeChannel? _eventsChannel;
+  RealtimeChannel? _accountChannel;
   String? _watchedOrgId;
   Timer? _liveDebounce;
   Timer? _refreshTimer;
@@ -152,6 +153,14 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       duration: const Duration(milliseconds: 900),
     );
     WidgetsBinding.instance.addObserver(this);
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId != null) {
+      _accountChannel = AccountSessionGuard.watch(
+        context,
+        table: 'organizers',
+        userId: userId,
+      );
+    }
     _loadData();
     _startRefreshTimer();
   }
@@ -162,6 +171,9 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
     _refreshTimer?.cancel();
     _liveDebounce?.cancel();
     _stopWatching();
+    if (_accountChannel != null) {
+      Supabase.instance.client.removeChannel(_accountChannel!);
+    }
     _staggerCtrl.dispose();
     super.dispose();
   }
@@ -280,7 +292,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           .maybeSingle();
 
       if (orgRow == null) throw StateError('Could not find your organizer profile.');
-      if (!await OrganizerSessionGuard.ensureActive(
+      if (!await AccountSessionGuard.ensureActive(
         context,
         isActive: orgRow['is_active'] == true,
       )) return null;

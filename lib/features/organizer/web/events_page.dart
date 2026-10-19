@@ -64,6 +64,9 @@ class WebEventsPage extends StatefulWidget {
 class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProviderStateMixin {
   bool   _loading = true;
   String _filter  = 'All';
+  String _sortField = 'event_date';
+  bool _sortAsc = false;
+  bool _sortTouched = false;
   // Capacity of every event = active students (StudentCountService).
   int?   _studentCount = StudentCountService.cached;
   final  _search  = TextEditingController();
@@ -71,7 +74,15 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   List<Map<String, dynamic>> _events    = [];
   List<Map<String, dynamic>> _displayed = [];
 
-  final _filters = ['All', 'Upcoming', 'Ongoing', 'Ended', 'Cancelled', 'Archived'];
+  final _filters = [
+    'All',
+    'Upcoming',
+    'Ongoing',
+    'Ended',
+    'Cancelled',
+    'Rejected',
+    'Archived',
+  ];
 
   String? _hoveredTab;
 
@@ -175,29 +186,67 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     setState(() {
       _displayed = _events.where((e) {
         final status = _resolveDisplayStatus(e);
+        final approval =
+            (e['approval_status'] as String? ?? 'approved').toLowerCase();
         final title  = (e['title'] as String? ?? '').toLowerCase();
         final loc    = (e['location'] as String? ?? '').toLowerCase();
         final type   = (e['event_type'] as String? ?? '').toLowerCase();
         // Archived events (admin) only show under the Archived filter.
         final matchFilter = eventIsArchived(e)
             ? _filter == 'Archived'
-            : _filter == 'All' || status == _filter.toLowerCase();
+            : _filter == 'All' ||
+                (_filter == 'Rejected'
+                    ? approval == 'rejected'
+                    : approval != 'rejected' &&
+                        status == _filter.toLowerCase());
         final matchSearch = q.isEmpty ||
             title.contains(q) || loc.contains(q) || type.contains(q);
         return matchFilter && matchSearch;
       }).toList();
-      // Cancelled tab: most recently cancelled first.
-      if (_filter == 'Cancelled') {
+      if (_filter == 'Cancelled' && !_sortTouched) {
         _displayed.sort((a, b) => _cancelledAt(b).compareTo(_cancelledAt(a)));
+      } else {
+        _displayed.sort((a, b) {
+          final comparison = switch (_sortField) {
+            'title' => (a['title'] as String? ?? '')
+                .toLowerCase()
+                .compareTo((b['title'] as String? ?? '').toLowerCase()),
+            'location' => (a['location'] as String? ?? '')
+                .toLowerCase()
+                .compareTo((b['location'] as String? ?? '').toLowerCase()),
+            'registered' => ((a['current_participants'] as num?)?.toInt() ?? 0)
+                .compareTo(
+                  (b['current_participants'] as num?)?.toInt() ?? 0,
+                ),
+            'status' => _resolveDisplayStatus(a)
+                .compareTo(_resolveDisplayStatus(b)),
+            _ => _eventDate(a).compareTo(_eventDate(b)),
+          };
+          return _sortAsc ? comparison : -comparison;
+        });
       }
     });
   }
 
-  // Rows cancelled before the cancellation migration have no cancelled_at.
-  DateTime _cancelledAt(Map<String, dynamic> e) =>
-      DateTime.tryParse(e['cancelled_at'] as String? ?? '') ??
-      DateTime.tryParse(e['updated_at'] as String? ?? '') ??
+  DateTime _eventDate(Map<String, dynamic> event) =>
+      DateTime.tryParse(event['event_date'] as String? ?? '') ??
       DateTime(2000);
+
+  DateTime _cancelledAt(Map<String, dynamic> event) =>
+      DateTime.tryParse(event['cancelled_at'] as String? ?? '') ??
+      DateTime.tryParse(event['updated_at'] as String? ?? '') ??
+      DateTime(2000);
+
+  void _setSort(String field) {
+    _sortTouched = true;
+    if (_sortField == field) {
+      _sortAsc = !_sortAsc;
+    } else {
+      _sortField = field;
+      _sortAsc = field == 'title' || field == 'location' || field == 'status';
+    }
+    _applyFilter();
+  }
 
   Future<void> _openDialog({Map<String, dynamic>? existing}) async {
     if (existing != null && !_canEditEvent(existing)) return;
@@ -482,12 +531,19 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     // Live counts per status — displayed as badges on each chip so the
     // organizer sees event distribution at a glance without filtering.
     final active = _events.where((e) => !eventIsArchived(e));
+    final scheduled = active.where(
+      (e) =>
+          (e['approval_status'] as String? ?? 'approved').toLowerCase() !=
+          'rejected',
+    );
     final counts = <String, int>{
       'All':       active.length,
-      'Upcoming':  active.where((e) => _resolveDisplayStatus(e) == 'upcoming').length,
-      'Ongoing':   active.where((e) => _resolveDisplayStatus(e) == 'ongoing').length,
-      'Ended':     active.where((e) => _resolveDisplayStatus(e) == 'ended').length,
-      'Cancelled': active.where((e) => _resolveDisplayStatus(e) == 'cancelled').length,
+      'Upcoming':  scheduled.where((e) => _resolveDisplayStatus(e) == 'upcoming').length,
+      'Ongoing':   scheduled.where((e) => _resolveDisplayStatus(e) == 'ongoing').length,
+      'Ended':     scheduled.where((e) => _resolveDisplayStatus(e) == 'ended').length,
+      'Cancelled': scheduled.where((e) => _resolveDisplayStatus(e) == 'cancelled').length,
+      'Rejected':  active.where((e) =>
+          (e['approval_status'] as String? ?? 'approved').toLowerCase() == 'rejected').length,
       'Archived':  _events.length - active.length,
     };
 
@@ -625,6 +681,35 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
         ),
       );
 
+  Widget _sortableHeader(String label, String field) {
+    final active = _sortField == field;
+    return InkWell(
+      onTap: () => _setSort(field),
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            WebColHeader(label),
+            const SizedBox(width: 4),
+            Icon(
+              active
+                  ? (_sortAsc
+                      ? Icons.arrow_upward_rounded
+                      : Icons.arrow_downward_rounded)
+                  : Icons.unfold_more_rounded,
+              size: 13,
+              color: active ? kGold : WebTk(
+                Theme.of(context).brightness == Brightness.dark,
+              ).muted,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // What the Status column shows: one pill — the state that matters most,
   // the same as the app's event card (organizerEventStatus) — with nothing
   // under it. An event that isn't approved shows its review state, never a
@@ -759,11 +844,11 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
             ),
             child: Row(
               children: [
-                _col(3, const WebColHeader('EVENT')),
-                _col(2, const WebColHeader('DATE')),
-                _col(2, const WebColHeader('LOCATION')),
-                _fixed(_kRegW, const WebColHeader('REGISTERED')),
-                _fixed(_kStatusW, const WebColHeader('STATUS')),
+                _col(3, _sortableHeader('EVENT', 'title')),
+                _col(2, _sortableHeader('DATE', 'event_date')),
+                _col(2, _sortableHeader('LOCATION', 'location')),
+                _fixed(_kRegW, _sortableHeader('REGISTERED', 'registered')),
+                _fixed(_kStatusW, _sortableHeader('STATUS', 'status')),
                 const SizedBox(
                   width: _kActionsW,
                   child: Align(

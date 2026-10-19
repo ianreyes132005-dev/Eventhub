@@ -8,7 +8,7 @@ import '../../../core/services/supabase_service.dart';
 import '../../../core/services/org_notif_prefs.dart';
 import '../../../core/services/app_lang_prefs.dart';
 import '../../../core/services/organizer_photo.dart';
-import '../../../core/services/organizer_session_guard.dart';
+import '../../../core/services/account_session_guard.dart';
 import '../../../core/theme_store.dart';
 import 'web_shared.dart';
 
@@ -85,7 +85,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
           .eq('user_id', user.id)
           .maybeSingle();
       if (row == null) throw StateError('Could not find your organizer profile.');
-      if (!await OrganizerSessionGuard.ensureActive(
+      if (!await AccountSessionGuard.ensureActive(
         context,
         isActive: row['is_active'] == true,
       )) return;

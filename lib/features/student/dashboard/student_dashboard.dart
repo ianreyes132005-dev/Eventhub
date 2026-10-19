@@ -11,6 +11,7 @@ import '../notifications/student_feed.dart';
 import '../check_in/selfie_screen.dart';
 import 'package:eventhub/core/services/registration_service.dart';
 import 'package:eventhub/core/services/notif_read_store.dart';
+import 'package:eventhub/core/services/account_session_guard.dart';
 import 'package:eventhub/shared/widgets/ai_chat_fab.dart';
 import 'package:eventhub/shared/widgets/app_loader.dart';
 import 'package:eventhub/shared/widgets/event_phase_pill.dart';
@@ -87,6 +88,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   RealtimeChannel? _regChannel;
   RealtimeChannel? _homeRegChannel;
   RealtimeChannel? _annChannel;
+  RealtimeChannel? _accountChannel;
   Timer?           _annDebounce;
   Timer?           _regDebounce;
   Future<void>?    _inFlight;
@@ -103,6 +105,14 @@ class _StudentDashboardState extends State<StudentDashboard>
       duration: const Duration(milliseconds: 900),
     );
     WidgetsBinding.instance.addObserver(this);
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId != null) {
+      _accountChannel = AccountSessionGuard.watch(
+        context,
+        table: 'students',
+        userId: userId,
+      );
+    }
     _loadHomeData();
     _subscribeToCheckInRequests();
     _subscribeToMyRegistrations();
@@ -124,6 +134,9 @@ class _StudentDashboardState extends State<StudentDashboard>
     if (_regChannel != null) Supabase.instance.client.removeChannel(_regChannel!);
     if (_homeRegChannel != null) Supabase.instance.client.removeChannel(_homeRegChannel!);
     if (_annChannel != null) Supabase.instance.client.removeChannel(_annChannel!);
+    if (_accountChannel != null) {
+      Supabase.instance.client.removeChannel(_accountChannel!);
+    }
     super.dispose();
   }
 
@@ -230,12 +243,17 @@ class _StudentDashboardState extends State<StudentDashboard>
       // and the notification list — so the bell number always matches it.
       final nameFuture = client
           .from('students')
-          .select('full_name')
+          .select('full_name, is_active')
           .eq('user_id', user.id)
           .maybeSingle();
       final feed    = await StudentNotifications.load();
       final profile = await nameFuture;
       if (!mounted) return null;
+      if (profile == null) throw StateError('Could not find your student profile.');
+      if (!await AccountSessionGuard.ensureActive(
+        context,
+        isActive: profile['is_active'] == true,
+      )) return null;
 
       final regs = feed.registrations;
       final now  = DateTime.now();

@@ -43,12 +43,19 @@ class _AuthScreenState extends State<AuthScreen> {
   _LoginMode _mode = _LoginMode.student;
 
   // ── Rate limiting ──────────────────────────────────────────────────────────
-  int _failedAttempts = 0;
-  DateTime? _lockedUntil;
-  Timer? _lockTimer;
+  final Map<_LoginMode, int> _failedAttemptsByMode = {};
+  final Map<_LoginMode, DateTime?> _lockedUntilByMode = {};
+  final Map<_LoginMode, Timer> _lockTimers = {};
 
-  static const String _kAttemptKey = 'rl_login_attempts';
-  static const String _kLockedKey = 'rl_login_locked_until';
+  static const String _kLegacyAttemptKey = 'rl_login_attempts';
+  static const String _kLegacyLockedKey = 'rl_login_locked_until';
+
+  String _attemptKey(_LoginMode mode) => 'rl_login_attempts_${mode.name}';
+  String _lockedKey(_LoginMode mode) => 'rl_login_locked_until_${mode.name}';
+
+  int get _failedAttempts => _failedAttemptsByMode[_mode] ?? 0;
+
+  DateTime? get _lockedUntil => _lockedUntilByMode[_mode];
 
   bool get _isLocked =>
       _lockedUntil != null && DateTime.now().isBefore(_lockedUntil!);
@@ -100,7 +107,9 @@ class _AuthScreenState extends State<AuthScreen> {
     _passwordCtrl.dispose();
     _termsTap.dispose();
     _privacyTap.dispose();
-    _lockTimer?.cancel();
+    for (final timer in _lockTimers.values) {
+      timer.cancel();
+    }
     super.dispose();
   }
 
@@ -208,69 +217,89 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _loadRateLimitState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final attempts = prefs.getInt(_kAttemptKey) ?? 0;
-      final lockedMs = prefs.getInt(_kLockedKey) ?? 0;
-      final locked = lockedMs > 0
-          ? DateTime.fromMillisecondsSinceEpoch(lockedMs)
-          : null;
-      if (!mounted) return;
-      final stillLocked = locked != null && locked.isAfter(DateTime.now());
-      setState(() {
-        _failedAttempts = stillLocked ? attempts : 0;
-        _lockedUntil = stillLocked ? locked : null;
-      });
-      if (stillLocked) {
-        _startLockTimer();
-      } else if (attempts > 0) {
-        prefs.setInt(_kAttemptKey, 0);
-        prefs.remove(_kLockedKey);
+      for (final mode in _LoginMode.values) {
+        final attemptKey = _attemptKey(mode);
+        final lockedKey = _lockedKey(mode);
+        final isLegacyStudentKey = mode == _LoginMode.student;
+        final attempts =
+            prefs.getInt(attemptKey) ??
+            (isLegacyStudentKey ? prefs.getInt(_kLegacyAttemptKey) : null) ??
+            0;
+        final lockedMs =
+            prefs.getInt(lockedKey) ??
+            (isLegacyStudentKey ? prefs.getInt(_kLegacyLockedKey) : null) ??
+            0;
+        final locked = lockedMs > 0
+            ? DateTime.fromMillisecondsSinceEpoch(lockedMs)
+            : null;
+        final stillLocked = locked != null && locked.isAfter(DateTime.now());
+        _failedAttemptsByMode[mode] = stillLocked ? attempts : 0;
+        _lockedUntilByMode[mode] = stillLocked ? locked : null;
+        if (stillLocked) {
+          _startLockTimer(mode);
+        } else {
+          await prefs.remove(attemptKey);
+          await prefs.remove(lockedKey);
+        }
+        if (isLegacyStudentKey) {
+          await prefs.remove(_kLegacyAttemptKey);
+          await prefs.remove(_kLegacyLockedKey);
+        }
       }
+      if (mounted) setState(() {});
     } catch (_) {}
   }
 
-  Future<void> _recordFailure() async {
-    _failedAttempts++;
-    final lockDur = _failedAttempts >= 5
-        ? const Duration(seconds: 30)
-        : Duration.zero;
-    _lockedUntil = lockDur > Duration.zero ? DateTime.now().add(lockDur) : null;
+  Future<void> _recordFailure(_LoginMode mode) async {
+    final attempts = (_failedAttemptsByMode[mode] ?? 0) + 1;
+    final lockDur = attempts >= 5 ? const Duration(seconds: 30) : Duration.zero;
+    final lockedUntil = lockDur > Duration.zero
+        ? DateTime.now().add(lockDur)
+        : null;
+    _failedAttemptsByMode[mode] = attempts;
+    _lockedUntilByMode[mode] = lockedUntil;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_kAttemptKey, _failedAttempts);
+      await prefs.setInt(_attemptKey(mode), attempts);
       await prefs.setInt(
-        _kLockedKey,
-        _lockedUntil?.millisecondsSinceEpoch ?? 0,
+        _lockedKey(mode),
+        lockedUntil?.millisecondsSinceEpoch ?? 0,
       );
     } catch (_) {}
-    if (_lockedUntil != null) _startLockTimer();
+    if (lockedUntil != null) _startLockTimer(mode);
     if (mounted) setState(() {});
   }
 
-  Future<void> _clearRateLimit() async {
-    _failedAttempts = 0;
-    _lockedUntil = null;
-    _lockTimer?.cancel();
+  Future<void> _clearRateLimit(_LoginMode mode) async {
+    _failedAttemptsByMode[mode] = 0;
+    _lockedUntilByMode[mode] = null;
+    _lockTimers.remove(mode)?.cancel();
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_kAttemptKey);
-      await prefs.remove(_kLockedKey);
+      await prefs.remove(_attemptKey(mode));
+      await prefs.remove(_lockedKey(mode));
     } catch (_) {}
+    if (mounted) setState(() {});
   }
 
-  void _startLockTimer() {
-    _lockTimer?.cancel();
-    _lockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+  void _startLockTimer(_LoginMode mode) {
+    _lockTimers.remove(mode)?.cancel();
+    _lockTimers[mode] = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
-        _lockTimer?.cancel();
+        timer.cancel();
+        _lockTimers.remove(mode);
         return;
       }
-      if (!_isLocked) {
-        _lockTimer?.cancel();
-        _failedAttempts = 0;
+      final lockedUntil = _lockedUntilByMode[mode];
+      if (lockedUntil == null || !DateTime.now().isBefore(lockedUntil)) {
+        timer.cancel();
+        _lockTimers.remove(mode);
+        _failedAttemptsByMode[mode] = 0;
+        _lockedUntilByMode[mode] = null;
         SharedPreferences.getInstance()
             .then((prefs) {
-              prefs.setInt(_kAttemptKey, 0);
-              prefs.remove(_kLockedKey);
+              prefs.remove(_attemptKey(mode));
+              prefs.remove(_lockedKey(mode));
             })
             .catchError((_) {});
       }
@@ -669,6 +698,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
+                          '${_isOrganizer ? 'Organizer' : 'Student'} login: '
                           '${5 - _failedAttempts} more failed attempt${5 - _failedAttempts == 1 ? '' : 's'} will trigger a 30-second lockout.',
                           style: const TextStyle(
                             fontFamily: 'Poppins',
@@ -789,6 +819,7 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _handleLogin() async {
     if (_isLocked) return;
     if (!_loginFormKey.currentState!.validate()) return;
+    final loginMode = _mode;
     final email = _isOrganizer
         ? '${_emailCtrl.text.trim().toLowerCase()}@gmail.com'
         : '$kSchoolLrnPrefix${lrnDigits(_lrnCtrl.text)}$_kEmailDomain';
@@ -800,8 +831,12 @@ class _AuthScreenState extends State<AuthScreen> {
       // S-01: server-side rate limit check — enforced across all devices/sessions.
       final rlStatus = await RateLimitService.check(email);
       if (!rlStatus.allowed) {
-        if (mounted) setState(() => _lockedUntil = rlStatus.lockedUntil);
-        if (rlStatus.lockedUntil != null) _startLockTimer();
+        if (mounted) {
+          setState(() {
+            _lockedUntilByMode[loginMode] = rlStatus.lockedUntil;
+          });
+        }
+        if (rlStatus.lockedUntil != null) _startLockTimer(loginMode);
         return;
       }
 
@@ -923,7 +958,7 @@ class _AuthScreenState extends State<AuthScreen> {
       }
 
       // ── Persist credential if Remember Me is on ────────────────────────────
-      await _clearRateLimit();
+      await _clearRateLimit(loginMode);
       unawaited(RateLimitService.clear(email));
       await _saveCredential();
 
@@ -963,7 +998,7 @@ class _AuthScreenState extends State<AuthScreen> {
       }
     } catch (e, stack) {
       debugPrint('Login failed: $e\n$stack');
-      await _recordFailure();
+      await _recordFailure(loginMode);
       unawaited(RateLimitService.recordFailure(email));
       if (mounted)
         showErrorAlert(context, _loginError(e), title: 'Login failed');

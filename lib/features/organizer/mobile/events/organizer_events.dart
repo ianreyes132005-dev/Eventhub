@@ -47,6 +47,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     'Ongoing',
     'Ended',
     'Cancelled',
+    'Rejected',
     'Archived',
   ];
 
@@ -219,10 +220,14 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     final q = _searchCtrl.text.toLowerCase();
     _filtered = _events.where((e) {
       final label = _statusLabel(e);
-      // Archived events (admin) only show under the Archived filter.
+      final approval = (e['approval_status'] as String? ?? 'approved')
+          .toLowerCase();
       final matchFilter = eventIsArchived(e)
           ? _filter == 'Archived'
-          : _filter == 'All' || label == _filter;
+          : _filter == 'All' ||
+                (_filter == 'Rejected'
+                    ? approval == 'rejected'
+                    : approval != 'rejected' && label == _filter);
       final title = (e['title'] as String? ?? '').toLowerCase();
       final location = (e['location'] as String? ?? '').toLowerCase();
       final type = (e['event_type'] as String? ?? '').toLowerCase();
@@ -265,7 +270,20 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     if (filter == 'Archived') return _events.where(eventIsArchived).length;
     final active = _events.where((e) => !eventIsArchived(e));
     if (filter == 'All') return active.length;
-    return active.where((e) => _statusLabel(e) == filter).length;
+    if (filter == 'Rejected') {
+      return active
+          .where(
+            (e) =>
+                (e['approval_status'] as String? ?? 'approved').toLowerCase() ==
+                'rejected',
+          )
+          .length;
+    }
+    return active.where((e) {
+      final approval = (e['approval_status'] as String? ?? 'approved')
+          .toLowerCase();
+      return approval != 'rejected' && _statusLabel(e) == filter;
+    }).length;
   }
 
   // When the event was cancelled (rows cancelled before the cancellation

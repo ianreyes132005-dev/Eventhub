@@ -12,7 +12,7 @@ import '../../../../shared/widgets/error_alert.dart';
 import '../../../../core/services/org_notif_prefs.dart';
 import '../../../../core/services/app_lang_prefs.dart';
 import '../../../../core/services/organizer_photo.dart';
-import '../../../../core/services/organizer_session_guard.dart';
+import '../../../../core/services/account_session_guard.dart';
 import '../../../../shared/widgets/web/swal.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -85,7 +85,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
 
       if (orgRow == null)
         throw StateError('Could not find your organizer profile.');
-      if (!await OrganizerSessionGuard.ensureActive(
+      if (!await AccountSessionGuard.ensureActive(
         context,
         isActive: orgRow['is_active'] == true,
       )) {

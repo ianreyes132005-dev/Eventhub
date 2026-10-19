@@ -730,16 +730,6 @@ class _WebAuthScreenState extends State<WebAuthScreen>
               letterSpacing: -0.4,
             ),
           ),
-          const SizedBox(height: 6),
-          const Text(
-            'Sign in to manage your events and registrations.',
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 13,
-              color: kSubText,
-              height: 1.5,
-            ),
-          ),
           const SizedBox(height: 30),
 
           // Username
