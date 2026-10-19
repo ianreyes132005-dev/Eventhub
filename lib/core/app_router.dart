@@ -74,6 +74,7 @@ void setupAppLinks() async {
             .maybeSingle();
         final isOrg = organizerRow != null;
         final route = isOrg ? '/organizer' : '/student';
+        await ThemeStore.loadForUser(user.id, isOrg ? 'organizer' : 'student');
         if (!isOrg) await NotifReadStore.loadForUser(user.id);
         navigatorKey.currentState?.pushNamedAndRemoveUntil(route, (r) => false);
       } catch (_) {}

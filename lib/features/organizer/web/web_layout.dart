@@ -45,7 +45,7 @@ class WebTk {
   Color get border   => dark ? const Color(0xFF232833) : kCardBorder;
   Color get text     => dark ? const Color(0xFFE7EAEE) : kText;
   Color get sub      => dark ? const Color(0xFF9AA3B2) : kSubText;
-  Color get muted    => dark ? const Color(0xFF666E7D) : kMuted;
+  Color get muted    => dark ? const Color(0xFF9AA3B2) : kMuted;
   Color get divider  => dark ? const Color(0xFF1B1F27) : kCardBorder;
   Color get shadow   => dark
       ? Colors.black.withValues(alpha: 0.55)

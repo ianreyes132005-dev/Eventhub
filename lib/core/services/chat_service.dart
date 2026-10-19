@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import '../friendly_error.dart';
 import 'supabase_service.dart';
 
 // ── Data models ───────────────────────────────────────────────────────────────
@@ -152,13 +153,13 @@ class ChatService {
       );
     } catch (e) {
       debugPrint('[ChatService] Edge function error: $e');
-      final detail = e.toString().replaceFirst('Exception: ', '');
+      final reason = friendlyError(e, fallback: 'Please try again in a moment.');
       return ChatResult(
         userMessage: userMsg,
         assistantMessage: ChatMessage(
           id:        'err_${DateTime.now().millisecondsSinceEpoch}',
           role:      'assistant',
-          content:   'Could not reach the AI service.\n\nReason: $detail',
+          content:   'Sorry, I couldn’t answer that just now.\n\n$reason',
           createdAt: DateTime.now(),
           isError:   true,
         ),
@@ -185,19 +186,28 @@ class ChatService {
       body: {
         'messages': messages.map((m) => m.toApiMap()).toList(),
         'userRole': userRole,
+        // Lets the assistant word answers for the screen in use.
+        'platform': kIsWeb ? 'web' : 'mobile',
       },
     );
 
     final data = res.data;
     if (res.status != 200) {
+      // 404 = the ai-chat Edge Function was never deployed.
+      if (res.status == 404) {
+        throw const FriendlyException(
+            'The AI assistant isn’t set up yet. Please contact the system administrator.');
+      }
       if (data is Map<String, dynamic>) _throwFromEdgeError(data);
-      throw Exception('AI service returned status ${res.status}. Please try again.');
+      throw const FriendlyException(
+          'The AI assistant isn’t responding right now. Please try again in a moment.');
     }
 
     if (data is Map<String, dynamic> && data.containsKey('text')) {
       return data['text'] as String? ?? '';
     }
-    throw Exception('Unexpected response from AI service.');
+    throw const FriendlyException(
+        'The AI assistant sent an unexpected reply. Please try again.');
   }
 
   static Never _throwFromEdgeError(Map<String, dynamic> data) {
@@ -225,7 +235,9 @@ class ChatService {
         );
 
       default:
-        throw Exception(msg ?? 'AI service error. Please try again.');
+        // The function's own messages are readable; server dumps aren't.
+        throw FriendlyException(friendlyError(msg,
+            fallback: 'The AI assistant ran into a problem. Please try again.'));
     }
   }
 

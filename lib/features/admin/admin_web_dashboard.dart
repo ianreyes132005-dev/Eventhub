@@ -13,6 +13,7 @@ import 'admin_web_organizers.dart';
 import 'admin_web_events.dart';
 import 'admin_web_registrations.dart';
 import 'admin_web_announcements.dart';
+import 'admin_web_archives.dart';
 import 'admin_web_logs.dart';
 
 // ─── Admin palette ────────────────────────────────────────────────────────────
@@ -57,6 +58,7 @@ const _kNavItems = [
   (AdminPage.events,         Icons.event_rounded,         'Events'),
   (AdminPage.registrations,  Icons.how_to_reg_rounded,    'Registrations'),
   (AdminPage.announcements,  Icons.campaign_rounded,      'Announcements'),
+  (AdminPage.archives,       Icons.inventory_2_rounded,   'Archives'),
   (AdminPage.logs,           Icons.history_rounded,       'Logs'),
 ];
 
@@ -144,7 +146,17 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
           .from('events')
           .select('event_id')
           .eq('approval_status', 'pending');
-      if (mounted) setState(() => _pendingEventsCount = (rows as List).length);
+      // Edits to live events waiting for review — counted separately so a
+      // missing event_revisions table (migration 007 not run) can't zero the badge.
+      var changes = 0;
+      try {
+        final revs = await SupabaseService.client
+            .from('event_revisions')
+            .select('id')
+            .eq('status', 'pending');
+        changes = (revs as List).length;
+      } catch (_) {}
+      if (mounted) setState(() => _pendingEventsCount = (rows as List).length + changes);
     } catch (_) {
       // Badge is a convenience indicator, not the source of truth — the
       // Events tab's own load still surfaces a real error if this table is
@@ -154,16 +166,18 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
 
   void _subscribePendingEvents() {
     _eventsChannel = SupabaseService.client.channel('admin-shell-pending-events');
-    _eventsChannel!.on(
-      RealtimeListenTypes.postgresChanges,
-      ChannelFilter(event: '*', schema: 'public', table: 'events'),
-      (_, [__]) {
-        _eventsDebounce?.cancel();
-        _eventsDebounce = Timer(const Duration(milliseconds: 600), () {
-          if (mounted) _loadPendingEventsCount();
-        });
-      },
-    );
+    for (final table in ['events', 'event_revisions']) {
+      _eventsChannel!.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (_, [_]) {
+          _eventsDebounce?.cancel();
+          _eventsDebounce = Timer(const Duration(milliseconds: 600), () {
+            if (mounted) _loadPendingEventsCount();
+          });
+        },
+      );
+    }
     _eventsChannel!.subscribe();
   }
 
@@ -238,11 +252,9 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
               child: _AdminSidebar(
                 collapsed:    _collapsed,
                 currentPage:  _page,
-                name:         _name,
                 pendingEventsCount: _pendingEventsCount,
                 onPageChanged: _navigate,
                 onToggle:     () => setState(() => _collapsed = !_collapsed),
-                onSignOut:    _signOut,
               ),
             ),
           ),
@@ -257,6 +269,7 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
                   child: _AdminTopBar(
                     collapsed:  _collapsed,
                     page:       _page,
+                    name:       _name,
                     onMenuTap:  () => setState(() => _collapsed = !_collapsed),
                     onSignOut:  _signOut,
                   ),
@@ -282,6 +295,7 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
     AdminPage.events         => const AdminEventsPage(),
     AdminPage.registrations  => const AdminRegistrationsPage(),
     AdminPage.announcements  => const AdminAnnouncementsPage(),
+    AdminPage.archives       => const AdminArchivesPage(),
     AdminPage.logs           => const AdminLogsPage(),
   };
 }
@@ -293,16 +307,14 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
 class _AdminSidebar extends StatefulWidget {
   final bool      collapsed;
   final AdminPage currentPage;
-  final String?   name;
   final int       pendingEventsCount;
   final ValueChanged<AdminPage> onPageChanged;
   final VoidCallback onToggle;
-  final VoidCallback onSignOut;
 
   const _AdminSidebar({
-    required this.collapsed, required this.currentPage, required this.name,
+    required this.collapsed, required this.currentPage,
     required this.pendingEventsCount,
-    required this.onPageChanged, required this.onToggle, required this.onSignOut,
+    required this.onPageChanged, required this.onToggle,
   });
 
   @override
@@ -359,7 +371,7 @@ class _AdminSidebarState extends State<_AdminSidebar>
           child: Divider(color: s.border.withValues(alpha: 0.35), height: 1),
         ),
         _buildDarkToggle(s),
-        _cascade(_buildUserSection(s), widget.collapsed ? 6 : 7),
+        const SizedBox(height: 10),
       ]),
     );
   }
@@ -562,115 +574,6 @@ class _AdminSidebarState extends State<_AdminSidebar>
     );
   }
 
-  Widget _buildUserSection(_STk s) {
-    final initials = ((_name ?? 'A').trim().split(' ')
-        .where((w) => w.isNotEmpty)
-        .map((w) => w[0].toUpperCase())
-        .take(2)
-        .join());
-
-    if (widget.collapsed) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
-        child: Column(children: [
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFC2410C), _kAccent, Color(0xFFF97316)],
-                begin: Alignment.topLeft, end: Alignment.bottomRight,
-              ),
-              shape: BoxShape.circle,
-              boxShadow: [BoxShadow(
-                color: _kAccent.withValues(alpha: 0.30), blurRadius: 6, offset: const Offset(0, 2))],
-            ),
-            child: Center(child: Text(initials,
-              style: const TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                  fontWeight: FontWeight.w700, color: Colors.white))),
-          ),
-          const SizedBox(height: 6),
-          _SignOutIconBtn(onTap: widget.onSignOut),
-          const SizedBox(height: 2),
-        ]),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
-      child: Container(
-        decoration: BoxDecoration(
-          color: s.dark
-              ? Colors.white.withValues(alpha: 0.07)
-              : const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: s.border.withValues(alpha: s.dark ? 0.80 : 0.50)),
-          boxShadow: [BoxShadow(
-            color: Colors.black.withValues(alpha: s.dark ? 0.18 : 0.04),
-            blurRadius: 8, offset: const Offset(0, 2))],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: IntrinsicHeight(
-            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Container(
-                width: 3,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                    colors: [_kAccent, Color(0xFFF97316)],
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
-                  child: Row(children: [
-                    Container(
-                      width: 34, height: 34,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFC2410C), _kAccent, Color(0xFFF97316)],
-                          begin: Alignment.topLeft, end: Alignment.bottomRight,
-                        ),
-                        shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(
-                          color: _kAccent.withValues(alpha: 0.30),
-                          blurRadius: 6, offset: const Offset(0, 2))],
-                      ),
-                      child: Center(child: Text(initials,
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                            fontWeight: FontWeight.w700, color: Colors.white))),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(_name ?? 'Administrator',
-                            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                                fontWeight: FontWeight.w700, color: s.navText),
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                          const SizedBox(height: 1),
-                          Text('System Admin',
-                            style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5, color: s.navIcon)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    _InlineSignOutBtn(onTap: widget.onSignOut),
-                  ]),
-                ),
-              ),
-            ]),
-          ),
-        ),
-      ),
-    );
-  }
-
-  String? get _name => widget.name;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -833,89 +736,6 @@ class _NavBadge extends StatelessWidget {
   );
 }
 
-// ─── Sign-out buttons ──────────────────────────────────────────────────────
-
-class _SignOutIconBtn extends StatefulWidget {
-  final VoidCallback onTap;
-  const _SignOutIconBtn({required this.onTap});
-  @override State<_SignOutIconBtn> createState() => _SignOutIconBtnState();
-}
-class _SignOutIconBtnState extends State<_SignOutIconBtn> {
-  bool _h = false;
-  @override
-  Widget build(BuildContext context) {
-    final s = _STk(Theme.of(context).brightness == Brightness.dark);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _h = true),
-      onExit:  (_) => setState(() => _h = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          width: 32, height: 32,
-          decoration: BoxDecoration(
-            color: _h
-                ? const Color(0xFFFEE2E2)
-                : s.dark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : const Color(0xFFFEF2F2),
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(
-              color: _h
-                  ? const Color(0xFFFCA5A5)
-                  : s.dark
-                      ? Colors.white.withValues(alpha: 0.15)
-                      : const Color(0xFFFECACA)),
-          ),
-          child: Icon(Icons.logout_rounded, size: 15,
-              color: s.dark && !_h ? s.navIcon : const Color(0xFFEF4444)),
-        ),
-      ),
-    );
-  }
-}
-
-class _InlineSignOutBtn extends StatefulWidget {
-  final VoidCallback onTap;
-  const _InlineSignOutBtn({required this.onTap});
-  @override State<_InlineSignOutBtn> createState() => _InlineSignOutBtnState();
-}
-class _InlineSignOutBtnState extends State<_InlineSignOutBtn> {
-  bool _h = false;
-  @override
-  Widget build(BuildContext context) {
-    final s = _STk(Theme.of(context).brightness == Brightness.dark);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _h = true),
-      onExit:  (_) => setState(() => _h = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Tooltip(
-          message: 'Sign out',
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            width: 30, height: 30,
-            decoration: BoxDecoration(
-              color: _h
-                  ? const Color(0xFFFEE2E2)
-                  : s.dark ? Colors.transparent : const Color(0xFFFEF2F2),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: _h
-                    ? const Color(0xFFFCA5A5)
-                    : s.dark ? Colors.transparent : const Color(0xFFFECACA)),
-            ),
-            child: Icon(Icons.logout_rounded, size: 14,
-                color: s.dark && !_h ? s.navIcon : const Color(0xFFEF4444)),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ═════════════════════════════════════════════════════════════════════════════
 // Top bar
 // ═════════════════════════════════════════════════════════════════════════════
@@ -923,11 +743,12 @@ class _InlineSignOutBtnState extends State<_InlineSignOutBtn> {
 class _AdminTopBar extends StatelessWidget {
   final bool         collapsed;
   final AdminPage    page;
+  final String?      name;
   final VoidCallback onMenuTap;
   final VoidCallback onSignOut;
 
   const _AdminTopBar({
-    required this.collapsed, required this.page,
+    required this.collapsed, required this.page, required this.name,
     required this.onMenuTap, required this.onSignOut,
   });
 
@@ -938,6 +759,7 @@ class _AdminTopBar extends StatelessWidget {
     AdminPage.events         => 'Events',
     AdminPage.registrations  => 'Registrations',
     AdminPage.announcements  => 'Announcements',
+    AdminPage.archives       => 'Archives',
     AdminPage.logs           => 'Logs',
   };
 
@@ -968,35 +790,89 @@ class _AdminTopBar extends StatelessWidget {
         style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
             fontWeight: FontWeight.w700, color: t.text)),
       const Spacer(),
-      // System Admin badge
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: _kAccent.withValues(alpha: 0.09),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: _kAccent.withValues(alpha: 0.22)),
-        ),
+      // Signed-in admin + sign out — same layout as the organizer top bar.
+      Tooltip(
+        message: 'Signed in as System Admin',
+        waitDuration: const Duration(milliseconds: 600),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(name ?? 'Administrator',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
+                fontWeight: FontWeight.w700, color: t.text)),
+          const SizedBox(width: 10),
           Container(
-            width: 6, height: 6,
-            decoration: const BoxDecoration(color: _kAccent, shape: BoxShape.circle),
+            width: 38, height: 38,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFC2410C), _kAccent, Color(0xFFF97316)],
+                begin: Alignment.topLeft, end: Alignment.bottomRight,
+              ),
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: _kAccent.withValues(alpha: 0.30),
+                  blurRadius: 6, offset: const Offset(0, 2))],
+            ),
+            child: Center(child: Text(_initials(name),
+              style: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
+                  fontWeight: FontWeight.w700, color: Colors.white))),
           ),
-          const SizedBox(width: 6),
-          const Text('System Admin',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w600, color: _kAccent)),
         ]),
       ),
-      const SizedBox(width: 12),
-      _TopIconBtn(icon: Icons.logout_rounded, onTap: onSignOut, danger: true),
+      const SizedBox(width: 16),
+      Container(height: 28, width: 1, color: t.border),
+      const SizedBox(width: 16),
+      _TopBarSignOutBtn(onTap: onSignOut),
     ]),
   );
 }
+
+  static String _initials(String? name) {
+    final i = (name ?? 'Admin').trim().split(' ')
+        .where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase()).take(2).join();
+    return i.isEmpty ? 'A' : i;
+  }
+}
+
+/// Outlined red "Sign out" — same as the organizer web top bar.
+class _TopBarSignOutBtn extends StatefulWidget {
+  final VoidCallback onTap;
+  const _TopBarSignOutBtn({required this.onTap});
+  @override State<_TopBarSignOutBtn> createState() => _TopBarSignOutBtnState();
+}
+class _TopBarSignOutBtnState extends State<_TopBarSignOutBtn> {
+  bool _h = false;
+  @override
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _h = true),
+      onExit:  (_) => setState(() => _h = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: _h
+                ? (t.dark ? const Color(0xFFEF4444).withValues(alpha: 0.12) : const Color(0xFFFEF2F2))
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: _h ? const Color(0xFFFCA5A5) : t.border),
+          ),
+          child: const Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.logout_rounded, size: 14, color: Color(0xFFEF4444)),
+            SizedBox(width: 6),
+            Text('Sign out', style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                fontWeight: FontWeight.w700, color: Color(0xFFEF4444))),
+          ]),
+        ),
+      ),
+    );
+  }
 }
 
 class _TopIconBtn extends StatefulWidget {
-  final IconData icon; final VoidCallback onTap; final bool danger;
-  const _TopIconBtn({required this.icon, required this.onTap, this.danger = false});
+  final IconData icon; final VoidCallback onTap;
+  const _TopIconBtn({required this.icon, required this.onTap});
   @override State<_TopIconBtn> createState() => _TopIconBtnState();
 }
 class _TopIconBtnState extends State<_TopIconBtn> {
@@ -1012,13 +888,13 @@ class _TopIconBtnState extends State<_TopIconBtn> {
         duration: const Duration(milliseconds: 140),
         width: 36, height: 36,
         decoration: BoxDecoration(
-          color: _h ? (widget.danger ? const Color(0xFFFEF2F2) : const Color(0xFFF1F5F9)) : Colors.transparent,
+          color: _h ? const Color(0xFFF1F5F9) : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: _h ? (widget.danger ? const Color(0xFFFCA5A5) : kCardBorder) : Colors.transparent),
+            color: _h ? kCardBorder : Colors.transparent),
         ),
         child: Icon(widget.icon, size: 18,
-          color: _h ? (widget.danger ? const Color(0xFFEF4444) : kText) : kSubText),
+          color: _h ? kText : kSubText),
       ),
     ),
   );
@@ -1052,13 +928,10 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
   int    _regTotal = 0;
   double _checkInRate = 0;
 
-  int _regNeedsReview = 0;
-
   List<double>               _weeklyRegs     = List.filled(7, 0);
   List<double>               _monthlyRegs    = List.filled(30, 0);
   int                        _chartDays      = 7;
   List<double>               _weeklyEvents   = List.filled(7, 0);
-  Map<String, int>           _statusCounts   = {};
   List<_TopEvent>            _topEvents      = [];
   List<Map<String, dynamic>> _recentRegs     = [];
   List<Map<String, dynamic>> _upcomingEvents = [];
@@ -1108,7 +981,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
         // show up in the Upcoming Events tile indistinguishable from a
         // real, student-visible event.
         client.from('events')
-            .select('event_id, title, event_status, event_date, start_time, current_participants, max_participants, organizers(full_name)')
+            .select('event_id, title, event_status, event_date, start_time, current_participants, organizers(full_name)')
             .eq('approval_status', 'approved')
             .order('event_date', ascending: true),
       ]);
@@ -1143,13 +1016,11 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       final orgActive     = orgs.where((o) => o['is_active'] == true).length;
 
       // ── Event stats ───────────────────────────────────────────────────
-      final statusCounts = <String, int>{};
       var upcomingCount = 0;
       final upcomingList = <Map<String, dynamic>>[];
 
       for (final e in events) {
         final s    = (e['event_status'] as String? ?? 'unknown').toLowerCase();
-        statusCounts[s] = (statusCounts[s] ?? 0) + 1;
         final dStr = e['event_date'] as String?;
         if (s == 'upcoming' || s == 'ongoing') {
           upcomingCount++;
@@ -1186,8 +1057,6 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
         }
       }
 
-      final regNeedsReview = statsRegs.where((r) => r['status'] == 'photo_submitted').length;
-
       // ── Per-day event counts (by event_date, last 7 days) ────────────
       final weeklyEvents = List<double>.filled(7, 0);
       for (final e in events) {
@@ -1214,7 +1083,8 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
           .map((e) => _TopEvent(
               title:    e['title'] as String? ?? '—',
               count:    e['current_participants'] as int? ?? 0,
-              capacity: e['max_participants']    as int? ?? 0))
+              // Every event's capacity is the active student count.
+              capacity: studentActive))
           .toList();
 
       if (mounted) {
@@ -1227,14 +1097,12 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
           _eventUpcoming  = upcomingCount;
           _regTotal       = statsRegs.length;
           _checkInRate    = checkInRate;
-          _statusCounts   = statusCounts;
           _weeklyRegs     = weeklyRegs;
           _monthlyRegs    = monthlyRegs;
           _weeklyEvents   = weeklyEvents;
           _topEvents      = topEvents;
           _recentRegs       = recentRows;
           _upcomingEvents   = upcomingList.take(4).toList();
-          _regNeedsReview   = regNeedsReview;
           _chartWindowStart = weekStart;
           _loading          = false;
         });
@@ -1277,51 +1145,45 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       Text('Dashboard Overview',
         style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
             fontWeight: FontWeight.w800, color: t.text)),
-      const SizedBox(height: 2),
-      Text('J-Jireh EventHub  ·  Administration',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted)),
     ]);
   }
 
   // ── KPI row ────────────────────────────────────────────────────────────────
 
   Widget _buildKpiRow(WebTk t) => Row(children: [
-    Expanded(child: _KpiCard(
+    Expanded(child: AdminKpiCard(
       icon: Icons.people_rounded, color: _kAccent,
       label: 'Total Students', value: '$_studentTotal',
-      sub1: '$_studentActive Active', sub2: '${_studentTotal - _studentActive} Inactive',
-      sub1Color: const Color(0xFF10B981), sub2Color: t.muted,
+      subtitle: '$_studentActive Active',
+      subtitleColor: const Color(0xFF10B981),
       onTap: () => widget.onNavigate(AdminPage.students),
     )),
     const SizedBox(width: 14),
-    Expanded(child: _KpiCard(
+    Expanded(child: AdminKpiCard(
       icon: Icons.badge_rounded, color: kGold,
       label: 'Organizers', value: '$_orgTotal',
-      sub1: '$_orgActive Active', sub2: '${_orgTotal - _orgActive} Inactive',
-      sub1Color: const Color(0xFF10B981), sub2Color: t.muted,
+      subtitle: '$_orgActive Active',
+      subtitleColor: const Color(0xFF10B981),
       onTap: () => widget.onNavigate(AdminPage.organizers),
     )),
     const SizedBox(width: 14),
-    Expanded(child: _KpiCard(
+    Expanded(child: AdminKpiCard(
       icon: Icons.event_rounded, color: const Color(0xFF10B981),
       label: 'Total Events', value: '$_eventTotal',
-      sub1: '$_eventUpcoming Upcoming / Ongoing',
-      sub2: '${_statusCounts['completed'] ?? 0} Completed',
-      sub1Color: _kAccent, sub2Color: t.muted,
+      subtitle: '$_eventUpcoming Upcoming / Ongoing',
+      subtitleColor: _kAccent,
       onTap: () => widget.onNavigate(AdminPage.events),
     )),
     const SizedBox(width: 14),
-    Expanded(child: _KpiCard(
+    Expanded(child: AdminKpiCard(
       icon: Icons.how_to_reg_rounded, color: const Color(0xFF8B5CF6),
       label: 'Registrations', value: '$_regTotal',
-      sub1: '${_checkInRate.toStringAsFixed(0)}% Check-in Rate',
-      sub2: '$_regNeedsReview Needs Review',
-      sub1Color: _checkInRate >= 70
+      subtitle: '${_checkInRate.toStringAsFixed(0)}% Check-in Rate',
+      subtitleColor: _checkInRate >= 70
           ? const Color(0xFF10B981)
           : _checkInRate >= 40
               ? const Color(0xFFF59E0B)
               : const Color(0xFFEF4444),
-      sub2Color: _regNeedsReview > 0 ? const Color(0xFF8B5CF6) : t.muted,
       onTap: () => widget.onNavigate(AdminPage.registrations),
     )),
   ]);
@@ -1592,109 +1454,6 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 }
 
 // ─── KPI card ─────────────────────────────────────────────────────────────────
-
-class _KpiCard extends StatefulWidget {
-  final IconData      icon;
-  final Color         color;
-  final String        label, value, sub1, sub2;
-  final Color         sub1Color, sub2Color;
-  final VoidCallback? onTap;
-
-  const _KpiCard({
-    required this.icon,      required this.color,
-    required this.label,     required this.value,
-    required this.sub1,      required this.sub2,
-    required this.sub1Color, required this.sub2Color,
-    this.onTap,
-  });
-
-  @override
-  State<_KpiCard> createState() => _KpiCardState();
-}
-
-class _KpiCardState extends State<_KpiCard> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    return MouseRegion(
-      cursor: widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit:  (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedScale(
-          scale:    _hovered ? 1.016 : 1.0,
-          duration: const Duration(milliseconds: 140),
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(
-                color: t.shadow,
-                blurRadius: 12, offset: const Offset(0, 2),
-              )],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: t.card,
-                  border: Border.all(color: t.border),
-                ),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Container(height: 3, color: widget.color),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 15, 18, 18),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Expanded(child: Text(widget.label,
-                          style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                              color: t.muted, fontWeight: FontWeight.w500))),
-                        Container(
-                          width: 34, height: 34,
-                          decoration: BoxDecoration(
-                            color: widget.color.withValues(alpha: 0.10),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(widget.icon, color: widget.color, size: 18),
-                        ),
-                      ]),
-                      const SizedBox(height: 8),
-                      Text(widget.value,
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 30,
-                            fontWeight: FontWeight.w800, color: t.text, height: 1.0)),
-                      const SizedBox(height: 14),
-                      Divider(height: 1, color: t.border),
-                      const SizedBox(height: 10),
-                      Row(children: [
-                        Container(
-                          width: 7, height: 7,
-                          decoration: BoxDecoration(
-                              color: widget.sub1Color, shape: BoxShape.circle),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(child: Text(widget.sub1,
-                          style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                              fontWeight: FontWeight.w600, color: widget.sub1Color),
-                          overflow: TextOverflow.ellipsis)),
-                        const SizedBox(width: 8),
-                        Text(widget.sub2,
-                          style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                              color: widget.sub2Color)),
-                      ]),
-                    ]),
-                  ),
-                ]),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 // ─── Registration trend line chart ────────────────────────────────────────────
 
@@ -2039,15 +1798,11 @@ class _TopEventsChart extends StatelessWidget {
         final idx      = entry.key;
         final e        = entry.value;
         final hasCap   = e.capacity > 0;
-        final fillRate = hasCap ? (e.count / e.capacity).clamp(0.0, 1.0) : 0.0;
-        final barColor = !hasCap
-            ? _kAccent
-            : fillRate >= 0.90
-                ? const Color(0xFFEF4444)
-                : fillRate >= 0.70
-                    ? const Color(0xFFF59E0B)
-                    : const Color(0xFF10B981);
-        final pct      = hasCap ? '${(fillRate * 100).round()}%' : '';
+        final fillRate = capacityFill(e.count, e.capacity);
+        // One colour: capacity is the whole student body, so a fuller event
+        // is just a popular one — nobody is ever turned away.
+        final barColor = hasCap ? const Color(0xFF10B981) : _kAccent;
+        final pct      = hasCap ? '${(fillRate * 100).round()}% of students' : '';
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 16),

@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/services/supabase_service.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
+import '../../../../shared/widgets/error_alert.dart';
 import 'new_announcement.dart';
 import 'announcement_view.dart';
 import '../../../../core/app_colors.dart';
@@ -116,17 +117,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
         _all.insert(index < 0 ? 0 : index, ann);
         _applyFilter();
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Delete failed: $e', style: const TextStyle(fontFamily: 'Poppins')),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          ),
-        );
-      }
+      if (mounted) showErrorAlert(context, e, title: 'Couldn’t delete the announcement');
     }
   }
 

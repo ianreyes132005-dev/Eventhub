@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/friendly_error.dart';
 import '../../core/services/chat_service.dart';
 import '../../core/app_colors.dart';
 
@@ -60,17 +61,17 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   List<_SuggestionItem> get _suggestions => widget.userRole == 'organizer'
       ? const [
           _SuggestionItem(Icons.add_circle_outline_rounded,  'How do I create an event?'),
-          _SuggestionItem(Icons.qr_code_scanner_rounded,     'How do I scan a QR code?'),
-          _SuggestionItem(Icons.camera_alt_outlined,         'What is the selfie check-in?'),
+          _SuggestionItem(Icons.hourglass_top_rounded,       'Why is my event still pending?'),
+          _SuggestionItem(Icons.qr_code_scanner_rounded,     'How do I check students in?'),
+          _SuggestionItem(Icons.edit_calendar_rounded,       'Can I edit an approved event?'),
+          _SuggestionItem(Icons.event_busy_rounded,          'How do I cancel an event?'),
           _SuggestionItem(Icons.campaign_outlined,           'How do I post an announcement?'),
-          _SuggestionItem(Icons.bar_chart_rounded,           'Where are my event stats?'),
-          _SuggestionItem(Icons.delete_outline_rounded,      'How do I delete a registration?'),
         ]
       : const [
           _SuggestionItem(Icons.event_available_rounded,     'How do I register for an event?'),
           _SuggestionItem(Icons.qr_code_2_rounded,           'Where is my QR code?'),
           _SuggestionItem(Icons.how_to_reg_rounded,          'What is the check-in process?'),
-          _SuggestionItem(Icons.lock_reset_rounded,          'How do I reset my password?'),
+          _SuggestionItem(Icons.lock_reset_rounded,          'I forgot my password'),
           _SuggestionItem(Icons.camera_front_outlined,       'Why is my status "Awaiting Selfie"?'),
           _SuggestionItem(Icons.history_rounded,             'Can I see my past registrations?'),
         ];
@@ -111,7 +112,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       });
       _scrollToBottom(instant: true);
     } catch (e) {
-      if (mounted) setState(() { _loading = false; _initError = e.toString(); });
+      debugPrint('Chat failed to open: $e');
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _initError = friendlyError(e,
+              fallback: 'The chat couldn’t be opened. Please try again.');
+        });
+      }
     }
   }
 
@@ -525,8 +533,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           const SizedBox(height: 12),
           Text(
             isOrg
-                ? 'Ask me anything about managing your events,\nQR scanning, or organizer tools.'
-                : 'Ask me anything about events,\nregistrations, or navigating the app.',
+                ? 'I answer questions about using EventHub:\nevents, check-in, announcements and more.'
+                : 'I answer questions about using EventHub:\nevents, registration, check-in and more.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'Poppins',

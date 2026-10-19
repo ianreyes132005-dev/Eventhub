@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/services/org_notif_prefs.dart';
+import '../../../core/services/organizer_notices.dart';
 import 'web_shared.dart';
 import 'dashboard_page.dart';
 import 'events_page.dart';
@@ -28,9 +30,6 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   OrganizerPage _page         = OrganizerPage.dashboard;
   bool          _collapsed    = false;
   AppTheme      _theme        = const AppTheme();
-  // GlobalKey preserves WebProfilePage's own state (e.g. avoids re-fetching
-  // profile/stats data) when _theme.variant changes and restructures the tree.
-  final         _settingsKey  = GlobalKey();
   String?       _orgId;
   String?       _name;
   String?       _email;
@@ -230,12 +229,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                     collapsed:    _collapsed,
                     minimal:      false,
                     currentPage:  _page,
-                    name:         _name,
-                    organization: _organization,
-                    photoUrl:     _photoUrl,
                     onPageChanged: (p) => setState(() => _page = p),
                     onToggle:  () => setState(() => _collapsed = !_collapsed),
-                    onSignOut: _signOut,
                   ),
                 ),
               ),
@@ -337,12 +332,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                         collapsed:    _collapsed,
                         minimal:      false,
                         currentPage:  _page,
-                        name:         _name,
-                        organization: _organization,
-                        photoUrl:     _photoUrl,
                         onPageChanged: (p) => setState(() => _page = p),
                         onToggle:  () => setState(() => _collapsed = !_collapsed),
-                        onSignOut: _signOut,
                       ),
                     ),
                   ),
@@ -365,12 +356,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                   collapsed:    true,
                   minimal:      true,
                   currentPage:  _page,
-                  name:         _name,
-                  organization: _organization,
-                  photoUrl:     _photoUrl,
                   onPageChanged: (p) => setState(() => _page = p),
                   onToggle:  _onMenuTap,
-                  onSignOut: _signOut,
                 ),
               ),
             ),
@@ -413,12 +400,15 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
 
   Widget _buildPage() {
     return switch (_page) {
-      OrganizerPage.dashboard     => WebDashboardPage(orgId: _orgId, name: _name),
+      OrganizerPage.dashboard     => WebDashboardPage(
+          orgId:      _orgId,
+          name:       _name,
+          onNavigate: (p) => setState(() => _page = p),
+        ),
       OrganizerPage.events        => WebEventsPage(orgId: _orgId),
       OrganizerPage.registrations => WebRegistrationsPage(orgId: _orgId),
       OrganizerPage.announcements => WebAnnouncementsPage(orgId: _orgId),
       OrganizerPage.settings      => WebSettingsPage(
-          key:          _settingsKey,
           orgId:        _orgId,
           name:         _name,
           email:        _email,
@@ -451,24 +441,16 @@ class _Sidebar extends StatefulWidget {
   final bool          collapsed;
   final bool          minimal;
   final OrganizerPage currentPage;
-  final String?       name;
-  final String?       organization;
-  final String?       photoUrl;
   final ValueChanged<OrganizerPage> onPageChanged;
   final VoidCallback  onToggle;
-  final VoidCallback  onSignOut;
 
   const _Sidebar({
     required this.theme,
     required this.collapsed,
     required this.minimal,
     required this.currentPage,
-    required this.name,
-    required this.organization,
-    this.photoUrl,
     required this.onPageChanged,
     required this.onToggle,
-    required this.onSignOut,
   });
 
   @override
@@ -533,12 +515,8 @@ class _SidebarState extends State<_Sidebar>
           SizedBox(height: widget.minimal ? 8 : 4),
           if (!widget.minimal) _cascade(_buildNavSection(), 1),
           Expanded(child: _buildNavItems()),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Divider(
-              color: widget.theme.sideBorder.withValues(alpha: 0.35), height: 1),
-          ),
-          _cascade(_buildUserSection(), _isCollapsed ? 6 : 7),
+          // Name, photo and Sign out are in the top bar — not repeated here.
+          const SizedBox(height: 12),
         ],
       ),
     );
@@ -716,159 +694,6 @@ class _SidebarState extends State<_Sidebar>
       }).toList(),
     );
   }
-
-  // ── User section ─────────────────────────────────────────────────────────────
-
-  Widget _avatar(double size, String initials, double fontSize, double shadowAlpha) {
-    final url = widget.photoUrl;
-    final fallback = Center(
-      child: Text(initials,
-        style: TextStyle(
-          fontFamily: 'Poppins',
-          fontSize: fontSize,
-          fontWeight: FontWeight.w700,
-          color: Colors.white,
-        )),
-    );
-    return Container(
-      width: size, height: size,
-      decoration: BoxDecoration(
-        gradient: widget.theme.avatarGradient,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: widget.theme.primaryColor.withValues(alpha: shadowAlpha),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAliasWithSaveLayer,
-      child: (url != null && url.isNotEmpty)
-          ? Image.network(url, fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => fallback)
-          : fallback,
-    );
-  }
-
-  Widget _buildUserSection() {
-    final initials = (widget.name ?? '?').trim().split(' ')
-        .where((w) => w.isNotEmpty)
-        .map((w) => w[0].toUpperCase())
-        .take(2)
-        .join();
-
-    if (_isCollapsed) {
-      return Padding(
-        padding: EdgeInsets.fromLTRB(
-          widget.minimal ? 9 : 10, 8, widget.minimal ? 9 : 10, 12),
-        child: Column(children: [
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: () => widget.onPageChanged(OrganizerPage.settings),
-              child: Tooltip(
-                message: 'Profile',
-                child: _avatar(36, initials, 13, 0.26),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          _SignOutIconBtn(
-            onTap:      widget.onSignOut,
-            sideBorder: widget.theme.sideBorder,
-          ),
-          const SizedBox(height: 2),
-        ]),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: () => widget.onPageChanged(OrganizerPage.settings),
-          child: Container(
-        decoration: BoxDecoration(
-          color: widget.theme.userCardFill,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: widget.theme.sideBorder.withValues(alpha: 0.50)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Gold left accent bar
-                Container(
-                  width: 3,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        widget.theme.primaryColor,
-                        widget.theme.primaryColor.withValues(alpha: 0.42),
-                      ],
-                    ),
-                  ),
-                ),
-                // Card content
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
-                    child: Row(children: [
-                      // Avatar
-                      _avatar(34, initials, 12, 0.28),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(widget.name ?? 'Organizer',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
-                                color: widget.theme.navText,
-                              ),
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                            const SizedBox(height: 1),
-                            Text(widget.organization ?? 'EventHub',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 9.5,
-                                color: widget.theme.navIcon,
-                              ),
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      _InlineSignOutBtn(onTap: widget.onSignOut),
-                    ]),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1012,99 +837,6 @@ class _NavItemState extends State<_NavItem> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sign-out buttons
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _SignOutIconBtn extends StatefulWidget {
-  final VoidCallback onTap;
-  final Color        sideBorder;
-  const _SignOutIconBtn({required this.onTap, required this.sideBorder});
-
-  @override
-  State<_SignOutIconBtn> createState() => _SignOutIconBtnState();
-}
-
-class _SignOutIconBtnState extends State<_SignOutIconBtn> {
-  bool _h = false;
-
-  @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    onEnter: (_) => setState(() => _h = true),
-    onExit:  (_) => setState(() => _h = false),
-    child: GestureDetector(
-      onTap: widget.onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: 38,
-        height: 32,
-        margin: const EdgeInsets.symmetric(horizontal: 9),
-        decoration: BoxDecoration(
-          color: _h
-            ? const Color(0xFFFEE2E2)
-            : const Color(0xFFFEF2F2),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: _h
-              ? const Color(0xFFFCA5A5)
-              : const Color(0xFFFECACA),
-            width: 0.8,
-          ),
-        ),
-        child: const Icon(Icons.logout_rounded, size: 14, color: Color(0xFFEF4444)),
-      ),
-    ),
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Inline sign-out button (used in expanded user card)
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _InlineSignOutBtn extends StatefulWidget {
-  final VoidCallback onTap;
-  const _InlineSignOutBtn({required this.onTap});
-
-  @override
-  State<_InlineSignOutBtn> createState() => _InlineSignOutBtnState();
-}
-
-class _InlineSignOutBtnState extends State<_InlineSignOutBtn> {
-  bool _h = false;
-
-  @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    onEnter: (_) => setState(() => _h = true),
-    onExit:  (_) => setState(() => _h = false),
-    child: GestureDetector(
-      onTap: widget.onTap,
-      child: Tooltip(
-        message: 'Sign out',
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          width: 30, height: 30,
-          decoration: BoxDecoration(
-            color: _h
-              ? const Color(0xFFFEE2E2)
-              : const Color(0xFFFEF2F2),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: _h
-                ? const Color(0xFFFCA5A5)
-                : const Color(0xFFFECACA),
-              width: 0.8,
-            ),
-          ),
-          child: const Icon(Icons.logout_rounded,
-            size: 14, color: Color(0xFFEF4444)),
-        ),
-      ),
-    ),
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Top bar
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1211,13 +943,6 @@ class _TopBarState extends State<_TopBar> {
                                 fontWeight: FontWeight.w700,
                                 color: t.text,
                               )),
-                            if (widget.email != null)
-                              Text(widget.email!,
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 10.5,
-                                  color: t.muted,
-                                )),
                           ],
                         ),
                         const SizedBox(width: 10),
@@ -1414,18 +1139,28 @@ class _TopBarSignOutBtnState extends State<_TopBarSignOutBtn> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AppNotif {
-  final String   id;
-  final String   title;
-  final String   subtitle;
-  final IconData icon;
-  final Color    color;
+  final String    id;
+  final String    title;
+  final String    subtitle;
+  final IconData  icon;
+  final Color     color;
+  /// When it happened — set for admin decisions; reminders have none.
+  final DateTime? at;
   const _AppNotif({
     required this.id,
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.color,
-  });
+  }) : at = null;
+
+  _AppNotif.notice(OrgNotice n)
+      : id = n.id,
+        title = n.title,
+        subtitle = n.message,
+        icon = n.icon,
+        color = n.color,
+        at = n.at;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1442,12 +1177,18 @@ class _NotificationBell extends StatefulWidget {
 
 class _NotificationBellState extends State<_NotificationBell> {
   final _layerLink = LayerLink();
-  OverlayEntry?   _entry;
-  Timer?          _refreshTimer;
-  bool            _open   = false;
-  bool            _loaded = false;
-  bool            _read   = false;
-  List<_AppNotif> _notifs = [];
+  OverlayEntry?    _entry;
+  Timer?           _refreshTimer;
+  Timer?           _debounce;
+  RealtimeChannel? _channel;
+  bool             _open     = false;
+  bool             _loaded   = false;
+  bool             _fetching = false;
+  bool             _again    = false;
+  List<_AppNotif>  _notifs   = [];
+  Set<String>      _unreadIds = {};
+  /// What was unread when the panel opened — highlighted while it's open.
+  Set<String>      _highlight = {};
 
   String? get _uid => SupabaseService.client.auth.currentUser?.id;
 
@@ -1455,23 +1196,72 @@ class _NotificationBellState extends State<_NotificationBell> {
   void initState() {
     super.initState();
     _load();
+    _subscribe();
     // The bell lives in the shell for the whole session, so it needs its own
     // refresh — unlike a per-page widget it never gets rebuilt on navigation.
+    // Realtime brings event decisions at once; this also catches change-
+    // request decisions and announcement removals.
     _refreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       if (!_open) _load();
     });
   }
 
   @override
+  void didUpdateWidget(_NotificationBell old) {
+    super.didUpdateWidget(old);
+    if (old.orgId != widget.orgId) {
+      _unsubscribe();
+      _subscribe();
+      _load();
+    }
+  }
+
+  @override
   void dispose() {
     _refreshTimer?.cancel();
+    _debounce?.cancel();
+    _unsubscribe();
     _entry?.remove();
     super.dispose();
+  }
+
+  // ── Live updates ───────────────────────────────────────────────────────────
+  // An admin approving or rejecting one of this organizer's events (or
+  // applying their change request) updates the event row.
+
+  void _subscribe() {
+    final orgId = widget.orgId;
+    if (orgId == null) return;
+    _channel = SupabaseService.client.channel('org-notif-bell-$orgId')
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'events',
+          filter: 'organizer_id=eq.$orgId',
+        ),
+        (_, [_]) {
+          _debounce?.cancel();
+          _debounce = Timer(const Duration(milliseconds: 800), _load);
+        },
+      )
+      ..subscribe();
+  }
+
+  void _unsubscribe() {
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
+    _channel = null;
   }
 
   // ── Read-state persistence (per-user, per-notification-ID) ────────────────
 
   static String _prefKey(String userId) => 'web_notif_read_ids_$userId';
+
+  Future<Set<String>> _readIds(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return Set<String>.from(prefs.getStringList(_prefKey(userId)) ?? []);
+  }
 
   Future<void> _persistReadState() async {
     final userId = _uid;
@@ -1484,16 +1274,27 @@ class _NotificationBellState extends State<_NotificationBell> {
     await prefs.setStringList(_prefKey(userId), trimmed);
   }
 
-  Future<bool> _wasAlreadyRead(String userId, List<_AppNotif> notifs) async {
-    if (notifs.isEmpty) return true;
-    final prefs   = await SharedPreferences.getInstance();
-    final readIds = Set<String>.from(prefs.getStringList(_prefKey(userId)) ?? []);
-    return notifs.every((n) => readIds.contains(n.id));
-  }
-
   // ── Data fetch ─────────────────────────────────────────────────────────────
 
+  // One fetch at a time; a request that arrives meanwhile runs once after.
   Future<void> _load() async {
+    if (_fetching) {
+      _again = true;
+      return;
+    }
+    _fetching = true;
+    try {
+      await _fetch();
+    } finally {
+      _fetching = false;
+      if (_again && mounted) {
+        _again = false;
+        _load();
+      }
+    }
+  }
+
+  Future<void> _fetch() async {
     if (widget.orgId == null) {
       if (mounted) setState(() => _loaded = true);
       return;
@@ -1508,7 +1309,8 @@ class _NotificationBellState extends State<_NotificationBell> {
     final todayStr    = fmtDate(now);
     final tomorrowStr = fmtDate(now.add(const Duration(days: 1)));
     final todayStart  = '${todayStr}T00:00:00';
-    final result      = <_AppNotif>[];
+    final decisions   = <_AppNotif>[];
+    final reminders   = <_AppNotif>[];
 
     try {
       final client = SupabaseService.client;
@@ -1516,14 +1318,22 @@ class _NotificationBellState extends State<_NotificationBell> {
       // Query 1 — all org events (id + display fields, capped at 200)
       final evtRows = await client
           .from('events')
-          .select('event_id, title, event_date, start_time, event_status, '
-              'approval_status, rejection_reason, reviewed_at')
+          .select('event_id, title, event_date, end_date, start_time, end_time, '
+              'event_status, approval_status, rejection_reason, reviewed_at')
           .eq('organizer_id', orgId)
           .order('event_date', ascending: true)
           .limit(200);
 
       final evts   = List<Map<String, dynamic>>.from(evtRows as List);
       final evtIds = evts.map((e) => e['event_id'] as String).toList();
+
+      // Admin decisions (approved / rejected events and change requests,
+      // removed announcements) — first, newest first. Deliberately NOT gated
+      // by OrgNotifPrefs: what happened to your own submission isn't
+      // something to silence. Same items as the mobile app.
+      for (final n in await OrganizerNotices.load(organizerId: orgId, events: evts)) {
+        decisions.add(_AppNotif.notice(n));
+      }
 
       // Query 2 — today's new registrations across all org events
       if (evtIds.isNotEmpty) {
@@ -1534,7 +1344,7 @@ class _NotificationBellState extends State<_NotificationBell> {
             .gte('registered_at', todayStart);
         final count = (regRows as List).length;
         if (count > 0) {
-          result.add(_AppNotif(
+          reminders.add(_AppNotif(
             id:       'signups_today_$todayStr',
             title:    '$count new sign-up${count == 1 ? '' : 's'} today',
             subtitle: 'Students registered for your events',
@@ -1544,11 +1354,11 @@ class _NotificationBellState extends State<_NotificationBell> {
         }
       }
 
-      // Ongoing (live) events
+      // Ongoing (live) events — status from the clock, like mobile.
       for (final e in evts
-          .where((e) => e['event_status'] == 'ongoing')
+          .where((e) => eventIsApproved(e) && eventStatusValue(e) == 'ongoing')
           .take(3)) {
-        result.add(_AppNotif(
+        reminders.add(_AppNotif(
           id:       'event_live_${e['event_id']}',
           title:    e['title'] as String? ?? '—',
           subtitle: 'Event is live · check in students now',
@@ -1560,11 +1370,12 @@ class _NotificationBellState extends State<_NotificationBell> {
       // Upcoming events starting today
       for (final e in evts
           .where((e) =>
-              e['event_status'] == 'upcoming' &&
+              eventIsApproved(e) &&
+              eventStatusValue(e) == 'upcoming' &&
               (e['event_date'] as String?) == todayStr)
           .take(3)) {
         final t = webFmtTime(e['start_time'] as String?);
-        result.add(_AppNotif(
+        reminders.add(_AppNotif(
           id:       'event_today_${e['event_id']}',
           title:    e['title'] as String? ?? '—',
           subtitle: 'Starting today${t.isNotEmpty ? ' at $t' : ''}',
@@ -1576,11 +1387,12 @@ class _NotificationBellState extends State<_NotificationBell> {
       // Upcoming events starting tomorrow
       for (final e in evts
           .where((e) =>
-              e['event_status'] == 'upcoming' &&
+              eventIsApproved(e) &&
+              eventStatusValue(e) == 'upcoming' &&
               (e['event_date'] as String?) == tomorrowStr)
           .take(2)) {
         final t = webFmtTime(e['start_time'] as String?);
-        result.add(_AppNotif(
+        reminders.add(_AppNotif(
           id:       'event_tomorrow_${e['event_id']}',
           title:    e['title'] as String? ?? '—',
           subtitle: 'Starting tomorrow${t.isNotEmpty ? ' at $t' : ''}',
@@ -1589,36 +1401,12 @@ class _NotificationBellState extends State<_NotificationBell> {
         ));
       }
 
-      // Recently-decided events (approved/rejected within the last 7 days).
-      // Deliberately NOT gated by OrgNotifPrefs — matches mobile.
-      final reviewCutoff = now.subtract(const Duration(days: 7));
-      for (final e in evts.where((e) {
-        final ra = e['reviewed_at'] as String?;
-        if (ra == null) return false;
-        final approval = e['approval_status'] as String?;
-        if (approval != 'approved' && approval != 'rejected') return false;
-        final dt = DateTime.tryParse(ra);
-        return dt != null && dt.isAfter(reviewCutoff);
-      }).take(3)) {
-        final approved = e['approval_status'] == 'approved';
-        final reason   = e['rejection_reason'] as String?;
-        result.add(_AppNotif(
-          id:       'event_${e['approval_status']}_${e['event_id']}',
-          title:    e['title'] as String? ?? '—',
-          subtitle: approved
-              ? 'Your event was approved and is now live'
-              : 'Rejected${reason != null && reason.isNotEmpty ? ': $reason' : ''}',
-          icon:     approved ? Icons.check_circle_rounded : Icons.block_rounded,
-          color:    approved ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-        ));
-      }
-
       // Respect per-user preferences (Profile → Notifications) — same
       // categories the mobile app already filters on.
       if (userId != null) {
         final disabledCats = await OrgNotifPrefs.disabled(userId);
         if (disabledCats.isNotEmpty) {
-          result.removeWhere((n) =>
+          reminders.removeWhere((n) =>
               (disabledCats.contains(OrgNotifPrefs.signups) &&
                   n.id.startsWith('signups_today_')) ||
               (disabledCats.contains(OrgNotifPrefs.live) &&
@@ -1629,17 +1417,27 @@ class _NotificationBellState extends State<_NotificationBell> {
                   n.id.startsWith('event_tomorrow_')));
         }
       }
-    } catch (_) {}
-
-    final alreadyRead = userId == null || await _wasAlreadyRead(userId, result);
-    if (mounted) {
-      setState(() {
-        _notifs = result;
-        _loaded = true;
-        _read   = alreadyRead;
-      });
-      _entry?.markNeedsBuild();
+    } catch (e) {
+      debugPrint('Organizer notifications failed to load: $e');
     }
+
+    final result  = [...decisions, ...reminders];
+    final readIds = userId == null ? <String>{} : await _readIds(userId);
+    final unread  = {for (final n in result) if (!readIds.contains(n.id)) n.id};
+    if (!mounted) return;
+    setState(() {
+      _notifs = result;
+      _loaded = true;
+      if (_open) {
+        // Arrived while the panel is open — seen, but highlight it.
+        _highlight.addAll(unread);
+        _unreadIds = {};
+      } else {
+        _unreadIds = unread;
+      }
+    });
+    if (_open && unread.isNotEmpty) _persistReadState();
+    _entry?.markNeedsBuild();
   }
 
   // ── Panel lifecycle ────────────────────────────────────────────────────────
@@ -1650,7 +1448,11 @@ class _NotificationBellState extends State<_NotificationBell> {
   }
 
   void _openPanel() {
-    setState(() { _open = true; _read = true; });
+    setState(() {
+      _open      = true;
+      _highlight = {..._unreadIds};
+      _unreadIds = {};
+    });
     _entry = OverlayEntry(builder: (_) => _buildOverlay());
     Overlay.of(context).insert(_entry!);
     _persistReadState(); // fire-and-forget — survives reload/logout
@@ -1660,7 +1462,12 @@ class _NotificationBellState extends State<_NotificationBell> {
   void _close() {
     _entry?.remove();
     _entry = null;
-    if (mounted) setState(() => _open = false);
+    if (mounted) {
+      setState(() {
+        _open      = false;
+        _highlight = {};
+      });
+    }
   }
 
   // ── Overlay ────────────────────────────────────────────────────────────────
@@ -1691,12 +1498,13 @@ class _NotificationBellState extends State<_NotificationBell> {
 
   Widget _buildPanel() {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final newCount = _highlight.length;
     return Material(
       elevation: 0,
       color: Colors.transparent,
       child: Container(
-        width: 320,
-        constraints: const BoxConstraints(maxHeight: 440),
+        width: 360,
+        constraints: const BoxConstraints(maxHeight: 480),
         decoration: BoxDecoration(
           color: t.card,
           borderRadius: BorderRadius.circular(14),
@@ -1724,9 +1532,13 @@ class _NotificationBellState extends State<_NotificationBell> {
                       fontWeight: FontWeight.w700, color: t.text)),
                 ),
                 Text(
-                  'Today · ${webTodayLabel().split(',').last.trim()}',
-                  style: TextStyle(fontFamily: 'Poppins',
-                    fontSize: 10, color: t.muted),
+                  newCount > 0 ? '$newCount new' : 'Recent activity',
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 10.5,
+                    fontWeight: newCount > 0 ? FontWeight.w600 : FontWeight.w400,
+                    color: t.sub,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 MouseRegion(
@@ -1734,7 +1546,7 @@ class _NotificationBellState extends State<_NotificationBell> {
                   child: GestureDetector(
                     onTap: _close,
                     child: Icon(Icons.close_rounded,
-                      size: 15, color: t.muted),
+                      size: 15, color: t.sub),
                   ),
                 ),
               ]),
@@ -1764,9 +1576,9 @@ class _NotificationBellState extends State<_NotificationBell> {
                         fontWeight: FontWeight.w600, color: t.text),
                       textAlign: TextAlign.center),
                     const SizedBox(height: 4),
-                    Text('No new events or sign-ups today.',
+                    Text('Admin approvals, sign-ups and event reminders show up here.',
                       style: TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11, color: t.muted),
+                        fontSize: 11, color: t.sub),
                       textAlign: TextAlign.center),
                   ],
                 ),
@@ -1789,35 +1601,63 @@ class _NotificationBellState extends State<_NotificationBell> {
   }
 
   Widget _buildItem(_AppNotif n, WebTk t) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(children: [
-        Container(
-          width: 36, height: 36,
-          decoration: BoxDecoration(
-            color: n.color.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(10),
+    final isNew = _highlight.contains(n.id);
+    return Container(
+      color: isNew ? kGold.withValues(alpha: t.dark ? 0.10 : 0.07) : null,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: n.color.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(n.icon, size: 17, color: n.color),
           ),
-          child: Icon(n.icon, size: 17, color: n.color),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(n.title,
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                  fontWeight: FontWeight.w600, color: t.text),
-                maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 2),
-              Text(n.subtitle,
-                style: TextStyle(fontFamily: 'Poppins',
-                  fontSize: 10.5, color: t.muted),
-                maxLines: 1, overflow: TextOverflow.ellipsis),
-            ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Expanded(
+                    child: Text(n.title,
+                      style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                        fontWeight: FontWeight.w600, color: t.text),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+                  if (n.at != null) ...[
+                    const SizedBox(width: 8),
+                    Text(noticeTimeAgo(n.at!),
+                      style: TextStyle(fontFamily: 'Poppins',
+                        fontSize: 10, color: t.sub)),
+                  ],
+                ]),
+                const SizedBox(height: 2),
+                // Admin decisions carry the reason — show it in full.
+                Text(n.subtitle,
+                  style: TextStyle(fontFamily: 'Poppins',
+                    fontSize: 11, height: 1.45, color: t.sub),
+                  maxLines: n.at != null ? 5 : 1,
+                  overflow: TextOverflow.ellipsis),
+              ],
+            ),
           ),
-        ),
-      ]),
+          if (isNew)
+            Padding(
+              padding: const EdgeInsets.only(left: 8, top: 4),
+              child: Semantics(
+                label: 'New',
+                child: Container(
+                  width: 7, height: 7,
+                  decoration: const BoxDecoration(color: kGold, shape: BoxShape.circle),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -1826,40 +1666,70 @@ class _NotificationBellState extends State<_NotificationBell> {
   @override
   Widget build(BuildContext context) {
     final t     = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final count = _loaded ? _notifs.length : 0;
+    final count = _loaded ? _unreadIds.length : 0;
+    final label = count == 0
+        ? 'Notifications'
+        : '$count new notification${count == 1 ? '' : 's'}';
     return CompositedTransformTarget(
       link: _layerLink,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: _toggle,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 130),
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              color: _open ? t.divider : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: _open ? t.border : Colors.transparent),
-            ),
-            child: Stack(
-              children: [
-                Center(
-                  child: Icon(Icons.notifications_rounded,
-                    size: 18, color: t.sub),
+      child: Tooltip(
+        message: label,
+        child: Semantics(
+          button: true,
+          label: label,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: _toggle,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 130),
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: _open ? t.divider : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _open ? t.border : Colors.transparent),
                 ),
-                if (count > 0 && !_read)
-                  Positioned(
-                    top: 7, right: 7,
-                    child: Container(
-                      width: 7, height: 7,
-                      decoration: const BoxDecoration(
-                        color:  Color(0xFFEF4444),
-                        shape:  BoxShape.circle,
-                      ),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Center(
+                      child: Icon(
+                        count > 0
+                            ? Icons.notifications_active_rounded
+                            : Icons.notifications_rounded,
+                        size: 18,
+                        color: count > 0 ? kGold : t.sub),
                     ),
-                  ),
-              ],
+                    if (count > 0)
+                      Positioned(
+                        top: 2, right: 1,
+                        child: Container(
+                          constraints: const BoxConstraints(minWidth: 16),
+                          height: 16,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            // #DC2626 keeps the white count at 4.8:1.
+                            color: const Color(0xFFDC2626),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: t.card, width: 1.5),
+                          ),
+                          child: Text(
+                            count > 9 ? '9+' : '$count',
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 9,
+                              height: 1,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),

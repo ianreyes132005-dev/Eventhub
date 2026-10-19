@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/services/supabase_service.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../shared/widgets/error_alert.dart';
 
 class NewAnnouncementScreen extends StatefulWidget {
   const NewAnnouncementScreen({super.key});
@@ -48,8 +49,8 @@ class _NewAnnouncementScreenState extends State<NewAnnouncementScreen> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        _snack('Failed to publish: $e', Colors.red);
         setState(() => _publishing = false);
+        showErrorAlert(context, e, title: 'Couldn’t publish the announcement');
       }
     }
   }

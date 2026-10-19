@@ -3,35 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/services/notif_read_store.dart';
-import '../../../core/services/student_notif_prefs.dart';
 import '../../../shared/widgets/app_loader.dart';
-
-// ── Notification type ─────────────────────────────────────────────────────────
-
-// ── Notification type ─────────────────────────────────────────────────────────
-enum _NotifType { announcement, checkIn, selfieRequired, photoSubmitted, rejected }
-// ── Notification model ────────────────────────────────────────────────────────
-class _NotifItem {
-  final String     id;
-  final _NotifType type;
-  final String     title;
-  final String     preview;   // truncated for list card
-  final String     fullBody;  // full text for detail sheet
-  final DateTime   time;
-  final String?    orgName;
-
-  const _NotifItem({
-    required this.id,
-    required this.type,
-    required this.title,
-    required this.preview,
-    required this.fullBody,
-    required this.time,
-    this.orgName,
-  });
-
-  bool get isRead => NotifReadStore.isRead(id);
-}
+import 'student_feed.dart';
 
 // ── Time helpers ──────────────────────────────────────────────────────────────
 String _timeAgo(DateTime t) {
@@ -55,9 +28,6 @@ String _groupLabel(DateTime t) {
   return 'Earlier';
 }
 
-String _preview(String s) =>
-    s.length > 110 ? '${s.substring(0, 110)}…' : s;
-
 // ── Screen ────────────────────────────────────────────────────────────────────
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key, this.markAllRead = false});
@@ -72,8 +42,8 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen>
     with SingleTickerProviderStateMixin {
 
-  List<_NotifItem> _all      = [];
-  List<_NotifItem> _filtered = [];
+  List<StudentNotif> _all      = [];
+  List<StudentNotif> _filtered = [];
   bool _loading  = true;
   int  _tabIndex = 0;
 
@@ -109,128 +79,14 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   Future<void> _load() async {
     if (mounted) setState(() => _loading = true);
     try {
-      final client = Supabase.instance.client;
-      final user   = client.auth.currentUser;
-      if (user == null) { if (mounted) setState(() => _loading = false); return; }
-
-      // Fetch announcements and registrations in parallel
-      final annFuture = SupabaseService.getAnnouncements(limit: 50);
-      final regFuture = client
-          .from('registrations')
-          .select()
-          .eq('student_user_id', user.id)
-          .order('registered_at', ascending: false);
-
-      final annRows = await annFuture;
-      final regRows = await regFuture as List;
-
-      // Resolve organizer names for announcements
-      final annUids = annRows.map((a) => a['created_by'] as String?).whereType<String>().toSet().toList();
-      final Map<String, String> orgNames = {};
-      if (annUids.isNotEmpty) {
-        try {
-          final orgRows = List<Map<String, dynamic>>.from(
-            await SupabaseService.client
-                .from('organizer_directory')
-                .select('user_id, full_name')
-                .in_('user_id', annUids),
-          );
-          for (final o in orgRows) {
-            orgNames[o['user_id'] as String] = o['full_name'] as String? ?? '—';
-          }
-        } catch (e) {
-          debugPrint('NotificationsScreen organizer name lookup error: $e');
-        }
-      }
-
-      final items = <_NotifItem>[];
-
-      // ── Announcements ─────────────────────────────────────────────────────
-      for (final ann in annRows) {
-        final id      = ann['id']?.toString() ?? '';
-        final raw     = ann['created_at'] as String?;
-        final message = ann['message'] as String? ?? '';
-        items.add(_NotifItem(
-          id:       'ann_$id',
-          type:     _NotifType.announcement,
-          title:    ann['title'] as String? ?? '—',
-          preview:  _preview(message),
-          fullBody: message,
-          time:     raw != null
-              ? (DateTime.tryParse(raw)?.toLocal() ?? DateTime.now())
-              : DateTime.now(),
-          orgName:  orgNames[ann['created_by'] as String? ?? ''],
-        ));
-      }
-
-      // ── Registration status changes ───────────────────────────────────────
-      for (final reg in regRows) {
-        final rid     = reg['id']             as String? ?? '';
-        final status  = reg['status']         as String? ?? '';
-        final event   = reg['event_title']    as String? ?? 'an event';
-        final rawCi   = reg['checked_in_at']  as String?;
-        final rawReg  = reg['registered_at']  as String?;
-        final timeRaw = rawCi ?? rawReg ?? '';
-
-        _NotifType notifType;
-        String title, body;
-
-        if (status == 'checked_in') {
-          notifType = _NotifType.checkIn;
-          title     = 'Check-in confirmed! ✓';
-          body      = 'You\'ve been successfully checked in to "$event". Enjoy the event!';
-        } else if (status == 'photo_required') {
-          notifType = _NotifType.selfieRequired;
-          title     = 'Selfie required';
-          body      = 'Your organizer needs a selfie to verify your attendance at "$event".';
-        } else if (status == 'photo_submitted') {
-          notifType = _NotifType.photoSubmitted;
-          title     = 'Photo received';
-          body      = 'Your selfie for "$event" was submitted — awaiting organizer confirmation.';
-        } else if (status == 'rejected') {
-          final reason = reg['rejection_reason'] as String?;
-          notifType = _NotifType.rejected;
-          title     = 'Registration declined';
-          body      = reason != null && reason.isNotEmpty
-              ? 'Your registration for "$event" was declined: $reason'
-              : 'Your registration for "$event" was not approved by the organizer.';
-        } else {
-          continue;
-        }
-
-        items.add(_NotifItem(
-          id:       'reg_${rid}_$status',
-          type:     notifType,
-          title:    title,
-          preview:  body,
-          fullBody: body,
-          time:     timeRaw.isNotEmpty
-              ? (DateTime.tryParse(timeRaw)?.toLocal() ?? DateTime.now())
-              : DateTime.now(),
-        ));
-      }
-
-      // Sort newest first
-      items.sort((a, b) => b.time.compareTo(a.time));
-
-      // Respect per-user preferences (Profile → Notifications). Verification
-      // items (selfie required / photo submitted) are never filtered.
-      final disabledCats = await StudentNotifPrefs.disabled(user.id);
-      if (disabledCats.isNotEmpty) {
-        items.removeWhere((n) =>
-            (disabledCats.contains(StudentNotifPrefs.announcements) &&
-                n.type == _NotifType.announcement) ||
-            (disabledCats.contains(StudentNotifPrefs.checkins) &&
-                n.type == _NotifType.checkIn));
-      }
+      // The same feed the Home bell counts (student_feed.dart), so the two
+      // numbers always agree.
+      final items = (await StudentNotifications.load()).notifications;
 
       if (!mounted) return;
 
-      if (widget.markAllRead) {
-        NotifReadStore.markAll(items.map((e) => e.id));
-      } else {
-        NotifReadStore.setAll(items.map((e) => e.id));
-      }
+      NotifReadStore.setAll(items.map((e) => e.id));
+      if (widget.markAllRead) NotifReadStore.markAll(items.map((e) => e.id));
 
       setState(() {
         _all     = items;
@@ -246,10 +102,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   void _applyFilter() {
     switch (_tabIndex) {
       case 1:
-        _filtered = _all.where((n) => n.type == _NotifType.announcement).toList();
+        _filtered = _all.where((n) => n.type == StudentNotifType.announcement).toList();
         break;
       case 2:
-        _filtered = _all.where((n) => n.type != _NotifType.announcement).toList();
+        _filtered = _all.where((n) => n.type != StudentNotifType.announcement).toList();
         break;
       default:
         _filtered = List.from(_all);
@@ -288,7 +144,15 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     NotifReadStore.markAll(_all.map((e) => e.id));
     setState(() {});
   }
-  void _showAnnouncementDetail(_NotifItem item) {
+  void _showAnnouncementDetail(StudentNotif item) {
+    // Same sheet for announcements, event cancellations and event updates.
+    final (accent, icon, kindLabel) = switch (item.type) {
+      StudentNotifType.eventCancelled =>
+          (const Color(0xFFDC2626), Icons.event_busy_rounded, 'Event cancelled'),
+      StudentNotifType.eventUpdated =>
+          (const Color(0xFF2979C8), Icons.edit_calendar_rounded, 'Event updated'),
+      _ => (const Color(0xFFE87A00), Icons.campaign_rounded, 'Announcement'),
+    };
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -323,26 +187,22 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFE87A00).withValues(alpha: 0.12),
+                          color: accent.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(
-                          Icons.campaign_rounded,
-                          color: Color(0xFFE87A00),
-                          size: 20,
-                        ),
+                        child: Icon(icon, color: accent, size: 20),
                       ),
                       const SizedBox(width: 12),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Announcement',
+                          Text(
+                            kindLabel,
                             style: TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
-                              color: Color(0xFFE87A00),
+                              color: accent,
                             ),
                           ),
                           if (item.orgName != null && item.orgName!.isNotEmpty)
@@ -534,8 +394,8 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   // ── Tab bar ───────────────────────────────────────────────────────────────
 
   Widget _buildTabBar(int totalUnread, AppTk t) {
-    final annUnread = _all.where((n) => n.type == _NotifType.announcement && !n.isRead).length;
-    final regUnread = _all.where((n) => n.type != _NotifType.announcement  && !n.isRead).length;
+    final annUnread = _all.where((n) => n.type == StudentNotifType.announcement && !n.isRead).length;
+    final regUnread = _all.where((n) => n.type != StudentNotifType.announcement  && !n.isRead).length;
     final counts    = [totalUnread, annUnread, regUnread];
 
     return Container(
@@ -590,7 +450,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   Widget _buildGroupedList(AppTk t) {
     const groupOrder = ['Today', 'Yesterday', 'This Week', 'Earlier'];
-    final groups = <String, List<_NotifItem>>{};
+    final groups = <String, List<StudentNotif>>{};
     for (final item in _filtered) {
       groups.putIfAbsent(_groupLabel(item.time), () => []).add(item);
     }
@@ -637,7 +497,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   // ── Notification card ─────────────────────────────────────────────────────
 
-  Widget _buildCard(_NotifItem item, AppTk t) {
+  Widget _buildCard(StudentNotif item, AppTk t) {
     final isRead = item.isRead;
 
     // Type-specific styling
@@ -646,25 +506,33 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     late final String  typeLabel;
 
     switch (item.type) {
-      case _NotifType.announcement:
+      case StudentNotifType.announcement:
         accentColor = const Color(0xFFE87A00);
         accentIcon  = Icons.campaign_rounded;
         typeLabel   = 'Announcement';
-      case _NotifType.checkIn:
+      case StudentNotifType.checkIn:
         accentColor = const Color(0xFF16A34A);
         accentIcon  = Icons.check_circle_outline_rounded;
         typeLabel   = 'My Events';
-      case _NotifType.selfieRequired:
+      case StudentNotifType.selfieRequired:
         accentColor = const Color(0xFF9333EA);
         accentIcon  = Icons.camera_alt_outlined;
         typeLabel   = 'My Events';
-      case _NotifType.photoSubmitted:
+      case StudentNotifType.photoSubmitted:
         accentColor = const Color(0xFF2979C8);
         accentIcon  = Icons.photo_camera_outlined;
         typeLabel   = 'My Events';
-      case _NotifType.rejected:
+      case StudentNotifType.rejected:
         accentColor = const Color(0xFFDC2626);
         accentIcon  = Icons.cancel_outlined;
+        typeLabel   = 'My Events';
+      case StudentNotifType.eventCancelled:
+        accentColor = const Color(0xFFDC2626);
+        accentIcon  = Icons.event_busy_rounded;
+        typeLabel   = 'My Events';
+      case StudentNotifType.eventUpdated:
+        accentColor = const Color(0xFF2979C8);
+        accentIcon  = Icons.edit_calendar_rounded;
         typeLabel   = 'My Events';
     }
     return Dismissible(
@@ -695,7 +563,11 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       child: GestureDetector(
         onTap: () {
           _markRead(item.id);
-          if (item.type == _NotifType.announcement) _showAnnouncementDetail(item);
+          if (item.type == StudentNotifType.announcement ||
+              item.type == StudentNotifType.eventCancelled ||
+              item.type == StudentNotifType.eventUpdated) {
+            _showAnnouncementDetail(item);
+          }
         },
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
@@ -794,7 +666,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              if (item.type == _NotifType.announcement &&
+                              if (item.type == StudentNotifType.announcement &&
                                   item.orgName != null &&
                                   item.orgName!.isNotEmpty) ...[
                                 const SizedBox(height: 5),
@@ -830,7 +702,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                                             fontWeight: FontWeight.w700, color: accentColor,
                                           ),
                                         ),
-                                        if (item.type == _NotifType.announcement) ...[
+                                        if (item.type == StudentNotifType.announcement) ...[
                                           const SizedBox(width: 2),
                                           Icon(Icons.chevron_right_rounded, size: 11, color: accentColor),
                                         ],

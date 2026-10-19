@@ -7,6 +7,7 @@ import '../../core/services/supabase_service.dart';
 import '../../core/services/audit_service.dart';
 import '../../core/services/rate_limit_service.dart';
 import '../../core/app_colors.dart';
+import '../../core/friendly_error.dart';
 import '../../core/theme_store.dart';
 import '../../shared/widgets/app_alert.dart';
 import '../organizer/web/web_shell.dart';
@@ -448,7 +449,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
       setState(() {
         _error = e.message.contains('Invalid')
             ? 'Incorrect username or password. Please try again.'
-            : e.message;
+            : friendlyError(e);
         _loading = false;
       });
     } catch (_) {

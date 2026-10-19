@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import '../../../models/event_registration.dart';
 import '../../../shared/widgets/qr_code_dialog.dart';
 import '../../../core/services/registration_service.dart';
+import '../../../core/services/student_count_service.dart';
 import '../../../core/app_colors.dart';
+import '../../../shared/widgets/error_alert.dart';
 
 class EventDetailsPage extends StatefulWidget {
   final Map<String, dynamic> event;
@@ -24,11 +26,15 @@ class EventDetailsPage extends StatefulWidget {
 class _EventDetailsPageState extends State<EventDetailsPage> {
   Map<String, dynamic>? _reg;
   bool _registering = false;
+  int? _studentCount = StudentCountService.cached;   // = capacity
 
   @override
   void initState() {
     super.initState();
     _reg = widget.registration;
+    StudentCountService.activeStudents().then((n) {
+      if (mounted && n != _studentCount) setState(() => _studentCount = n);
+    });
   }
 
   // ── Data helpers ───────────────────────────────────────────────────────────
@@ -41,9 +47,10 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   String get _type => _e['event_type'] as String? ?? '';
   String get _imageUrl => _e['event_image_url'] as String? ?? '';
   int get _registered => _e['current_participants'] as int? ?? 0;
-  int get _capacity => _e['max_participants'] as int? ?? 0;
-  double get _fillRatio =>
-      _capacity > 0 ? (_registered / _capacity).clamp(0.0, 1.0) : 0;
+  // Capacity = every active student (0 until the count is known, which hides
+  // the "of N" parts). A student who hasn't registered always has a spot.
+  int get _capacity => _studentCount ?? 0;
+  double get _fillRatio => capacityFill(_registered, _capacity);
 
   String get _statusLabel => eventStatusLabel(_e);
 
@@ -107,25 +114,20 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     } catch (_) { return iso; }
   }
 
-  bool get _isFull => _capacity > 0 && _registered >= _capacity;
   bool get _isRegistered => _reg != null;
 
-  // Registration is only allowed for upcoming and ongoing events.
-  bool get _canRegister {
-    final label = _statusLabel;
-    return label == 'Upcoming' || label == 'Ongoing';
-  }
+  // Shared rule (also enforced by the server): registration closes at the
+  // deadline, else when the event starts.
+  RegistrationState get _regState => registrationState(_e);
 
-  // True when the event has a registration deadline that has already passed.
-  bool get _isDeadlinePassed {
-    final iso = _e['registration_deadline'] as String?;
-    if (iso == null) return false;
-    try {
-      return DateTime.now().toUtc().isAfter(DateTime.parse(iso));
-    } catch (_) {
-      return false;
-    }
-  }
+  // Not cancelled / not ended.
+  bool get _canRegister => _regState != RegistrationState.cancelled &&
+      _regState != RegistrationState.ended &&
+      _regState != RegistrationState.notApproved;
+
+  // Registration window closed: deadline passed, or the event has started.
+  bool get _isDeadlinePassed => _regState == RegistrationState.deadlinePassed ||
+      _regState == RegistrationState.started;
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -147,12 +149,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _registering = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: Colors.red,
-          ),
-        );
+        // e.g. "Registration is closed — the deadline has passed."
+        showErrorAlert(context, e, title: 'Couldn’t register');
       }
     }
   }
@@ -347,6 +345,32 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             ),
           ),
 
+          // Cancelled — with the organizer's reason
+          if (eventIsCancelled(_e))
+            Container(
+              margin: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFDC2626).withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFDC2626).withValues(alpha: 0.25)),
+              ),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Icon(Icons.event_busy_rounded, size: 20, color: Color(0xFFDC2626)),
+                const SizedBox(width: 10),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('This event was cancelled', style: TextStyle(fontFamily: 'Poppins',
+                      fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFFDC2626))),
+                  if ((_e['cancel_reason'] as String?)?.trim().isNotEmpty == true) ...[
+                    const SizedBox(height: 3),
+                    Text(_e['cancel_reason'] as String, style: TextStyle(fontFamily: 'Poppins',
+                        fontSize: 12.5, height: 1.5,
+                        color: AppTk(Theme.of(context).brightness == Brightness.dark).sub)),
+                  ],
+                ])),
+              ]),
+            ),
+
           // Quick info chips row
           _buildQuickInfoRow(),
 
@@ -484,14 +508,12 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
 
   // ── Capacity ───────────────────────────────────────────────────────────────
 
+  // Capacity is the whole student body, so a fuller event is just a popular
+  // one — one colour, and never "Full".
   Widget _buildCapacitySection() {
     final pct = (_fillRatio * 100).toInt();
-    final spotsLeft = _capacity > 0 ? _capacity - _registered : null;
-    final barColor = _fillRatio >= 0.9
-        ? Colors.red
-        : _fillRatio >= 0.7
-            ? Colors.orange
-            : kGold;
+    final spotsLeft = _capacity > 0 ? (_capacity - _registered).clamp(0, _capacity) : null;
+    const barColor = kGold;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -516,10 +538,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               _miniStat(
                 icon: Icons.event_seat_rounded,
                 label: 'Spots Left',
-                value: spotsLeft != null
-                    ? (spotsLeft <= 0 ? 'Full' : spotsLeft.toString())
-                    : 'Unlimited',
-                color: _isFull ? Colors.red : const Color(0xFF16A34A),
+                value: spotsLeft != null ? '$spotsLeft' : '—',
+                color: const Color(0xFF16A34A),
               ),
               const SizedBox(width: 12),
               _miniStat(
@@ -556,8 +576,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                   ),
                 ),
                 Text(
-                  '$pct% full',
-                  style: TextStyle(
+                  '$pct% of students',
+                  style: const TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -567,6 +587,24 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               ],
             ),
           ],
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info_outline_rounded, size: 14, color: kSubText),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _capacity > 0
+                      ? 'Every student can register — the $_capacity spots are '
+                        'the school’s total number of students.'
+                      : 'Every student can register.',
+                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                      color: kSubText, height: 1.45),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -796,9 +834,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               ? _closedButton()
               : _isDeadlinePassed
                   ? _deadlinePassedButton()
-                  : _isFull
-                      ? _fullButton()
-                      : _registerButton(),
+                  : _registerButton(),
     );
   }
 
@@ -911,32 +947,6 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     );
   }
 
-  Widget _fullButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 54,
-      child: ElevatedButton.icon(
-        onPressed: null,
-        icon: const Icon(Icons.block_rounded, size: 20),
-        label: const Text(
-          'Event is Full',
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.grey[300],
-          foregroundColor: kSubText,
-          elevation: 0,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        ),
-      ),
-    );
-  }
-
   Widget _closedButton() {
     final isCancelled = _statusLabel == 'Cancelled';
     return SizedBox(
@@ -974,9 +984,11 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
       child: ElevatedButton.icon(
         onPressed: null,
         icon: const Icon(Icons.timer_off_rounded, size: 20),
-        label: const Text(
-          'Registration Deadline Passed',
-          style: TextStyle(
+        label: Text(
+          _regState == RegistrationState.started
+              ? 'Registration Closed — Event Started'
+              : 'Registration Deadline Passed',
+          style: const TextStyle(
             fontFamily: 'Poppins',
             fontSize: 15,
             fontWeight: FontWeight.w700,

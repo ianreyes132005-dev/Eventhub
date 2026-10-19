@@ -87,9 +87,11 @@ class SupabaseService {
         .order('created_at', ascending: false)
         .limit(limit);
     if (res is List) {
+      // Archived events are hidden from the Events tab (filtered here rather
+      // than in the query so it works before the archives migration is run).
       return List<Map<String, dynamic>>.from(
         res.map((e) => Map<String, dynamic>.from(e as Map)),
-      );
+      ).where((e) => e['archived_at'] == null).toList();
     }
     return [];
   }

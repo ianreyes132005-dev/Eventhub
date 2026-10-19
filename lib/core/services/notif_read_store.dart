@@ -1,6 +1,27 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Notification id for "an event you registered for was cancelled" — shared
+/// by the notifications screen and the dashboard bell badge so both agree.
+String cancelledNotifId(String eventId) => 'evcancel_$eventId';
+
+/// Notification id for "an event you registered for changed its date, time or
+/// venue" (an approved change request stamps events.schedule_changed_at).
+/// Returns null when [reg] shouldn't get one: no change, the event was
+/// cancelled (that notice supersedes it), or the student registered after the
+/// change and so already saw the new details. The timestamp is part of the id,
+/// so a second change shows up as unread again.
+String? updatedNotifIdFor(Map<String, dynamic> reg) {
+  final ev      = reg['events'] as Map?;
+  final eventId = reg['event_id'] as String?;
+  final changed = DateTime.tryParse(ev?['schedule_changed_at'] as String? ?? '');
+  if (ev == null || eventId == null || changed == null) return null;
+  if ('${ev['event_status'] ?? ''}'.toLowerCase() == 'cancelled') return null;
+  final registered = DateTime.tryParse(reg['registered_at'] as String? ?? '');
+  if (registered != null && !registered.isBefore(changed)) return null;
+  return 'evupdate_${eventId}_${changed.millisecondsSinceEpoch}';
+}
+
 /// Persists notification read-state across app restarts, scoped per student.
 /// Call [NotifReadStore.init()] once at app startup, then [loadForUser] after
 /// every sign-in so read-state never bleeds between different students who
@@ -8,6 +29,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 class NotifReadStore {
   static final _ids           = <String>{};
   static final unreadNotifier = ValueNotifier<int>(0);
+  // Every current notification id (from [setAll]). The unread count is
+  // always recounted from it, so marking items read can't make it drift.
+  static List<String> _current = const [];
   static String _userId       = '';
   static const _maxStoredIds  = 300;
 
@@ -18,6 +42,7 @@ class NotifReadStore {
   static Future<void> init() async {
     _userId = '';
     _ids.clear();
+    _current = const [];
     unreadNotifier.value = 0;
   }
 
@@ -29,36 +54,31 @@ class NotifReadStore {
     final prefs  = await SharedPreferences.getInstance();
     final stored = prefs.getStringList(_key(userId)) ?? [];
     _ids.addAll(stored);
+    _current = const [];
     unreadNotifier.value = 0;
   }
 
   static bool isRead(String id) => _ids.contains(id);
 
   static void mark(String id) {
-    _ids.add(id);
-    _recalc(null);
-    _persist();
+    if (_ids.add(id)) _persist();
+    _recount();
   }
 
   static void markAll(Iterable<String> ids) {
     _ids.addAll(ids);
-    _recalc(null);
+    _recount();
     _persist();
   }
 
+  /// The full current notification list (see StudentNotifications).
   static void setAll(Iterable<String> allIds) {
-    final list = allIds.toList();
-    unreadNotifier.value = list.where((id) => !_ids.contains(id)).length;
+    _current = allIds.toList();
+    _recount();
   }
 
-  static void _recalc(Iterable<String>? allIds) {
-    if (allIds != null) {
-      unreadNotifier.value = allIds.where((id) => !_ids.contains(id)).length;
-    } else if (unreadNotifier.value > 0) {
-      unreadNotifier.value--;
-    } else {
-      unreadNotifier.value = 0;
-    }
+  static void _recount() {
+    unreadNotifier.value = _current.where((id) => !_ids.contains(id)).length;
   }
 
   static Future<void> _persist() async {

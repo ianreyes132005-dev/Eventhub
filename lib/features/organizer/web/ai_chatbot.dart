@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/chat_service.dart';
 import '../../../shared/widgets/web/web_alert.dart';
+import '../../../shared/widgets/error_alert.dart';
 import 'web_layout.dart' show WebTk;
 
 // ── Suggestion model ──────────────────────────────────────────────────────────
@@ -14,11 +15,11 @@ class _SuggestionItem {
 
 const List<_SuggestionItem> _kOrgSuggestions = [
   _SuggestionItem(Icons.add_circle_outline_rounded, 'How do I create an event?'),
-  _SuggestionItem(Icons.qr_code_scanner_rounded,    'How do I scan a QR code?'),
-  _SuggestionItem(Icons.camera_alt_outlined,        'What is the selfie check-in?'),
+  _SuggestionItem(Icons.hourglass_top_rounded,      'Why is my event still pending?'),
+  _SuggestionItem(Icons.how_to_reg_rounded,         'How do I check students in?'),
+  _SuggestionItem(Icons.download_rounded,           'How do I export attendance?'),
+  _SuggestionItem(Icons.event_busy_rounded,         'How do I cancel an event?'),
   _SuggestionItem(Icons.campaign_outlined,          'How do I post an announcement?'),
-  _SuggestionItem(Icons.bar_chart_rounded,          'Where are my event stats?'),
-  _SuggestionItem(Icons.delete_outline_rounded,     'How do I delete a registration?'),
 ];
 
 // ── Root widget ───────────────────────────────────────────────────────────────
@@ -163,16 +164,11 @@ class _WebAiChatbotState extends State<WebAiChatbot>
     try {
       await ChatService.clearHistory(_sessionId!);
       if (mounted) setState(() => _history.clear());
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-            'Could not clear chat history. Please try again.',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 13),
-          ),
-          backgroundColor: Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-        ));
+        showErrorAlert(context, e,
+            title: 'Couldn’t clear the conversation',
+            fallback: 'The chat history couldn’t be cleared. Please try again.');
       }
     }
   }
@@ -552,7 +548,7 @@ class _ChatPanel extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         Text(
-          'Ask me anything about managing your events,\nQR scanning, or organizer tools.',
+          'I answer questions about using EventHub:\nevents, check-in, announcements and more.',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontFamily: 'Poppins',

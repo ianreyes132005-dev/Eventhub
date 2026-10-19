@@ -7,12 +7,6 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Must match `kRequiredLrnPrefix` in lib/core/app_colors.dart — the student
-// login screen only asks for the last 4 digits of the LRN and rebuilds the
-// rest from that constant, so any account created with a different prefix
-// here could never actually be logged into. Keep both in sync by hand.
-const REQUIRED_LRN_PREFIX = '12345626'
-
 function formatLrn(rawDigits: string): string {
   return `${rawDigits.slice(0, 6)} - ${rawDigits.slice(6, 8)} - ${rawDigits.slice(8, 12)}`
 }
@@ -36,19 +30,27 @@ serve(async (req) => {
 
   try {
     // ── 1. Parse body ────────────────────────────────────────────────────────
-    const { lrn, full_name, year_level, password } = await req.json()
+    const { lrn, full_name, first_name, last_name, year_level, strand, section, password } =
+      await req.json()
+
+    // Name parts are optional for backward compatibility; when present,
+    // full_name is always rebuilt from them ("First Last").
+    const first = String(first_name ?? '').trim()
+    const last  = String(last_name ?? '').trim()
+    const displayName = first && last ? `${first} ${last}` : String(full_name ?? '').trim()
 
     const rawLrn = String(lrn ?? '').replace(/\D/g, '')
     if (!rawLrn || !/^\d{12}$/.test(rawLrn))
       return errRes(400, 'LRN must be exactly 12 digits.')
-    if (!rawLrn.startsWith(REQUIRED_LRN_PREFIX)) {
-      const prefixDisplay = `${REQUIRED_LRN_PREFIX.slice(0, 6)} - ${REQUIRED_LRN_PREFIX.slice(6, 8)}`
-      return errRes(400, `LRN must start with ${prefixDisplay} — students log in with only the last 4 digits.`)
-    }
-    if (!full_name?.trim())
+    if (!displayName)
       return errRes(400, 'Full name is required.')
     if (!password || password.length < 6)
       return errRes(400, 'Password must be at least 6 characters.')
+
+    // Strand applies to Senior High (Grade 11–12) only and is required there.
+    const isShs = year_level === 11 || year_level === 12
+    if (isShs && !['HUMSS', 'GAS', 'STEM'].includes(strand))
+      return errRes(400, 'Select a strand (HUMSS, GAS, or STEM) for Senior High students.')
 
     // ── 2. Build admin client (service role — never exposed to client) ────────
     const supabaseAdmin = createClient(
@@ -91,8 +93,12 @@ serve(async (req) => {
     const { error: insertErr } = await supabaseAdmin.from('students').insert({
       lrn:        formattedLrn,
       user_id:    created.user.id,
-      full_name:  full_name.trim(),
+      full_name:  displayName,
+      first_name: first || null,
+      last_name:  last || null,
       year_level: year_level ?? null,
+      strand:     isShs ? strand : null,
+      section:    String(section ?? '').trim() || null,
       is_active:  true,
     })
 

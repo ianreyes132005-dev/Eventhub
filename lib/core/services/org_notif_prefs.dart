@@ -1,31 +1,35 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Per-user organizer notification preferences.
-///
-/// Categories default to enabled — only disabled ones are persisted, so new
-/// categories added later are on by default for existing users.
+/// Account-backed organizer notification preferences.
+/// Categories default to enabled, including for categories added later.
 class OrgNotifPrefs {
   static const signups  = 'signups';
   static const live     = 'live';
   static const today    = 'today';
   static const tomorrow = 'tomorrow';
 
-  static String _key(String userId) => 'org_notif_prefs_$userId';
-
   static Future<Set<String>> disabled(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    return Set<String>.from(prefs.getStringList(_key(userId)) ?? const []);
+    final row = await Supabase.instance.client
+        .from('organizers')
+        .select('notification_preferences')
+        .eq('user_id', userId)
+        .maybeSingle();
+    if (row == null) {
+      throw StateError('Could not load organizer notification preferences.');
+    }
+    final preferences = row['notification_preferences'];
+    if (preferences is! Map) return <String>{};
+    return {
+      for (final entry in preferences.entries)
+        if (entry.value == false) entry.key.toString(),
+    };
   }
 
   static Future<void> setEnabled(
       String userId, String category, bool enabled) async {
-    final prefs = await SharedPreferences.getInstance();
-    final off = Set<String>.from(prefs.getStringList(_key(userId)) ?? const []);
-    if (enabled) {
-      off.remove(category);
-    } else {
-      off.add(category);
-    }
-    await prefs.setStringList(_key(userId), off.toList());
+    await Supabase.instance.client.rpc(
+      'set_organizer_notification_preference',
+      params: {'p_category': category, 'p_enabled': enabled},
+    );
   }
 }

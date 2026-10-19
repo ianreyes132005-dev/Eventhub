@@ -7,10 +7,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/app_colors.dart';
+import '../../core/friendly_error.dart';
 import '../../core/services/supabase_service.dart';
 import '../organizer/web/web_shared.dart';
 import 'admin_shared.dart';
-import 'package:eventhub/shared/utils/csv_download.dart';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Logs page — helpers
@@ -74,6 +74,8 @@ Color _logActionColor(String? action) => switch (action) {
   'rejected'            => const Color(0xFFF59E0B),
   'checked_in'          => const Color(0xFF10B981),
   'registration_rejected' => const Color(0xFFE11D48),
+  'archived'            => const Color(0xFF6366F1),
+  'unarchived'          => const Color(0xFF0EA5E9),
   _                     => kMuted,
 };
 
@@ -86,6 +88,8 @@ String _logActionLabel(String? action) => switch (action) {
   'rejected'            => 'Rejected',
   'checked_in'          => 'Checked In',
   'registration_rejected' => 'Registration Rejected',
+  'archived'            => 'Archived',
+  'unarchived'          => 'Restored from Archive',
   _                     => action?.toUpperCase() ?? '—',
 };
 
@@ -312,38 +316,6 @@ class _AdminLogsPageState extends State<AdminLogsPage>
     }).length;
   }
 
-  // ── CSV export ─────────────────────────────────────────────────────────────
-
-  void _exportLoginCsv() {
-    final sb = StringBuffer();
-    sb.writeln('Name,Identifier,Role,Platform,Login Time');
-    for (final r in _loginFiltered) {
-      final name  = (r['full_name']  as String? ?? '').replaceAll('"', '""');
-      final ident = (r['identifier'] as String? ?? '').replaceAll('"', '""');
-      final role  = r['user_role']  as String? ?? '';
-      final plat  = r['platform']   as String? ?? '';
-      final ts    = r['created_at'] as String? ?? '';
-      sb.writeln('"$name","$ident","$role","$plat","$ts"');
-    }
-    _downloadCsv(sb.toString(), 'login_logs');
-  }
-
-  void _exportEventCsv() {
-    final sb = StringBuffer();
-    sb.writeln('Event Title,Organizer,Action,Details,Time');
-    for (final r in _eventFiltered) {
-      final title  = (r['event_title']    as String? ?? '').replaceAll('"', '""');
-      final org    = (r['organizer_name'] as String? ?? '').replaceAll('"', '""');
-      final action = r['action']         as String? ?? '';
-      final detail = (r['details']       as String? ?? '').replaceAll('"', '""');
-      final ts     = r['created_at']     as String? ?? '';
-      sb.writeln('"$title","$org","$action","$detail","$ts"');
-    }
-    _downloadCsv(sb.toString(), 'event_logs');
-  }
-
-  void _downloadCsv(String content, String name) => downloadCsv(content, name);
-
   Future<void> _clearCurrentTabLogs() async {
     if (_clearingLogs) return;
 
@@ -396,26 +368,18 @@ class _AdminLogsPageState extends State<AdminLogsPage>
       if (isLoginTab) {
         await _loadLogin(silent: true);
         if (hasFilters && _loginAll.any((row) => matchingIds.contains(row['id']))) {
-          throw StateError(
-            'Supabase blocked deletion. Apply the admin_delete_login_logs policy from lib/supabase_schema.sql and retry.',
-          );
+          _blockedDeletion('admin_delete_login_logs');
         }
         if (!hasFilters && _loginAll.isNotEmpty) {
-          throw StateError(
-            'Supabase blocked deletion. Apply the admin_delete_login_logs policy from lib/supabase_schema.sql and retry.',
-          );
+          _blockedDeletion('admin_delete_login_logs');
         }
       } else {
         await _loadEvent(silent: true);
         if (hasFilters && _eventAll.any((row) => matchingIds.contains(row['id']))) {
-          throw StateError(
-            'Supabase blocked deletion. Apply the admin_delete_event_logs policy from lib/supabase_schema.sql and retry.',
-          );
+          _blockedDeletion('admin_delete_event_logs');
         }
         if (!hasFilters && _eventAll.isNotEmpty) {
-          throw StateError(
-            'Supabase blocked deletion. Apply the admin_delete_event_logs policy from lib/supabase_schema.sql and retry.',
-          );
+          _blockedDeletion('admin_delete_event_logs');
         }
       }
 
@@ -429,25 +393,25 @@ class _AdminLogsPageState extends State<AdminLogsPage>
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-            'Could not clear logs: ${e.toString().replaceFirst('Bad state: ', '').replaceFirst('Exception: ', '').trim()}',
-            style: const TextStyle(fontFamily: 'Poppins'),
-          ),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t clear the logs');
     } finally {
       if (mounted) setState(() => _clearingLogs = false);
     }
   }
 
+  // Row-level security deletes nothing (without an error) when the admin
+  // delete policy is missing — the technical hint goes to the debug log.
+  Never _blockedDeletion(String policy) {
+    debugPrint('Log deletion blocked by RLS — apply the $policy policy '
+        'from lib/supabase_schema.sql.');
+    throw const FriendlyException(
+        'The logs couldn’t be deleted because this account isn’t allowed to '
+        'delete them yet. Please contact the system administrator.');
+  }
+
   @override
   Widget build(BuildContext context) {
     final t             = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final activeTabHasFilters = _tab.index == 0 ? _hasLoginFilters : _hasEventFilters;
     final loginFiltered = _loginFiltered.length;
     final eventFiltered = _eventFiltered.length;
     final loginTotal    = _loginAll.length;
@@ -458,24 +422,14 @@ class _AdminLogsPageState extends State<AdminLogsPage>
       Container(
         color: t.card,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Title row + stat chips
+          // Title and activity counts
           Padding(
             padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
             child: Row(children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Logs',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
-                        fontWeight: FontWeight.w800, color: t.text)),
-                  const SizedBox(height: 2),
-                  Row(children: [
-                    Text(
-                      '${loginTotal + eventTotal} total entries · real-time audit trail',
-                      style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                          color: t.sub)),
-                  ]),
-                ]),
-              ),
+              Text('Logs',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
+                    fontWeight: FontWeight.w800, color: t.text)),
+              const Spacer(),
               _LogStatChip(
                 icon: Icons.login_rounded, label: 'Logins',
                 count: loginFiltered, color: const Color(0xFF0EA5E9)),
@@ -483,22 +437,6 @@ class _AdminLogsPageState extends State<AdminLogsPage>
               _LogStatChip(
                 icon: Icons.event_note_rounded, label: 'Event Actions',
                 count: eventFiltered, color: const Color(0xFF7C3AED)),
-              const SizedBox(width: 12),
-              WebBtn(
-                label: activeTabHasFilters ? 'Clear Filtered' : 'Clear Logs',
-                icon: Icons.delete_sweep_rounded,
-                onTap: _clearCurrentTabLogs,
-                small: true,
-                outlined: true,
-                color: const Color(0xFFEF4444),
-              ),
-              const SizedBox(width: 8),
-              WebBtn(
-                label: 'Export CSV',
-                icon:  Icons.download_rounded,
-                onTap: _tab.index == 0 ? _exportLoginCsv : _exportEventCsv,
-                small: true, outlined: true, color: kAdminAccent,
-              ),
             ]),
           ),
           // Filter bar — search first, period dropdown
@@ -535,21 +473,22 @@ class _AdminLogsPageState extends State<AdminLogsPage>
                   child: DropdownButton<String>(
                     value: _dateRange,
                     isDense: true,
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                        fontWeight: FontWeight.w600, color: t.text),
+                    icon: Icon(Icons.keyboard_arrow_down_rounded, size: 14,
+                        color: _dateRange != 'all' ? kAdminAccent : t.muted),
                     selectedItemBuilder: (_) => [
                       for (final (label, _) in [
                         ('Today', 'today'), ('Last 7 days', '7d'),
                         ('Last 30 days', '30d'), ('All time', 'all'),
                       ])
-                        Align(
-                          alignment: Alignment.centerLeft,
+                        Center(
                           child: Text(label,
                             style: TextStyle(
-                              fontFamily: 'Poppins', fontSize: 11,
+                              fontFamily: 'Poppins', fontSize: 11.5,
                               fontWeight: FontWeight.w600,
                               color: _dateRange != 'all' ? kAdminAccent : t.text,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                     ],
@@ -562,8 +501,17 @@ class _AdminLogsPageState extends State<AdminLogsPage>
                           value: val,
                           child: Text(
                             '$label  (${_countFor(_tab.index == 0 ? _loginAll : _eventAll, val)})',
-                            style: const TextStyle(
-                                fontFamily: 'Poppins', fontSize: 11)),
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              fontWeight: val == _dateRange
+                                  ? FontWeight.w700
+                                  : FontWeight.w400,
+                              color: val == _dateRange
+                                  ? kAdminAccent
+                                  : t.text,
+                            ),
+                          ),
                         ),
                     ],
                     onChanged: (v) { if (v != null) _setDateRange(v); },

@@ -5,8 +5,10 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/app_colors.dart';
+import '../../core/friendly_error.dart';
 import '../../core/services/supabase_service.dart';
 import '../organizer/web/web_shared.dart';
 import 'admin_shared.dart';
@@ -17,25 +19,34 @@ import 'admin_shared.dart';
 
 class AdminOrganizersPage extends StatefulWidget {
   const AdminOrganizersPage({super.key});
-  @override State<AdminOrganizersPage> createState() => _AdminOrganizersPageState();
+  @override
+  State<AdminOrganizersPage> createState() => _AdminOrganizersPageState();
 }
 
 class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
-  bool   _loading = true, _error = false;
+  bool _loading = true, _error = false;
   String _errorMsg = '';
   List<Map<String, dynamic>> _all = [], _filtered = [];
+  final Set<String> _selectedOrganizerIds = {};
+  bool _bulkWorking = false;
+  int _page = 0; // 0-based; kAdminPageSize rows per page
   Map<String, int> _eventCounts = {};
-  String _search       = '';
+  String _search = '';
   String _statusFilter = 'All';
-  String _sortField    = 'created_at';
-  bool   _sortAsc      = false;
+  String _sortField = 'created_at';
+  bool _sortAsc = false;
   final _searchCtrl = TextEditingController();
 
   RealtimeChannel? _channel;
-  Timer?           _debounce;
+  Timer? _debounce;
 
   @override
-  void initState() { super.initState(); _load(); _subscribeRealtime(); }
+  void initState() {
+    super.initState();
+    _load();
+    _subscribeRealtime();
+  }
+
   @override
   void dispose() {
     _searchCtrl.dispose();
@@ -64,44 +75,61 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
   }
 
   Future<void> _load({bool silent = false}) async {
-    if (mounted) setState(() { if (!silent) _loading = true; _error = false; });
+    if (mounted)
+      setState(() {
+        if (!silent) _loading = true;
+        _error = false;
+      });
     try {
       final results = await Future.wait([
-        SupabaseService.client.from('organizers')
-            .select('organizer_id, user_id, full_name, organization, is_active, created_at')
+        SupabaseService.client
+            .from('organizers')
+            .select() // all columns — tolerant of not-yet-run optional migrations
             .order('created_at', ascending: false),
         SupabaseService.client.from('events').select('organizer_id'),
       ]);
       if (!mounted) return;
       final organizers = List<Map<String, dynamic>>.from(results[0] as List);
-      final eventRows  = results[1] as List;
+      final eventRows = results[1] as List;
       final counts = <String, int>{};
       for (final r in eventRows) {
         final id = (r as Map<String, dynamic>)['organizer_id'] as String?;
         if (id != null) counts[id] = (counts[id] ?? 0) + 1;
       }
-      _all         = organizers;
+      _all = organizers;
       _eventCounts = counts;
-      _loading     = false;
+      _loading = false;
       _applyFilter();
     } catch (e) {
-      if (mounted) setState(() { _loading = false; _error = true; _errorMsg = e.toString(); });
+      debugPrint('Admin organizers failed to load: $e');
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _error = true;
+          _errorMsg = friendlyError(e,
+              fallback: 'The organizers couldn’t be loaded. Please try again.');
+        });
     }
   }
 
-  void _applyFilter() {
+  // resetPage: a new search / filter / sort starts from page 1. Edits,
+  // deletes and live reloads keep the current page (clamped in build).
+  void _applyFilter({bool resetPage = false}) {
+    if (resetPage) _page = 0;
     final q = _search.toLowerCase();
     var list = _all.where((o) {
-      if (_statusFilter == 'Active'    && o['is_active'] != true) return false;
-      if (_statusFilter == 'Inactive'  && o['is_active'] == true) return false;
-      if (_statusFilter == 'No Auth'   && o['user_id']  != null)  return false;
+      if (_statusFilter == 'Active' && o['is_active'] != true) return false;
+      if (_statusFilter == 'Inactive' && o['is_active'] == true) return false;
       if (_statusFilter == '0 Events' &&
-          (_eventCounts[o['organizer_id'] as String? ?? ''] ?? 0) > 0) { return false; }
+          (_eventCounts[o['organizer_id'] as String? ?? ''] ?? 0) > 0) {
+        return false;
+      }
       if (q.isNotEmpty) {
-        final name = (o['full_name']    as String? ?? '').toLowerCase();
-        final id   = (o['organizer_id'] as String? ?? '').toLowerCase();
-        final org  = (o['organization'] as String? ?? '').toLowerCase();
-        if (!name.contains(q) && !id.contains(q) && !org.contains(q)) return false;
+        final name = (o['full_name'] as String? ?? '').toLowerCase();
+        final id = (o['organizer_id'] as String? ?? '').toLowerCase();
+        final org = (o['organization'] as String? ?? '').toLowerCase();
+        if (!name.contains(q) && !id.contains(q) && !org.contains(q))
+          return false;
       }
       return true;
     }).toList();
@@ -109,9 +137,13 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
     list.sort((a, b) {
       int cmp;
       if (_sortField == 'full_name') {
-        cmp = (a['full_name'] as String? ?? '').compareTo(b['full_name'] as String? ?? '');
+        cmp = (a['full_name'] as String? ?? '').compareTo(
+          b['full_name'] as String? ?? '',
+        );
       } else if (_sortField == 'organizer_id') {
-        cmp = (a['organizer_id'] as String? ?? '').compareTo(b['organizer_id'] as String? ?? '');
+        cmp = (a['organizer_id'] as String? ?? '').compareTo(
+          b['organizer_id'] as String? ?? '',
+        );
       } else if (_sortField == 'event_count') {
         final ac = _eventCounts[a['organizer_id'] as String? ?? ''] ?? 0;
         final bc = _eventCounts[b['organizer_id'] as String? ?? ''] ?? 0;
@@ -121,12 +153,257 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
         final bi = b['is_active'] == true ? 1 : 0;
         cmp = bi.compareTo(ai);
       } else {
-        cmp = ((a['created_at'] as String?) ?? '').compareTo((b['created_at'] as String?) ?? '');
+        cmp = ((a['created_at'] as String?) ?? '').compareTo(
+          (b['created_at'] as String?) ?? '',
+        );
       }
       return _sortAsc ? cmp : -cmp;
     });
 
+    final filteredIds = list
+        .map((o) => o['organizer_id'] as String? ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    _selectedOrganizerIds.removeWhere((id) => !filteredIds.contains(id));
     setState(() => _filtered = list);
+  }
+
+  bool _allFilteredSelected(List<Map<String, dynamic>> rows) =>
+      rows.isNotEmpty &&
+      rows.every(
+        (o) =>
+            _selectedOrganizerIds.contains(o['organizer_id'] as String? ?? ''),
+      );
+
+  void _toggleOrganizerSelection(String id) {
+    setState(() {
+      if (!_selectedOrganizerIds.add(id)) _selectedOrganizerIds.remove(id);
+    });
+  }
+
+  void _toggleAllFilteredSelection(List<Map<String, dynamic>> rows) {
+    setState(() {
+      if (_allFilteredSelected(rows)) {
+        _selectedOrganizerIds.removeAll(
+          rows
+              .map((o) => o['organizer_id'] as String? ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+      } else {
+        _selectedOrganizerIds.addAll(
+          rows
+              .map((o) => o['organizer_id'] as String? ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+      }
+    });
+  }
+
+  Future<void> _bulkDeactivateOrganizers() async {
+    final ids = _selectedOrganizerIds.toList();
+    if (ids.isEmpty || _bulkWorking) return;
+
+    final ok = await WebAlert.confirm(
+      context: context,
+      title: 'Deactivate ${ids.length} Organizers?',
+      message:
+          'Selected organizers will lose access and cannot manage events. '
+          'Their profiles, events, and registrations will be kept.',
+      confirmLabel: 'Deactivate',
+      confirmColor: const Color(0xFFF59E0B),
+      iconColor: const Color(0xFFF59E0B),
+      iconBg: const Color(0xFFFFFBEB),
+      icon: Icons.person_off_outlined,
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _bulkWorking = true);
+    try {
+      final updated = await SupabaseService.client
+          .from('organizers')
+          .update({'is_active': false})
+          .in_('organizer_id', ids)
+          .select('organizer_id');
+      final updatedIds = (updated as List)
+          .map((row) => (row as Map<String, dynamic>)['organizer_id'] as String)
+          .toSet();
+      if (updatedIds.isEmpty) {
+        throw const FriendlyException(
+            'None of the selected organizers could be updated. They may have '
+            'been removed, or you don’t have permission to change them.');
+      }
+
+      for (final organizer in _all) {
+        final id = organizer['organizer_id'] as String?;
+        if (id != null && updatedIds.contains(id)) {
+          organizer['is_active'] = false;
+        }
+      }
+      _selectedOrganizerIds.removeAll(updatedIds);
+      _applyFilter();
+
+      if (mounted) {
+        final failedCount = ids.length - updatedIds.length;
+        if (failedCount == 0) {
+          await WebAlert.success(
+            context: context,
+            title: 'Organizers Deactivated',
+            message:
+                '${updatedIds.length} organizer accounts have been deactivated.',
+          );
+        } else {
+          adminErrorAlert(context,
+              FriendlyException('${updatedIds.length} organizers were deactivated, but '
+                  '$failedCount couldn’t be updated. Please try those again.'),
+              title: 'Some organizers weren’t updated', icon: SwalIcon.warning);
+        }
+      }
+    } catch (e) {
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t deactivate the organizers');
+    } finally {
+      if (mounted) setState(() => _bulkWorking = false);
+    }
+  }
+
+  Future<void> _bulkActivateOrganizers() async {
+    final ids = _selectedOrganizerIds.toList();
+    if (ids.isEmpty || _bulkWorking) return;
+
+    final ok = await WebAlert.confirm(
+      context: context,
+      title: 'Activate ${ids.length} Organizers?',
+      message: 'Selected organizers will regain access to manage events.',
+      confirmLabel: 'Activate',
+      confirmColor: const Color(0xFF10B981),
+      iconColor: const Color(0xFF10B981),
+      iconBg: const Color(0xFFECFDF5),
+      icon: Icons.person_add_outlined,
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _bulkWorking = true);
+    try {
+      final updated = await SupabaseService.client
+          .from('organizers')
+          .update({'is_active': true})
+          .in_('organizer_id', ids)
+          .select('organizer_id');
+      final updatedIds = (updated as List)
+          .map((row) => (row as Map<String, dynamic>)['organizer_id'] as String)
+          .toSet();
+      if (updatedIds.isEmpty) {
+        throw const FriendlyException(
+            'None of the selected organizers could be updated. They may have '
+            'been removed, or you don’t have permission to change them.');
+      }
+
+      for (final organizer in _all) {
+        final id = organizer['organizer_id'] as String?;
+        if (id != null && updatedIds.contains(id)) {
+          organizer['is_active'] = true;
+        }
+      }
+      _selectedOrganizerIds.removeAll(updatedIds);
+      _applyFilter();
+
+      if (mounted) {
+        final failedCount = ids.length - updatedIds.length;
+        if (failedCount == 0) {
+          await WebAlert.success(
+            context: context,
+            title: 'Organizers Activated',
+            message:
+                '${updatedIds.length} organizer accounts are active again.',
+          );
+        } else {
+          adminErrorAlert(context,
+              FriendlyException('${updatedIds.length} organizers were activated, but '
+                  '$failedCount couldn’t be updated. Please try those again.'),
+              title: 'Some organizers weren’t updated', icon: SwalIcon.warning);
+        }
+      }
+    } catch (e) {
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t activate the organizers');
+    } finally {
+      if (mounted) setState(() => _bulkWorking = false);
+    }
+  }
+
+  Future<void> _bulkDeleteOrganizers() async {
+    final ids = _selectedOrganizerIds.toList();
+    if (ids.isEmpty || _bulkWorking) return;
+
+    final totalEvents = ids.fold<int>(
+      0,
+      (total, id) => total + (_eventCounts[id] ?? 0),
+    );
+    final ok = await WebAlert.confirm(
+      context: context,
+      title: 'Delete ${ids.length} Organizers?',
+      message:
+          'This permanently removes the selected profiles and revokes '
+          'their login access. Their $totalEvents event${totalEvents == 1 ? '' : 's'} '
+          'and associated student registrations will also be deleted. '
+          'This cannot be undone.',
+      confirmLabel: 'Delete Organizers',
+      confirmColor: const Color(0xFFEF4444),
+      iconColor: const Color(0xFFEF4444),
+      iconBg: const Color(0xFFFEF2F2),
+      icon: Icons.delete_outline_rounded,
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _bulkWorking = true);
+    final deletedIds = <String>{};
+    final failures = <String>[];
+    try {
+      for (final id in ids) {
+        try {
+          final response = await SupabaseService.client.functions.invoke(
+            'delete-organizer',
+            body: {'organizer_id': id},
+          );
+          final body = response.data is Map
+              ? Map<String, dynamic>.from(response.data as Map)
+              : null;
+          if (response.status != 200) {
+            failures.add('$id: ${friendlyError(body?['message'], fallback: 'It couldn’t be deleted.')}');
+          } else {
+            deletedIds.add(id);
+          }
+        } catch (e) {
+          debugPrint('delete-organizer $id failed: $e');
+          failures.add('$id: ${friendlyError(e)}');
+        }
+      }
+
+      _all.removeWhere(
+        (o) => deletedIds.contains(o['organizer_id'] as String? ?? ''),
+      );
+      for (final id in deletedIds) {
+        _eventCounts.remove(id);
+      }
+      _selectedOrganizerIds.removeAll(deletedIds);
+      _applyFilter();
+      if (mounted) {
+        if (failures.isEmpty) {
+          await WebAlert.success(
+            context: context,
+            title: 'Organizers Deleted',
+            message:
+                '${deletedIds.length} organizer profiles, their events, and '
+                'associated student registrations have been removed.',
+          );
+        } else {
+          adminErrorAlert(context,
+              FriendlyException('${deletedIds.length} organizers were deleted, but '
+                  '${failures.length} couldn’t be and are still selected. ${failures.first}'),
+              title: 'Some organizers weren’t deleted', icon: SwalIcon.warning);
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _bulkWorking = false);
+    }
   }
 
   void _setSort(String field) {
@@ -134,55 +411,124 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
       _sortAsc = !_sortAsc;
     } else {
       _sortField = field;
-      _sortAsc   = field == 'full_name' || field == 'organizer_id' || field == 'is_active';
+      _sortAsc =
+          field == 'full_name' ||
+          field == 'organizer_id' ||
+          field == 'is_active';
     }
-    _applyFilter();
+    _applyFilter(resetPage: true);
   }
 
   Future<void> _toggleActive(String id, bool cur) async {
     final ok = await WebAlert.confirm(
-      context:      context,
-      title:        cur ? 'Deactivate Organizer?' : 'Activate Organizer?',
-      message:      cur
+      context: context,
+      title: cur ? 'Deactivate Organizer?' : 'Activate Organizer?',
+      message: cur
           ? 'This organizer will lose access and cannot manage events.'
           : 'This organizer will regain access to manage events.',
       confirmLabel: cur ? 'Deactivate' : 'Activate',
       confirmColor: cur ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
-      iconColor:    cur ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
-      iconBg:       cur ? const Color(0xFFFFFBEB) : const Color(0xFFECFDF5),
-      icon:         cur ? Icons.person_off_outlined : Icons.person_add_outlined,
+      iconColor: cur ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
+      iconBg: cur ? const Color(0xFFFFFBEB) : const Color(0xFFECFDF5),
+      icon: cur ? Icons.person_off_outlined : Icons.person_add_outlined,
     );
     if (ok != true) return;
     try {
-      final updated = await SupabaseService.client.from('organizers')
-          .update({'is_active': !cur}).eq('organizer_id', id).select();
+      final updated = await SupabaseService.client
+          .from('organizers')
+          .update({'is_active': !cur})
+          .eq('organizer_id', id)
+          .select();
       if ((updated as List).isEmpty) {
-        if (mounted) _snack('Failed: organizer not found or the update was not permitted.');
+        if (mounted) {
+          adminErrorAlert(context, _notUpdated,
+              title: cur ? 'Couldn’t deactivate the organizer' : 'Couldn’t activate the organizer');
+        }
         return;
       }
       final idx = _all.indexWhere((o) => o['organizer_id'] == id);
-      if (idx != -1) { _all[idx] = {..._all[idx], 'is_active': !cur}; _applyFilter(); }
-    } catch (e) { if (mounted) _snack('Failed: $e'); }
+      if (idx != -1) {
+        _all[idx] = {..._all[idx], 'is_active': !cur};
+        _applyFilter();
+      }
+      if (cur && mounted) {
+        await WebAlert.success(
+          context: context,
+          title: 'Organizer Deactivated',
+          message: 'The organizer can no longer access or manage events.',
+        );
+      } else if (mounted) {
+        await WebAlert.success(
+          context: context,
+          title: 'Organizer Activated',
+          message: 'The organizer can now access and manage events.',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        adminErrorAlert(context, e,
+            title: cur ? 'Couldn’t deactivate the organizer' : 'Couldn’t activate the organizer');
+      }
+    }
   }
+
+  static const _notUpdated = FriendlyException(
+      'This organizer couldn’t be updated — the account may have been removed, '
+      'or you don’t have permission to change it.');
 
   Future<void> _editOrganizer(Map<String, dynamic> org) async {
     final result = await showDialog<Map<String, dynamic>?>(
-      context: context, builder: (_) => _OrganizerDialog(
-        organizer: org,
-        eventCount: _eventCounts[org['organizer_id'] as String? ?? ''] ?? 0,
-      ));
+      context: context,
+      builder: (_) => _OrganizerDialog(organizer: org),
+    );
     if (result == null) return;
+    final newPassword = result.remove('_new_password') as String?;
     try {
-      final updated = await SupabaseService.client.from('organizers')
-          .update(result).eq('organizer_id', org['organizer_id'] as String).select();
+      final updated = await SupabaseService.client
+          .from('organizers')
+          .update(result)
+          .eq('organizer_id', org['organizer_id'] as String)
+          .select();
       if ((updated as List).isEmpty) {
-        if (mounted) _snack('Failed: organizer not found or the update was not permitted.');
+        if (mounted) adminErrorAlert(context, _notUpdated, title: 'Couldn’t save the organizer');
         return;
       }
-      final idx = _all.indexWhere((o) => o['organizer_id'] == org['organizer_id']);
-      if (idx != -1) { _all[idx] = {..._all[idx], ...result}; _applyFilter(); }
-      if (mounted) WebAlert.success(context: context, title: 'Saved', message: 'Organizer profile updated.');
-    } catch (e) { if (mounted) _snack('Failed: $e'); }
+      final idx = _all.indexWhere(
+        (o) => o['organizer_id'] == org['organizer_id'],
+      );
+      if (idx != -1) {
+        _all[idx] = {..._all[idx], ...result};
+        _applyFilter();
+      }
+
+      if (newPassword != null) {
+        final err = await adminResetPassword(
+          role: 'organizer',
+          id: org['organizer_id'] as String,
+          password: newPassword,
+        );
+        if (err != null) {
+          if (mounted) {
+            adminErrorAlert(context,
+                FriendlyException('The profile was saved, but the password wasn’t reset. $err'),
+                title: 'Password not reset', icon: SwalIcon.warning);
+          }
+          return;
+        }
+      }
+      if (mounted) {
+        WebAlert.success(
+          context: context,
+          title: 'Saved',
+          message: newPassword == null
+              ? 'Organizer profile updated.'
+              : 'Profile updated and password reset. Share the new password '
+                    'with ${result['full_name'] ?? 'the organizer'}.',
+        );
+      }
+    } catch (e) {
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t save the organizer');
+    }
   }
 
   Future<void> _addOrganizer() async {
@@ -197,8 +543,9 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
         onCreate: (data) async {
           try {
             createdName = data['full_name'] as String?;
-            final password     = data['password'] as String;
-            final organizerData = Map<String, dynamic>.from(data)..remove('password');
+            final password = data['password'] as String;
+            final organizerData = Map<String, dynamic>.from(data)
+              ..remove('password');
             final res = await SupabaseService.client.functions.invoke(
               'create-organizer',
               body: {...organizerData, 'password': password},
@@ -207,11 +554,14 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
                 ? Map<String, dynamic>.from(res.data as Map)
                 : null;
             if (res.status != 200) {
-              return body?['message'] as String? ?? 'Failed to create account.';
+              return friendlyError(body?['message'],
+                  fallback: 'The account couldn’t be created. Please try again.');
             }
             return null; // success
           } catch (e) {
-            return 'Failed: $e';
+            debugPrint('create-organizer failed: $e');
+            return friendlyError(e,
+                fallback: 'The account couldn’t be created. Please try again.');
           }
         },
       ),
@@ -222,21 +572,27 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
       WebAlert.success(
         context: context,
         title: 'Account Created',
-        message: 'Organizer account for ${createdName ?? 'organizer'} has been created.',
+        message:
+            'Organizer account for ${createdName ?? 'organizer'} has been created.',
       );
     }
   }
 
   Future<String> _nextOrgId() async {
     try {
-      final rows = await SupabaseService.client.from('organizers')
-          .select('organizer_id').order('organizer_id', ascending: false).limit(1);
+      final rows = await SupabaseService.client
+          .from('organizers')
+          .select('organizer_id')
+          .order('organizer_id', ascending: false)
+          .limit(1);
       final list = rows as List;
       if (list.isEmpty) return 'Org0001';
       final last = list.first['organizer_id'] as String? ?? 'Org0000';
-      final num  = int.tryParse(last.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      final num = int.tryParse(last.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
       return 'Org${(num + 1).toString().padLeft(4, '0')}';
-    } catch (_) { return 'Org0001'; }
+    } catch (_) {
+      return 'Org0001';
+    }
   }
 
   Future<void> _deleteOrganizer(String id, String name) async {
@@ -245,7 +601,8 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
         ? 'This will permanently delete $name\'s profile, their $eventCount event${eventCount == 1 ? '' : 's'}, and all student registrations for those events.'
         : 'This will permanently remove $name\'s profile and their account link.';
     final ok = await WebAlert.confirm(
-      context: context, title: 'Delete Organizer?',
+      context: context,
+      title: 'Delete Organizer?',
       message: message,
       confirmLabel: 'Delete',
     );
@@ -255,244 +612,422 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
         'delete-organizer',
         body: {'organizer_id': id},
       );
-      final body = res.data is Map ? Map<String, dynamic>.from(res.data as Map) : null;
+      final body = res.data is Map
+          ? Map<String, dynamic>.from(res.data as Map)
+          : null;
       if (res.status != 200) {
-        if (mounted) _snack(body?['message'] as String? ?? 'Failed to delete organizer.');
+        if (mounted) {
+          adminErrorAlert(context, body?['message'],
+              title: 'Couldn’t delete the organizer',
+              fallback: 'The organizer couldn’t be deleted. Please try again.');
+        }
         return;
       }
       _all.removeWhere((o) => o['organizer_id'] == id);
       _eventCounts.remove(id);
       _applyFilter();
-      if (mounted) WebAlert.success(context: context, title: 'Deleted',
-          message: 'Organizer removed and login access revoked.');
-    } catch (e) { if (mounted) _snack('Failed: $e'); }
+      if (mounted)
+        WebAlert.success(
+          context: context,
+          title: 'Deleted',
+          message: 'Organizer removed and login access revoked.',
+        );
+    } catch (e) {
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t delete the organizer');
+    }
   }
-
-  void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(msg, style: const TextStyle(fontFamily: 'Poppins')),
-        backgroundColor: const Color(0xFFEF4444)));
 
   @override
   Widget build(BuildContext context) {
-    final t             = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final totalCount    = _all.length;
-    final activeCount   = _all.where((o) => o['is_active'] == true).length;
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final totalCount = _all.length;
+    final activeCount = _all.where((o) => o['is_active'] == true).length;
     final inactiveCount = totalCount - activeCount;
-    final noAuthCount   = _all.where((o) => o['user_id'] == null).length;
-    final noEventsCount = _all.where((o) =>
-        (_eventCounts[o['organizer_id'] as String? ?? ''] ?? 0) == 0).length;
-    final hasFilter     = _search.isNotEmpty || _statusFilter != 'All';
-    final filterDesc    = [
+    final noEventsCount = _all
+        .where(
+          (o) => (_eventCounts[o['organizer_id'] as String? ?? ''] ?? 0) == 0,
+        )
+        .length;
+    final hasFilter = _search.isNotEmpty || _statusFilter != 'All';
+    // Current page (clamped — a delete or filter can shrink the list).
+    final pageCount = _filtered.isEmpty
+        ? 1
+        : (_filtered.length + kAdminPageSize - 1) ~/ kAdminPageSize;
+    final page = _page.clamp(0, pageCount - 1);
+    final pageRows = _filtered
+        .skip(page * kAdminPageSize)
+        .take(kAdminPageSize)
+        .toList();
+    final filterDesc = [
       if (_statusFilter != 'All') _statusFilter,
-      if (_search.isNotEmpty)     '"$_search"',
+      if (_search.isNotEmpty) '"$_search"',
     ].join(' · ');
     final emptySubtitle = filterDesc.isEmpty
         ? 'Add your first organizer to get started.'
         : 'No organizers match $filterDesc.';
 
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: kAdminAccent));
+      return const Center(
+        child: CircularProgressIndicator(color: kAdminAccent),
+      );
     }
     if (_error) {
       return AdminErrorState(message: _errorMsg, onRetry: _load);
     }
 
     return SingleChildScrollView(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // ── Page header ───────────────────────────────────────────────────
-      Container(
-        padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
-        color: t.card,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Organizers',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
-                    fontWeight: FontWeight.w800, color: t.text)),
-              const SizedBox(height: 2),
-              Text('$totalCount total · $activeCount active · $noAuthCount unlinked',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub)),
-            ])),
-            WebBtn(label: 'Add Organizer', icon: Icons.add_rounded, onTap: _addOrganizer),
-          ]),
-          const SizedBox(height: 16),
-          // ── Stat tiles ────────────────────────────────────────────────
-          Row(children: [
-            AdminStatCard(label: 'Total Organizers', value: '$totalCount',
-                color: kGold, icon: Icons.badge_rounded),
-            const SizedBox(width: 10),
-            AdminStatCard(label: 'Active', value: '$activeCount',
-                color: const Color(0xFF10B981), icon: Icons.check_circle_rounded),
-            const SizedBox(width: 10),
-            AdminStatCard(
-              label: 'Inactive',
-              value: '$inactiveCount',
-              color: inactiveCount > 0 ? t.muted : const Color(0xFF10B981),
-              icon: Icons.person_off_outlined,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Page header ───────────────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
+            color: t.card,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Organizers',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              color: t.text,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                        ],
+                      ),
+                    ),
+                    WebBtn(
+                      label: 'Add Organizer',
+                      icon: Icons.add_rounded,
+                      onTap: _addOrganizer,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
             ),
-            const SizedBox(width: 10),
-            AdminStatCard(
-              label: 'No Auth',
-              value: '$noAuthCount',
-              color: noAuthCount > 0 ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
-              icon: Icons.warning_amber_rounded,
+          ),
+          // ── Filter bar ───────────────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
+            decoration: BoxDecoration(
+              color: t.inputBg,
+              border: Border(bottom: BorderSide(color: t.border)),
             ),
-            const SizedBox(width: 10),
-            AdminStatCard(
-              label: 'No Events',
-              value: '$noEventsCount',
-              color: noEventsCount > 0 ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
-              icon: Icons.event_busy_rounded,
+            child: Row(
+              children: [
+                WebSearchField(
+                  controller: _searchCtrl,
+                  hint: 'Search name, ID, or org…',
+                  onChanged: (v) {
+                    _search = v;
+                    _applyFilter(resetPage: true);
+                  },
+                  width: 200,
+                ),
+                const SizedBox(width: 14),
+                Container(width: 1, height: 18, color: t.border),
+                const SizedBox(width: 14),
+                Text(
+                  'Status:',
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: t.text,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                for (final f in ['All', 'Active', 'Inactive', '0 Events']) ...[
+                  WebFilterChip(
+                    label: f,
+                    selected: _statusFilter == f,
+                    onTap: () {
+                      _statusFilter = f;
+                      _applyFilter(resetPage: true);
+                    },
+                    count: f == 'All'
+                        ? totalCount
+                        : f == 'Active'
+                        ? activeCount
+                        : f == 'Inactive'
+                        ? inactiveCount
+                        : noEventsCount,
+                    selectedColor: f == '0 Events'
+                        ? kAdminAccent
+                        : f == 'Inactive'
+                        ? t.muted
+                        : f == 'Active'
+                        ? const Color(0xFF10B981)
+                        : kGold,
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                if (hasFilter) ...[
+                  const Spacer(),
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTap: () {
+                        _search = '';
+                        _statusFilter = 'All';
+                        _searchCtrl.clear();
+                        _applyFilter(resetPage: true);
+                      },
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.close_rounded, size: 13, color: t.muted),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Clear filters',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: t.muted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ]),
-        ]),
+          ),
+          // ── Body ─────────────────────────────────────────────────────────
+          if (_filtered.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(kWebPad),
+              child: WebEmptyState(
+                icon: Icons.badge_outlined,
+                title: 'No organizers found',
+                subtitle: emptySubtitle,
+                action: hasFilter
+                    ? TextButton(
+                        onPressed: () {
+                          _search = '';
+                          _statusFilter = 'All';
+                          _searchCtrl.clear();
+                          _applyFilter(resetPage: true);
+                        },
+                        child: const Text(
+                          'Clear all filters',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontWeight: FontWeight.w600,
+                            color: kAdminAccent,
+                          ),
+                        ),
+                      )
+                    : null,
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.all(kWebPad),
+              child: WebCard(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    if (_selectedOrganizerIds.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: kAdminAccent.withValues(alpha: 0.06),
+                          border: Border(bottom: BorderSide(color: t.border)),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${_selectedOrganizerIds.length} selected from '
+                                '${_filtered.length} filtered organizers',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: t.text,
+                                ),
+                              ),
+                            ),
+                            _OrganizerBulkActionButton(
+                              label: 'Deactivate',
+                              icon: Icons.person_off_outlined,
+                              backgroundColor: const Color(0xFFFFF4CC),
+                              foregroundColor: const Color(0xFF9A6700),
+                              onTap: _bulkWorking
+                                  ? () {}
+                                  : _bulkDeactivateOrganizers,
+                            ),
+                            const SizedBox(width: 8),
+                            _OrganizerBulkActionButton(
+                              label: 'Activate',
+                              icon: Icons.person_add_outlined,
+                              backgroundColor: const Color(0xFFE4F8EE),
+                              foregroundColor: const Color(0xFF087443),
+                              onTap: _bulkWorking
+                                  ? () {}
+                                  : _bulkActivateOrganizers,
+                            ),
+                            const SizedBox(width: 8),
+                            _OrganizerBulkActionButton(
+                              label: 'Delete',
+                              icon: Icons.delete_outline_rounded,
+                              backgroundColor: const Color(0xFFFFE4E4),
+                              foregroundColor: const Color(0xFFB42318),
+                              onTap: _bulkWorking
+                                  ? () {}
+                                  : _bulkDeleteOrganizers,
+                            ),
+                            const SizedBox(width: 8),
+                            TextButton(
+                              onPressed: _bulkWorking
+                                  ? null
+                                  : () => setState(_selectedOrganizerIds.clear),
+                              child: Text(
+                                'Clear',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 12,
+                                  color: t.sub,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    _OrganizerTableHeader(
+                      sortField: _sortField,
+                      sortAsc: _sortAsc,
+                      onSort: _setSort,
+                      allSelected: _allFilteredSelected(_filtered),
+                      onToggleAll: () => _toggleAllFilteredSelection(_filtered),
+                    ),
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: pageRows.length,
+                      separatorBuilder: (_, _) =>
+                          Divider(height: 1, color: t.border),
+                      itemBuilder: (_, i) {
+                        final o = pageRows[i];
+                        final id = o['organizer_id'] as String? ?? '';
+                        return _OrganizerRow(
+                          org: o,
+                          eventCount: _eventCounts[id] ?? 0,
+                          selected: _selectedOrganizerIds.contains(id),
+                          onSelect: () => _toggleOrganizerSelection(id),
+                          onEdit: () => _editOrganizer(o),
+                          onToggle: () =>
+                              _toggleActive(id, o['is_active'] == true),
+                          onDelete: () => _deleteOrganizer(
+                            id,
+                            o['full_name'] as String? ?? '',
+                          ),
+                        );
+                      },
+                    ),
+                    AdminPaginationBar(
+                      page: page,
+                      total: _filtered.length,
+                      unfiltered: hasFilter ? totalCount : null,
+                      noun: 'organizers',
+                      onPage: (p) => setState(() => _page = p),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
-      // ── Filter bar ───────────────────────────────────────────────────
-      Container(
-        padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
-        decoration: BoxDecoration(
-          color: t.inputBg,
-          border: Border(bottom: BorderSide(color: t.border)),
-        ),
-        child: Row(children: [
-          WebSearchField(
-            controller: _searchCtrl, hint: 'Search name, ID, or org…',
-            onChanged: (v) { _search = v; _applyFilter(); }, width: 200),
-          const SizedBox(width: 14),
-          Container(width: 1, height: 18, color: t.border),
-          const SizedBox(width: 14),
-          Text('Status:',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w600, color: t.text)),
-          const SizedBox(width: 8),
-          for (final f in ['All', 'Active', 'Inactive', 'No Auth', '0 Events']) ...[
-            WebFilterChip(
-              label: f, selected: _statusFilter == f,
-              onTap: () { _statusFilter = f; _applyFilter(); },
-              count: f == 'All'       ? totalCount
-                   : f == 'Active'    ? activeCount
-                   : f == 'Inactive'  ? inactiveCount
-                   : f == 'No Auth'   ? noAuthCount
-                   :                    noEventsCount,
-              selectedColor: f == 'No Auth'   ? const Color(0xFFF59E0B)
-                           : f == '0 Events'  ? kAdminAccent
-                           : f == 'Inactive'  ? t.muted
-                           : f == 'Active'    ? const Color(0xFF10B981)
-                           :                    kGold,
-            ),
+    );
+  }
+}
+
+class _OrganizerBulkActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final VoidCallback onTap;
+
+  const _OrganizerBulkActionButton({
+    required this.label,
+    required this.icon,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: backgroundColor,
+    borderRadius: BorderRadius.circular(9),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(9),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: foregroundColor),
             const SizedBox(width: 6),
-          ],
-          if (hasFilter) ...[
-            const Spacer(),
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: () {
-                  _search = ''; _statusFilter = 'All';
-                  _searchCtrl.clear();
-                  _applyFilter();
-                },
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.close_rounded, size: 13, color: t.muted),
-                  const SizedBox(width: 4),
-                  Text('Clear filters', style: TextStyle(fontFamily: 'Poppins',
-                      fontSize: 11.5, fontWeight: FontWeight.w600, color: t.muted)),
-                ]),
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: foregroundColor,
               ),
             ),
           ],
-        ]),
+        ),
       ),
-      // ── Body ─────────────────────────────────────────────────────────
-        if (_filtered.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(kWebPad),
-            child: WebEmptyState(
-              icon: Icons.badge_outlined,
-              title: 'No organizers found',
-              subtitle: emptySubtitle,
-              action: hasFilter
-                  ? TextButton(
-                      onPressed: () {
-                        _search = ''; _statusFilter = 'All';
-                        _searchCtrl.clear();
-                        _applyFilter();
-                      },
-                      child: const Text('Clear all filters',
-                        style: TextStyle(fontFamily: 'Poppins',
-                            fontWeight: FontWeight.w600, color: kAdminAccent)))
-                  : null),
-          )
-        else
-          Padding(
-            padding: const EdgeInsets.all(kWebPad),
-            child: WebCard(
-              padding: EdgeInsets.zero,
-              child: Column(children: [
-                _OrganizerTableHeader(
-                  sortField: _sortField,
-                  sortAsc:   _sortAsc,
-                  onSort:    _setSort,
-                ),
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _filtered.length,
-                  separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
-                  itemBuilder: (_, i) {
-                    final o  = _filtered[i];
-                    final id = o['organizer_id'] as String? ?? '';
-                    return _OrganizerRow(
-                      org:        o,
-                      eventCount: _eventCounts[id] ?? 0,
-                      onEdit:   () => _editOrganizer(o),
-                      onToggle: () => _toggleActive(id, o['is_active'] == true),
-                      onDelete: () => _deleteOrganizer(id, o['full_name'] as String? ?? ''),
-                    );
-                  },
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: t.border))),
-                  child: Text(
-                    hasFilter
-                        ? 'Showing ${_filtered.length} of $totalCount organizers'
-                        : '${_filtered.length} organizers total',
-                    style: TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11.5, color: t.muted)),
-                ),
-              ]),
-            ),
-          ),
-      ]),
-    );
-  }
+    ),
+  );
 }
 
 // ─── Sortable table header for Organizers ──────────────────────────────────
 
 class _OrganizerTableHeader extends StatelessWidget {
   final String sortField;
-  final bool   sortAsc;
+  final bool sortAsc;
+  final bool allSelected;
   final void Function(String) onSort;
+  final VoidCallback onToggleAll;
   const _OrganizerTableHeader({
-    required this.sortField, required this.sortAsc, required this.onSort});
+    required this.sortField,
+    required this.sortAsc,
+    required this.onSort,
+    required this.allSelected,
+    required this.onToggleAll,
+  });
 
   Widget _sortCol(String label, String field, {int flex = 1}) => Expanded(
     flex: flex,
     child: AdminSortColBtn(
-      label: label, field: field,
+      label: label,
+      field: field,
       active: sortField == field,
-      asc:    sortAsc && sortField == field,
+      asc: sortAsc && sortField == field,
       onSort: onSort,
     ),
-  );
-
-  Widget _staticCol(String label, Color subColor, {int flex = 1}) => Expanded(
-    flex: flex,
-    child: Text(label, style: TextStyle(fontFamily: 'Poppins',
-        fontSize: 10.5, fontWeight: FontWeight.w700, color: subColor, letterSpacing: 0.8)),
   );
 
   @override
@@ -504,176 +1039,324 @@ class _OrganizerTableHeader extends StatelessWidget {
         color: t.bg,
         border: Border(bottom: BorderSide(color: t.border)),
       ),
-      child: Row(children: [
-        const SizedBox(width: 52),
-        _sortCol('FULL NAME',  'full_name',    flex: 3),
-        _sortCol('ORG ID',     'organizer_id'),
-        _sortCol('EVENTS',     'event_count'),
-        _sortCol('STATUS',     'is_active'),
-        _staticCol('AUTH', t.sub),
-        _sortCol('CREATED',    'created_at',   flex: 2),
-        const SizedBox(width: 108),
-      ]),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 32,
+            child: Tooltip(
+              message: 'Select all filtered organizers',
+              child: Checkbox(
+                value: allSelected,
+                onChanged: (_) => onToggleAll(),
+                activeColor: kAdminAccent,
+                side: BorderSide(color: t.muted.withValues(alpha: 0.55)),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          _sortCol('FULL NAME', 'full_name', flex: 3),
+          _sortCol('ORG ID', 'organizer_id'),
+          _sortCol('EVENTS', 'event_count'),
+          _sortCol('STATUS', 'is_active'),
+          _sortCol('CREATED', 'created_at', flex: 2),
+          // Same width as the row's 3 action buttons (3×32 + 2×6 gaps), so
+          // centring it puts it over the middle (Activate/Deactivate) button.
+          SizedBox(
+            width: 108,
+            child: Text(
+              'ACTIONS',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: t.sub,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _OrganizerRow extends StatefulWidget {
   final Map<String, dynamic> org;
-  final int          eventCount;
+  final int eventCount;
+  final bool selected;
+  final VoidCallback onSelect;
   final VoidCallback onEdit, onToggle, onDelete;
   const _OrganizerRow({
-    required this.org, required this.eventCount,
-    required this.onEdit, required this.onToggle, required this.onDelete});
-  @override State<_OrganizerRow> createState() => _OrganizerRowState();
+    required this.org,
+    required this.eventCount,
+    required this.selected,
+    required this.onSelect,
+    required this.onEdit,
+    required this.onToggle,
+    required this.onDelete,
+  });
+  @override
+  State<_OrganizerRow> createState() => _OrganizerRowState();
 }
+
 class _OrganizerRowState extends State<_OrganizerRow> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
-    final t           = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final o           = widget.org;
-    final active      = o['is_active'] == true;
-    final linked      = o['user_id'] != null;
-    final orgName     = o['organization'] as String?;
-    final orgId       = o['organizer_id'] as String? ?? '—';
-    final initials    = (o['full_name'] as String? ?? '?').trim().split(' ')
-        .where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase()).take(2).join();
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final o = widget.org;
+    final active = o['is_active'] == true;
+    final orgName = o['organization'] as String?;
+    final orgId = o['organizer_id'] as String? ?? '—';
+    final initials = (o['full_name'] as String? ?? '?')
+        .trim()
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase())
+        .take(2)
+        .join();
     final avatarColor = active ? kGold : t.muted;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _h = true),
-      onExit:  (_) => setState(() => _h = false),
+      onExit: (_) => setState(() => _h = false),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
         color: _h ? kGold.withValues(alpha: 0.04) : Colors.transparent,
         child: IntrinsicHeight(
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Container(width: 3, color: active ? Colors.transparent : t.muted.withValues(alpha: 0.30)),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Row(children: [
-                  // Avatar
-                  Container(
-                    width: 40, height: 40,
-                    decoration: BoxDecoration(
-                      color: avatarColor.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: avatarColor.withValues(alpha: 0.22)),
-                    ),
-                    child: Center(child: Text(initials,
-                      style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: avatarColor.withValues(alpha: active ? 1.0 : 0.55)))),
-                  ),
-                  const SizedBox(width: 12),
-                  // Name + organization + auth warning
-                  Expanded(flex: 3, child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(o['full_name'] as String? ?? '—',
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                            fontWeight: FontWeight.w600, color: active ? t.text : t.muted),
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                      if (orgName != null && orgName.isNotEmpty)
-                        Text(orgName,
-                          style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
-                              color: t.sub),
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                      if (!linked)
-                        const Text('No auth account',
-                          style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                              color: Color(0xFFF59E0B), fontWeight: FontWeight.w600)),
-                    ],
-                  )),
-                  // Org ID — gold-tinted badge, hugs content
-                  Expanded(child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: kGold.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: kGold.withValues(alpha: 0.22)),
-                      ),
-                      child: Text(orgId,
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: kGold.withValues(alpha: 0.90), letterSpacing: 0.4),
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                    ),
-                  )),
-                  // Events count
-                  Expanded(child: widget.eventCount > 0
-                    ? Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: kGold.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.event_rounded, size: 11,
-                              color: kGold.withValues(alpha: 0.80)),
-                          const SizedBox(width: 4),
-                          Text('${widget.eventCount}',
-                            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
-                                color: kGold.withValues(alpha: 0.90))),
-                        ]))
-                    : Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: t.muted.withValues(alpha: 0.07),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text('0', style: TextStyle(fontFamily: 'Poppins',
-                            fontSize: 11, fontWeight: FontWeight.w500, color: t.muted)))),
-                  // Status badge
-                  Expanded(child: WebStatusBadge(
-                    label: active ? 'Active' : 'Inactive',
-                    color: active ? const Color(0xFF10B981) : t.muted)),
-                  // Account link status
-                  Expanded(child: Row(children: [
-                    Container(width: 7, height: 7,
-                        decoration: BoxDecoration(
-                          color: linked ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-                          shape: BoxShape.circle)),
-                    const SizedBox(width: 6),
-                    Text(linked ? 'Linked' : 'No account',
-                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                          fontWeight: linked ? FontWeight.w400 : FontWeight.w600,
-                          color: linked ? const Color(0xFF10B981) : const Color(0xFFF59E0B))),
-                  ])),
-                  // Created date
-                  Expanded(flex: 2, child: Text(webFmtDate(o['created_at'] as String?),
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted))),
-                  // Actions — fade in on row hover
-                  AnimatedOpacity(
-                    opacity: _h ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 150),
-                    child: SizedBox(
-                      width: 108,
-                      child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                        AdminActBtn(icon: Icons.edit_outlined,
-                            color: kAdminAccent, tip: 'Edit', onTap: widget.onEdit),
-                        const SizedBox(width: 6),
-                        AdminActBtn(
-                          icon:  active ? Icons.person_off_outlined : Icons.person_add_outlined,
-                          color: active ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
-                          tip:   active ? 'Deactivate' : 'Activate',
-                          onTap: widget.onToggle),
-                        const SizedBox(width: 6),
-                        AdminActBtn(icon: Icons.delete_outline_rounded,
-                            color: const Color(0xFFEF4444), tip: 'Delete', onTap: widget.onDelete),
-                      ]),
-                    ),
-                  ),
-                ]),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                width: 3,
+                color: active
+                    ? Colors.transparent
+                    : t.muted.withValues(alpha: 0.30),
               ),
-            ),
-          ]),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 32,
+                        child: Checkbox(
+                          value: widget.selected,
+                          onChanged: (_) => widget.onSelect(),
+                          activeColor: kAdminAccent,
+                          side: BorderSide(
+                            color: t.muted.withValues(alpha: 0.55),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Avatar
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: avatarColor.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: avatarColor.withValues(alpha: 0.22),
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            initials,
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: avatarColor.withValues(
+                                alpha: active ? 1.0 : 0.55,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Name + organization + auth warning
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              o['full_name'] as String? ?? '—',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: active ? t.text : t.muted,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (orgName != null && orgName.isNotEmpty)
+                              Text(
+                                orgName,
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 10.5,
+                                  color: t.sub,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                          ],
+                        ),
+                      ),
+                      // Org ID — gold-tinted badge, hugs content
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: kGold.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: kGold.withValues(alpha: 0.22),
+                              ),
+                            ),
+                            child: Text(
+                              orgId,
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: kGold.withValues(alpha: 0.90),
+                                letterSpacing: 0.4,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Events count
+                      Expanded(
+                        child: widget.eventCount > 0
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: kGold.withValues(alpha: 0.10),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.event_rounded,
+                                      size: 11,
+                                      color: kGold.withValues(alpha: 0.80),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${widget.eventCount}',
+                                      style: TextStyle(
+                                        fontFamily: 'Poppins',
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: kGold.withValues(alpha: 0.90),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: t.muted.withValues(alpha: 0.07),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  '0',
+                                  style: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    color: t.muted,
+                                  ),
+                                ),
+                              ),
+                      ),
+                      // Status badge
+                      Expanded(
+                        child: WebStatusBadge(
+                          label: active ? 'Active' : 'Inactive',
+                          color: active ? const Color(0xFF10B981) : t.muted,
+                        ),
+                      ),
+                      // Created date
+                      Expanded(
+                        flex: 2,
+                        child: Text(
+                          webFmtDate(o['created_at'] as String?),
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 11.5,
+                            color: t.muted,
+                          ),
+                        ),
+                      ),
+                      // Actions — always visible so they're discoverable without
+                      // hovering (and never focusable/clickable while invisible).
+                      SizedBox(
+                        width: 108,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            AdminActBtn(
+                              icon: Icons.edit_outlined,
+                              color: kAdminAccent,
+                              tip: 'Edit',
+                              onTap: widget.onEdit,
+                            ),
+                            const SizedBox(width: 6),
+                            AdminActBtn(
+                              icon: active
+                                  ? Icons.person_off_outlined
+                                  : Icons.person_add_outlined,
+                              color: active
+                                  ? const Color(0xFFF59E0B)
+                                  : const Color(0xFF10B981),
+                              tip: active ? 'Deactivate' : 'Activate',
+                              onTap: widget.onToggle,
+                            ),
+                            const SizedBox(width: 6),
+                            AdminActBtn(
+                              icon: Icons.delete_outline_rounded,
+                              color: const Color(0xFFEF4444),
+                              tip: 'Delete',
+                              onTap: widget.onDelete,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -681,83 +1364,147 @@ class _OrganizerRowState extends State<_OrganizerRow> {
 }
 
 // ─── Organizer dialog ──────────────────────────────────────────────────────
+// Mirrors the Student dialog so the two complement each other: same accent,
+// same subtitle style and the same section rhythm (Organizer · Affiliation ·
+// Login), labels above fields, errors inline.
+//   • Organizer ID: "Org" is a fixed prefix; the admin types (or keeps the
+//     pre-filled next free) 4 digits. The login username is shown right under it.
+//   • Password: one visible field + Generate — the admin hands it over and
+//     there is no self-service reset.
 
 class _OrganizerDialog extends StatefulWidget {
   final Map<String, dynamic>? organizer;
-  final String?               suggestedId;
-  final int                   eventCount;
+  final String? suggestedId;
   // For add mode only: returns an error message on failure, null on success.
   final Future<String?> Function(Map<String, dynamic>)? onCreate;
   const _OrganizerDialog({
     required this.organizer,
     this.suggestedId,
-    this.eventCount = 0,
     this.onCreate,
   });
-  @override State<_OrganizerDialog> createState() => _OrganizerDialogState();
+  @override
+  State<_OrganizerDialog> createState() => _OrganizerDialogState();
 }
+
 class _OrganizerDialogState extends State<_OrganizerDialog>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
-  late final Animation<double>   _scale, _fade;
-  final _idCtrl         = TextEditingController();
-  final _nameCtrl       = TextEditingController();
-  final _orgCtrl        = TextEditingController();
-  final _pwCtrl         = TextEditingController();
-  final _confirmPwCtrl  = TextEditingController();
-  bool  _pwHidden        = true;
-  bool  _confirmPwHidden = true;
-  bool  _saving          = false;
+  late final Animation<double> _scale, _fade;
+  final _idCtrl = TextEditingController(); // 4 digits after "Org"
+  final _lastCtrl = TextEditingController();
+  final _firstCtrl = TextEditingController();
+  // True when an older organizer (saved before name parts existed) was split
+  // from full_name by guesswork — the admin is asked to double-check it.
+  bool _nameGuessed = false;
+  final _orgCtrl = TextEditingController();
+  final _pwCtrl = TextEditingController();
+  bool _pwHidden = false; // visible: admin must share it
+  bool _saving = false;
+  bool _resetPw = false; // edit mode: "Reset password" opened
+  String _suggestedDigits = '';
+  Map<String, String> _errors = {};
+
 
   bool get _isEdit => widget.organizer != null;
+  // Edit mode: only accounts with a login have a password to reset.
+  bool get _hasLogin => widget.organizer?['user_id'] != null;
+
+  static String _digitsOf(String? id) =>
+      (id ?? '').replaceAll(RegExp(r'\D'), '');
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 260));
-    _scale = Tween<double>(begin: 0.87, end: 1.0)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack));
-    _fade  = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+    _scale = Tween<double>(
+      begin: 0.94,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
     _ctrl.forward();
     if (_isEdit) {
-      _idCtrl.text   = widget.organizer!['organizer_id'] as String? ?? '';
-      _nameCtrl.text = widget.organizer!['full_name']    as String? ?? '';
-      _orgCtrl.text  = widget.organizer!['organization'] as String? ?? '';
-    } else if (widget.suggestedId != null) {
-      _idCtrl.text = widget.suggestedId!;
+      final o = widget.organizer!;
+      final first = (o['first_name'] as String? ?? '').trim();
+      final last = (o['last_name'] as String? ?? '').trim();
+      if (first.isNotEmpty && last.isNotEmpty) {
+        _firstCtrl.text = first;
+        _lastCtrl.text = last;
+      } else {
+        // Best guess for older rows: last word = last name, rest = first name.
+        final words = (o['full_name'] as String? ?? '')
+            .trim()
+            .split(RegExp(r'\s+'))
+            .where((w) => w.isNotEmpty)
+            .toList();
+        if (words.length >= 2) {
+          _lastCtrl.text = words.last;
+          _firstCtrl.text = words.sublist(0, words.length - 1).join(' ');
+          _nameGuessed = true;
+        } else if (words.length == 1) {
+          _firstCtrl.text = words.first;
+          _nameGuessed = true;
+        }
+      }
+      _orgCtrl.text = widget.organizer!['organization'] as String? ?? '';
+    } else {
+      final d = _digitsOf(widget.suggestedId);
+      _suggestedDigits = d.length == 4 ? d : '';
+      _idCtrl.text = _suggestedDigits;
     }
   }
 
   @override
   void dispose() {
     _ctrl.dispose();
-    _idCtrl.dispose(); _nameCtrl.dispose(); _orgCtrl.dispose();
-    _pwCtrl.dispose(); _confirmPwCtrl.dispose();
+    _idCtrl.dispose();
+    _lastCtrl.dispose();
+    _firstCtrl.dispose();
+    _orgCtrl.dispose();
+    _pwCtrl.dispose();
     super.dispose();
   }
 
+  // ── Validation / submit ────────────────────────────────────────────────────
+
+  Map<String, String> _validate() => {
+    if (!_isEdit && _idCtrl.text.length != 4)
+      'id': 'Enter 4 digits (e.g. 0004)',
+    if (_lastCtrl.text.trim().isEmpty) 'last': 'Last name is required',
+    if (_firstCtrl.text.trim().isEmpty) 'first': 'First name is required',
+    if ((!_isEdit || _resetPw) && _pwCtrl.text.length < 6)
+      'password': 'Use at least 6 characters',
+  };
+
+  void _clearError(String key) {
+    if (_errors.containsKey(key)) setState(() => _errors.remove(key));
+  }
+
   Future<void> _submit() async {
-    final rawId = _idCtrl.text.trim();
-    final name  = _nameCtrl.text.trim();
-    final org   = _orgCtrl.text.trim();
-    final pw    = _pwCtrl.text;
-    if (!_isEdit && !RegExp(r'^Org\d{4}$', caseSensitive: false).hasMatch(rawId)) {
-      _snack('ID must be Org followed by 4 digits (e.g. Org0001)'); return;
-    }
-    // Normalize to consistent Org#### casing regardless of what user typed
-    final id = 'Org${rawId.substring(3)}';
-    if (name.isEmpty) { _snack('Full name is required'); return; }
-    if (!_isEdit && pw.length < 6) {
-      _snack('Password must be at least 6 characters'); return;
-    }
-    if (!_isEdit && _confirmPwCtrl.text != pw) {
-      _snack('Passwords do not match'); return;
-    }
+    if (_saving) return;
+    final errs = _validate();
+    setState(() => _errors = errs);
+    if (errs.isNotEmpty) return;
+
+    final first = adminCleanName(_firstCtrl.text);
+    final last = adminCleanName(_lastCtrl.text);
+    // Organization is kept as typed (acronyms like "SSG" must stay uppercase).
+    final org = _orgCtrl.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final nameFields = <String, dynamic>{
+      'first_name': first,
+      'last_name': last,
+      // Display value, natural order — event cards, logs, dashboards read this.
+      'full_name': '$first $last',
+    };
 
     if (_isEdit) {
+      // '_new_password' is stripped by the parent before the profile update.
       Navigator.of(context).pop(<String, dynamic>{
-        'full_name':    name,
+        ...nameFields,
         'organization': org.isEmpty ? null : org,
+        if (_resetPw) '_new_password': _pwCtrl.text,
       });
       return;
     }
@@ -765,125 +1512,269 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
     // Add mode: call onCreate inside the dialog so we can show a loading state.
     setState(() => _saving = true);
     final err = await widget.onCreate!(<String, dynamic>{
-      'organizer_id': id,
-      'full_name':    name,
+      'organizer_id': 'Org${_idCtrl.text}',
+      ...nameFields,
       'organization': org.isEmpty ? null : org,
-      'password':     pw,
-      'is_active':    true,
+      'password': _pwCtrl.text,
+      'is_active': true,
     });
     if (!mounted) return;
     if (err != null) {
       setState(() => _saving = false);
-      _snack(err);
+      // [err] is already in plain words (friendlyError in onCreate).
+      adminErrorAlert(context, FriendlyException(err), title: 'Couldn’t create the account');
       return;
     }
     Navigator.of(context).pop(true); // true = success
   }
 
-  void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(msg, style: const TextStyle(fontFamily: 'Poppins')),
-        backgroundColor: Colors.red));
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final id = widget.organizer?['organizer_id'] as String? ?? '—';
     return FadeTransition(
       opacity: _fade,
       child: ScaleTransition(
         scale: _scale,
         child: Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 28,
+            vertical: 40,
+          ),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 440, maxHeight: 680),
+            constraints: const BoxConstraints(maxWidth: 460, maxHeight: 700),
             child: adminDialogShell(
-              icon: Icons.badge_rounded, iconColor: kGold,
+              icon: _isEdit ? Icons.edit_outlined : Icons.badge_rounded,
+              iconColor: kAdminAccent,
               title: _isEdit ? 'Edit Organizer' : 'Add Organizer',
+              subtitle: _isEdit
+                  ? 'Update this organizer’s profile.'
+                  : 'Create a login for an event organizer.',
               loading: _saving,
-              body: Column(children: [
-                if (_isEdit) ...[
-                  AdminInfoNote(widget.eventCount > 0
-                      ? 'This organizer has ${widget.eventCount} event${widget.eventCount == 1 ? '' : 's'}. Name and organization changes apply immediately.'
-                      : 'This organizer has no events yet.'),
-                  const SizedBox(height: 12),
-                ],
-                if (!_isEdit) ...[
-                  AdminInfoNote('Admin-provisioned account. The organizer will log in using their ID in lowercase (e.g. org0001) as their username.'),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: _idCtrl,
-                    enabled: !_saving,
-                    decoration: webInputDeco('Organizer ID (e.g. Org0001)', icon: Icons.tag_rounded, dark: t.dark),
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text)),
-                  const SizedBox(height: 12),
-                ],
-                TextField(
-                  controller: _nameCtrl,
-                  enabled: !_saving,
-                  decoration: webInputDeco('Full Name', icon: Icons.person_outline_rounded, dark: t.dark),
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text)),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _orgCtrl,
-                  enabled: !_saving,
-                  decoration: webInputDeco('Organization / Department (optional)', icon: Icons.business_outlined, dark: t.dark),
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text)),
-                if (!_isEdit) ...[
-                  const SizedBox(height: 14),
-                  ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: _idCtrl,
-                    builder: (_, v, __) {
-                      final id = v.text.trim().toLowerCase();
-                      return AdminCredentialPreview(
-                        username: id.isEmpty ? '—' : id,
-                        isReady:  RegExp(r'^org\d{4}$').hasMatch(id),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _pwCtrl,
-                    obscureText: _pwHidden,
-                    enabled: !_saving,
-                    decoration: webInputDeco('Password', icon: Icons.lock_outline_rounded, dark: t.dark).copyWith(
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _pwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                          size: 18, color: t.sub,
-                        ),
-                        onPressed: () => setState(() => _pwHidden = !_pwHidden),
-                      ),
-                    ),
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
-                  ),
-                  ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: _pwCtrl,
-                    builder: (_, v, __) => AdminPasswordStrengthBar(password: v.text),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _confirmPwCtrl,
-                    obscureText: _confirmPwHidden,
-                    enabled: !_saving,
-                    decoration: webInputDeco('Confirm Password', icon: Icons.lock_outline_rounded, dark: t.dark).copyWith(
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _confirmPwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                          size: 18, color: t.sub,
-                        ),
-                        onPressed: () => setState(() => _confirmPwHidden = !_confirmPwHidden),
-                      ),
-                    ),
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
-                  ),
-                ],
-              ]),
               confirmLabel: _isEdit ? 'Save Changes' : 'Add Organizer',
-              confirmColor: kGold,
+              confirmColor: kAdminAccent,
               onConfirm: _submit,
+              body: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+
+                  // ── Organizer ──────────────────────────────────────────────
+                  adminFormSection('ORGANIZER', t),
+                  adminFormLabel('Organizer ID', t),
+                  if (_isEdit)
+                    AdminReadOnlyField(
+                      value: id,
+                      lockMessage:
+                          'Organizer ID can’t be changed — it is the login username',
+                    )
+                  else
+                    _idField(t),
+                  const SizedBox(height: 14),
+                  // Last name first — same order as the Add Student dialog.
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            adminFormLabel('Last name', t),
+                            _nameField(
+                              _lastCtrl,
+                              'last',
+                              'e.g. Santos',
+                              t,
+                              autofocus: _isEdit,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            adminFormLabel('First name', t),
+                            _nameField(_firstCtrl, 'first', 'e.g. Maria', t),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_nameGuessed) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.info_outline_rounded,
+                          size: 14,
+                          color: Color(0xFFF59E0B),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Split automatically from the saved name — check that the '
+                            'last and first names are correct before saving.',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 11,
+                              color: t.sub,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  // ── Affiliation ────────────────────────────────────────────
+                  const SizedBox(height: 24),
+                  adminFormSection('AFFILIATION', t),
+                  adminFormLabel(
+                    'Organization or department',
+                    t,
+                    hint: 'Optional',
+                  ),
+                  TextField(
+                    controller: _orgCtrl,
+                    enabled: !_saving,
+                    textCapitalization: TextCapitalization.words,
+                    textInputAction: _isEdit
+                        ? TextInputAction.done
+                        : TextInputAction.next,
+                    onSubmitted: _isEdit ? (_) => _submit() : null,
+                    style: adminInputStyle(t),
+                    decoration: adminFormDeco('e.g. Student Council', t),
+                  ),
+
+                  // ── Login ──────────────────────────────────────────────────
+                  const SizedBox(height: 24),
+                  adminFormSection('LOGIN', t),
+                  if (_isEdit && !_hasLogin)
+                    const AdminNoLoginNote(recipient: 'organizer')
+                  else if (_isEdit && !_resetPw)
+                    AdminResetPasswordPrompt(
+                      recipient: 'organizer',
+                      accent: kAdminAccent,
+                      enabled: !_saving,
+                      onReset: () => setState(() {
+                        _resetPw = true;
+                        _pwCtrl.text = adminGeneratePassword();
+                        _pwHidden = false;
+                      }),
+                    )
+                  else ...[
+                    AdminInitialPasswordField(
+                      controller: _pwCtrl,
+                      hidden: _pwHidden,
+                      enabled: !_saving,
+                      error: _errors['password'],
+                      recipient: 'organizer',
+                      accent: kAdminAccent,
+                      autofocus: _isEdit,
+                      label: _isEdit ? 'New password' : 'Initial password',
+                      note: _isEdit
+                          ? 'Saved with Save Changes. Share it with the organizer — '
+                                'their old password stops working.'
+                          : null,
+                      onToggleHidden: () =>
+                          setState(() => _pwHidden = !_pwHidden),
+                      onGenerate: () => setState(() {
+                        _pwCtrl.text = adminGeneratePassword();
+                        _pwHidden = false;
+                        _errors.remove('password');
+                      }),
+                      onSubmitted: _submit,
+                      onChanged: (_) {
+                        _clearError('password');
+                        setState(() {});
+                      },
+                    ),
+                    if (_isEdit)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          onPressed: _saving
+                              ? null
+                              : () => setState(() {
+                                  _resetPw = false;
+                                  _pwCtrl.clear();
+                                  _errors.remove('password');
+                                }),
+                          style: TextButton.styleFrom(
+                            foregroundColor: t.sub,
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            minimumSize: const Size(0, 30),
+                          ),
+                          child: const Text(
+                            'Keep current password',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _nameField(
+    TextEditingController ctrl,
+    String errorKey,
+    String hint,
+    WebTk t, {
+    bool autofocus = false,
+  }) => TextField(
+    controller: ctrl,
+    enabled: !_saving,
+    autofocus: autofocus,
+    textCapitalization: TextCapitalization.words,
+    textInputAction: TextInputAction.next,
+    onChanged: (_) => _clearError(errorKey),
+    style: adminInputStyle(t),
+    decoration: adminFormDeco(hint, t, error: _errors[errorKey]),
+  );
+
+  Widget _idField(WebTk t) {
+    final digits = _idCtrl.text;
+    final username = digits.isEmpty ? 'org····' : 'org$digits';
+    final isNext = digits.isNotEmpty && digits == _suggestedDigits;
+    return TextField(
+      controller: _idCtrl,
+      enabled: !_saving,
+      autofocus: true,
+      keyboardType: TextInputType.number,
+      textInputAction: TextInputAction.next,
+      inputFormatters: [
+        FilteringTextInputFormatter.digitsOnly,
+        LengthLimitingTextInputFormatter(4),
+      ],
+      onChanged: (_) {
+        _clearError('id');
+        setState(() {});
+      },
+      style: adminInputStyle(t).copyWith(
+        fontFeatures: const [FontFeature.tabularFigures()],
+        letterSpacing: 0.5,
+      ),
+      decoration: adminFormDeco('0001', t, error: _errors['id']).copyWith(
+        // Fixed "Org" prefix shown as part of the field — never typed.
+        prefixIcon: adminFieldPrefix('Org', t),
+        prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+        helperText: _errors['id'] == null
+            ? 'Username: $username${isNext ? '  ·  next available ID' : ''}'
+            : null,
       ),
     );
   }

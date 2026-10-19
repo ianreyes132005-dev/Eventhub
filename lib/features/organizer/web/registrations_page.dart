@@ -4,6 +4,7 @@ import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/services/registration_service.dart';
 import 'web_shared.dart';
+import 'student_registration_panel.dart';
 
 class WebRegistrationsPage extends StatefulWidget {
   final String? orgId;
@@ -23,6 +24,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
   List<Map<String, dynamic>> _displayed   = [];
   List<String>               _eventTitles = [];
   final Map<String, String>  _selfieUrls  = {};
+  Map<String, Map<String, dynamic>> _profiles = {};   // student_user_id → profile
   final Set<String>          _processingIds = {};
   final Set<String>          _selectedIds = {};
 
@@ -109,8 +111,12 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
       _orgEventIds = eventIds;
       _subscribeRealtime();
 
+      final profiles = await loadRegistrantProfiles(
+          regs.map((r) => r['student_user_id'] as String?));
+
       if (!mounted) return;
       _all = regs;
+      _profiles = profiles;
       _applyFilter();
       _fetchSelfieUrls(regs);
       setState(() => _loading = false);
@@ -286,15 +292,8 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-            'Failed to approve selected students: ${e.toString().replaceAll('Exception:', '').trim()}',
-            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-          ),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ));
+        showErrorAlert(context, e, title: 'Couldn’t check in every selected student');
+        _load(); // some may have gone through before the failure
       }
     } finally {
       if (mounted) {
@@ -342,15 +341,8 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-            'Failed to reject selected students: ${e.toString().replaceAll('Exception:', '').trim()}',
-            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-          ),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ));
+        showErrorAlert(context, e, title: 'Couldn’t reject every selected student');
+        _load(); // some may have gone through before the failure
       }
     } finally {
       if (mounted) {
@@ -376,15 +368,8 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     } catch (e) {
       if (mounted) {
         setState(() => _processingIds.remove(id));
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-            'Failed to update status: ${e.toString().replaceAll('Exception:', '').trim()}',
-            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-          ),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ));
+        // Rule messages (e.g. "Check-in opens 1 hour before…") show as written.
+        showErrorAlert(context, e, title: 'Couldn’t update the status');
       }
       return;
     }
@@ -406,15 +391,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     } catch (e) {
       if (mounted) {
         setState(() => _processingIds.remove(id));
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-            'Failed to delete registration: ${e.toString().replaceAll('Exception:', '').trim()}',
-            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-          ),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ));
+        showErrorAlert(context, e, title: 'Couldn’t delete the registration');
       }
       return;
     }
@@ -423,6 +400,14 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
   }
 
   // ── Selfie dialog ─────────────────────────────────────────────────────────────
+
+  Future<void> _openDetails(Map<String, dynamic> reg) async {
+    final changed = await showStudentRegistrationPanel(context,
+        registration: reg,
+        organizerId: widget.orgId,
+        profile: _profiles[reg['student_user_id'] as String? ?? '']);
+    if (changed == true && mounted) _load();
+  }
 
   Future<void> _sendSelfieRequest(String id, String studentName) async {
     final ok = await WebAlert.confirm(
@@ -1004,6 +989,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           return _stagger(
             _RegHoverRow(
               isLast: isLast,
+              onTap: () => _openDetails(reg),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
                 child: Row(
@@ -1688,7 +1674,8 @@ class _StatusMenuState extends State<_StatusMenu> {
 class _RegHoverRow extends StatefulWidget {
   final Widget child;
   final bool   isLast;
-  const _RegHoverRow({required this.child, required this.isLast});
+  final VoidCallback? onTap;   // opens the Student details panel
+  const _RegHoverRow({required this.child, required this.isLast, this.onTap});
 
   @override
   State<_RegHoverRow> createState() => _RegHoverRowState();
@@ -1700,21 +1687,28 @@ class _RegHoverRowState extends State<_RegHoverRow> {
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    // Buttons inside the row (checkbox, status menu, actions) win the tap —
+    // only a click on the row's empty space / text opens the details panel.
     return MouseRegion(
+      cursor: widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
       onEnter: (_) => setState(() => _h = true),
       onExit:  (_) => setState(() => _h = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        decoration: BoxDecoration(
-          color: _h ? t.divider : t.card,
-          borderRadius: widget.isLast
-            ? const BorderRadius.vertical(bottom: Radius.circular(16))
-            : BorderRadius.zero,
-          border: widget.isLast
-            ? null
-            : Border(bottom: BorderSide(color: t.border)),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          decoration: BoxDecoration(
+            color: _h ? t.divider : t.card,
+            borderRadius: widget.isLast
+              ? const BorderRadius.vertical(bottom: Radius.circular(16))
+              : BorderRadius.zero,
+            border: widget.isLast
+              ? null
+              : Border(bottom: BorderSide(color: t.border)),
+          ),
+          child: widget.child,
         ),
-        child: widget.child,
       ),
     );
   }

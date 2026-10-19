@@ -31,7 +31,7 @@ This calls the `create-student` Supabase Edge Function which atomically:
 2. Inserts the row into `public.students`
 3. Rolls back the auth user if the DB insert fails
 
-The new student appears in the list immediately after the dialog closes. On the mobile app, the student logs in with the **last 4 digits of their LRN** + their password.
+The new student appears in the list immediately after the dialog closes. On the mobile app, the student logs in with the **last 4 digits of their LRN** + their password. This short login uses the school's standard LRN prefix (`12345626`).
 
 ### Organizers
 

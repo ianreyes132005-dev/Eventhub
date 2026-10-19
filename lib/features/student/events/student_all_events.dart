@@ -10,7 +10,9 @@ import '../../../models/event_registration.dart';
 import '../../../shared/widgets/qr_code_dialog.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/services/registration_service.dart';
+import '../../../core/services/student_count_service.dart';
 import '../../../core/app_colors.dart';
+import '../../../shared/widgets/error_alert.dart';
 
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -37,6 +39,8 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   List<Map<String, dynamic>>          _events       = [];
   final Map<String, Map<String, dynamic>> _regByEventId = {};
   String? _registeringId;
+  // Every event's capacity = active students (StudentCountService).
+  int?    _studentCount = StudentCountService.cached;
 
   RealtimeChannel? _channel;
   Timer?           _debounce;
@@ -80,13 +84,15 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   Future<void> _loadData({bool silent = false}) async {
     if (mounted) setState(() { if (!silent) _loading = true; _hasError = false; });
     try {
+      final studentCount = StudentCountService.activeStudents();   // in parallel
       final results = await Future.wait([
         SupabaseService.getEvents(),
         RegistrationService.getMyRegistrations(),
       ]);
 
-      final events = results[0];
-      final regs   = results[1];
+      final events   = results[0];
+      final regs     = results[1];
+      final students = await studentCount;
 
       final regMap = <String, Map<String, dynamic>>{};
       for (final r in regs) {
@@ -97,6 +103,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
       if (mounted) {
         setState(() {
           _events = events;
+          _studentCount = students;
           _regByEventId
             ..clear()
             ..addAll(regMap);
@@ -129,10 +136,8 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _registeringId = null);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: const Color(0xFFEF4444),
-        ));
+        // e.g. "Registration is closed — the deadline has passed."
+        showErrorAlert(context, e, title: 'Couldn’t register');
       }
     }
   }
@@ -207,26 +212,15 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  bool   _isFull(Map<String, dynamic> e) {
-    final max = e['max_participants']    as int?;
-    final cur = e['current_participants'] as int?;
-    if (max == null || max == 0) return false;
-    return (cur ?? 0) >= max;
-  }
-
-  double _fill(Map<String, dynamic> e) {
-    final max = e['max_participants']    as int?;
-    final cur = e['current_participants'] as int?;
-    if (max == null || max == 0) return 0.0;
-    return ((cur ?? 0) / max).clamp(0.0, 1.0);
-  }
+  // Capacity = every active student. Each student registers once, so one who
+  // hasn't registered always has a spot — an event is never "full" for them.
+  int _registered(Map<String, dynamic> e) => e['current_participants'] as int? ?? 0;
 
   String _capacityText(Map<String, dynamic> e) {
-    final max = e['max_participants']    as int?;
-    final cur = e['current_participants'] as int?;
-    if (max == null) return 'Unlimited';
-    if (_isFull(e))  return 'Full · $max spots';
-    return '${cur ?? 0} / $max registered';
+    final cap = _studentCount;
+    return cap != null
+        ? '${_registered(e)} of $cap students registered'
+        : '${_registered(e)} registered';
   }
 
   String _fmtDate(Map<String, dynamic> e) {
@@ -633,14 +627,15 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     final eventId      = event['event_id'] as String;
     final statusLabel  = eventStatusLabel(event);
     final isRegistered = _regByEventId.containsKey(eventId);
-    final full         = _isFull(event);
     final isRegistering = _registeringId == eventId;
     final imageUrl     = event['event_image_url'] as String?;
     final hasImage     = imageUrl != null && imageUrl.isNotEmpty;
     final eventType    = event['event_type'] as String?;
     final sc           = eventStatusColor(statusLabel);
-    final fill         = _fill(event);
     final isPast       = statusLabel == 'Ended' || statusLabel == 'Cancelled';
+    // Same rule the server enforces: closes at the deadline, else at the
+    // event start, never after the end.
+    final regState     = registrationState(event);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -693,10 +688,9 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                           _MetaRow(icon: Icons.location_on_rounded,  text: event['location'] as String? ?? '—', t: t),
                           const SizedBox(height: 12),
                           _CapacityBar(
-                            fill:    fill,
+                            fill:    capacityFill(_registered(event), _studentCount),
                             label:   _capacityText(event),
-                            isFull:  full,
-                            maxSet:  event['max_participants'] != null,
+                            showBar: _studentCount != null,
                             t:       t,
                           ),
                         ],
@@ -733,13 +727,16 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                               end: Alignment.centerRight,
                             ),
                           )
-                        else if (full)
-                          _PrimaryBtn(
-                            label: 'Full',
-                            icon:  Icons.block_rounded,
-                            color: t.muted,
-                            onTap: null,
-                            ghost: true,
+                        else if (regState != RegistrationState.open)
+                          Tooltip(
+                            message: registrationClosedReason(regState) ?? '',
+                            child: _PrimaryBtn(
+                              label: 'Closed',
+                              icon:  Icons.lock_clock_rounded,
+                              color: t.muted,
+                              onTap: null,
+                              ghost: true,
+                            ),
                           )
                         else
                           _PrimaryBtn(
@@ -993,57 +990,53 @@ class _MetaRow extends StatelessWidget {
 // ── Capacity progress bar ─────────────────────────────────────────────────────
 
 class _CapacityBar extends StatelessWidget {
-  final double fill;
+  final double fill;      // share of all students registered
   final String label;
-  final bool   isFull;
-  final bool   maxSet;
+  final bool   showBar;   // false until the student count is known
   final AppTk    t;
 
   const _CapacityBar({
     required this.fill,
     required this.label,
-    required this.isFull,
-    required this.maxSet,
+    required this.showBar,
     required this.t,
   });
 
-  Color get _barColor => isFull
-      ? const Color(0xFFEF4444)
-      : fill > 0.80
-          ? const Color(0xFFF97316)
-          : const Color(0xFF10B981);
+  // One colour: capacity is the whole student body, so a fuller event is
+  // just a popular one — nobody is ever turned away.
+  static const _barColor = Color(0xFF10B981);
 
   @override
   Widget build(BuildContext context) {
-    if (!maxSet) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(Icons.people_rounded, size: 13,
-                color: isFull ? const Color(0xFFEF4444) : t.muted),
+            Icon(Icons.people_rounded, size: 13, color: t.muted),
             const SizedBox(width: 5),
             Expanded(
               child: Text(label,
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                    color: isFull ? const Color(0xFFEF4444) : t.sub,
-                    fontWeight: isFull ? FontWeight.w600 : FontWeight.w400)),
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.sub)),
             ),
-            Text('${(fill * 100).round()}%',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700, color: _barColor)),
+            if (showBar)
+              Text('${(fill * 100).round()}%',
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 10,
+                    fontWeight: FontWeight.w700, color: _barColor)),
           ],
         ),
-        const SizedBox(height: 5),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: fill,
-            minHeight: 4,
-            backgroundColor: t.divider,
-            valueColor: AlwaysStoppedAnimation<Color>(_barColor),
+        if (showBar) ...[
+          const SizedBox(height: 5),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: fill,
+              minHeight: 4,
+              backgroundColor: t.divider,
+              valueColor: const AlwaysStoppedAnimation<Color>(_barColor),
+            ),
           ),
-        ),
+        ],
       ],
     );
   }

@@ -132,7 +132,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
         );
       }
     } catch (e) {
-      setState(() => _error = e.toString().replaceAll('Exception:', '').trim());
+      if (mounted) showErrorAlert(context, e, title: 'Couldn’t post the announcement');
     } finally {
       if (mounted) setState(() => _posting = false);
     }
@@ -150,17 +150,7 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
       await SupabaseService.deleteAnnouncement(id, organizerId: widget.orgId);
       await _load();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-            'Failed to delete announcement: ${e.toString().replaceAll('Exception:', '').trim()}',
-            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-          ),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ));
-      }
+      if (mounted) showErrorAlert(context, e, title: 'Couldn’t delete the announcement');
     }
   }
 
@@ -217,11 +207,6 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
                 fontWeight: FontWeight.w800,
                 color: t.text,
                 height: 1.1,
-              )),
-            const SizedBox(height: 3),
-            Text('Broadcast messages to all registered students',
-              style: TextStyle(
-                fontFamily: 'Poppins', fontSize: 12, color: t.sub,
               )),
           ],
         ),

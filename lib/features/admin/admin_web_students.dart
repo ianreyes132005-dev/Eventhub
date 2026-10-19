@@ -8,42 +8,73 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/app_colors.dart';
+import '../../core/friendly_error.dart';
 import '../../core/services/supabase_service.dart';
 import '../organizer/web/web_shared.dart';
 import 'admin_shared.dart';
+import 'admin_web_student_import.dart';
+import '../../shared/utils/lrn_input_formatter.dart';
 
 class AdminStudentsPage extends StatefulWidget {
   const AdminStudentsPage({super.key});
-  @override State<AdminStudentsPage> createState() => _AdminStudentsPageState();
+  @override
+  State<AdminStudentsPage> createState() => _AdminStudentsPageState();
 }
 
 class _AdminStudentsPageState extends State<AdminStudentsPage> {
-  bool   _loading = true, _error = false;
+  bool _loading = true, _error = false;
   String _errorMsg = '';
   List<Map<String, dynamic>> _all = [], _filtered = [];
-  Map<String, int>           _regCounts = {};
-  String _search       = '';
+  final Set<String> _selectedLrns = {};
+  bool _bulkWorking = false;
+  int _page = 0; // 0-based; kAdminPageSize rows per page
+  Map<String, int> _regCounts = {};
+  String _search = '';
   String _statusFilter = 'All';
-  String _yearFilter   = 'All';
-  String _sortField    = 'created_at';
-  bool   _sortAsc      = false;
+  // Grade filter, three parts combined with AND:
+  //   level  — 'all' | 'jhs' (7–10) | 'shs' (11–12)
+  //   exact  — a single grade 7–12, or 0 = unassigned / outside 7–12
+  //   strand — SHS strand ('HUMSS' | 'GAS' | 'STEM'), or 'none' = SHS with no strand
+  // e.g. Grade 12 STEM = ('shs', 12, 'STEM').
+  String _gradeLevel = 'all';
+  int? _gradeExact;
+  String? _gradeStrand;
+  String _sortField = 'created_at';
+  bool _sortAsc = false;
   final _searchCtrl = TextEditingController();
 
   RealtimeChannel? _channel;
-  Timer?           _debounce;
+  Timer? _debounce;
 
-  List<String> get _yearOptions {
-    final years = _all
-        .map((s) => s['year_level'])
-        .whereType<int>()
-        .toSet()
-        .toList()
-      ..sort();
-    return ['All', ...years.map((y) => 'Grade $y')];
+  static bool _isValidGrade(int? yr) => yr != null && yr >= 7 && yr <= 12;
+
+  bool get _hasGradeFilter =>
+      _gradeLevel != 'all' || _gradeExact != null || _gradeStrand != null;
+
+  void _setGrade(String level, int? exact, String? strand) {
+    _gradeLevel = level;
+    _gradeExact = exact;
+    _gradeStrand = strand;
+    _applyFilter(resetPage: true);
+  }
+
+  void _clearFilters() {
+    _search = '';
+    _statusFilter = 'All';
+    _gradeLevel = 'all';
+    _gradeExact = null;
+    _gradeStrand = null;
+    _searchCtrl.clear();
+    _applyFilter(resetPage: true);
   }
 
   @override
-  void initState() { super.initState(); _load(); _subscribeRealtime(); }
+  void initState() {
+    super.initState();
+    _load();
+    _subscribeRealtime();
+  }
+
   @override
   void dispose() {
     _searchCtrl.dispose();
@@ -72,12 +103,16 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
   }
 
   Future<void> _load({bool silent = false}) async {
-    if (mounted) setState(() { if (!silent) _loading = true; _error = false; });
+    if (mounted)
+      setState(() {
+        if (!silent) _loading = true;
+        _error = false;
+      });
     try {
       final results = await Future.wait([
         SupabaseService.client
             .from('students')
-            .select('lrn, user_id, full_name, year_level, is_active, created_at')
+            .select() // all columns — tolerant of not-yet-run optional migrations
             .order('created_at', ascending: false),
         SupabaseService.client
             .from('registrations')
@@ -86,34 +121,52 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
       if (!mounted) return;
       _all = List<Map<String, dynamic>>.from(results[0] as List);
       final regRows = results[1] as List;
-      final counts  = <String, int>{};
+      final counts = <String, int>{};
       for (final r in regRows) {
         final id = (r as Map<String, dynamic>)['student_school_id'] as String?;
         if (id != null) counts[id] = (counts[id] ?? 0) + 1;
       }
       _regCounts = counts;
-      _loading   = false;
+      _loading = false;
       _applyFilter();
     } catch (e) {
-      if (mounted) setState(() { _loading = false; _error = true; _errorMsg = e.toString(); });
+      debugPrint('Admin students failed to load: $e');
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _error = true;
+          _errorMsg = friendlyError(e,
+              fallback: 'The students couldn’t be loaded. Please try again.');
+        });
     }
   }
 
-  void _applyFilter() {
+  // resetPage: a new search / filter / sort starts from page 1. Edits,
+  // deletes and live reloads keep the current page (clamped in build).
+  void _applyFilter({bool resetPage = false}) {
+    if (resetPage) _page = 0;
     final q = _search.toLowerCase();
     var list = _all.where((s) {
-      if (_statusFilter == 'Active'   && s['is_active'] != true) return false;
+      if (_statusFilter == 'Active' && s['is_active'] != true) return false;
       if (_statusFilter == 'Inactive' && s['is_active'] == true) return false;
-      if (_statusFilter == 'No Auth'  && s['user_id']  != null)  return false;
-      if (_statusFilter == 'No Regs'  &&
-          (_regCounts[s['lrn'] as String? ?? ''] ?? 0) > 0) { return false; }
-      if (_yearFilter != 'All') {
-        final yr = int.tryParse(_yearFilter.replaceAll('Grade ', ''));
-        if ((s['year_level'] as int?) != yr) return false;
+      if (_statusFilter == 'No Regs' &&
+          (_regCounts[s['lrn'] as String? ?? ''] ?? 0) > 0) {
+        return false;
+      }
+      final yr = s['year_level'] as int?;
+      if (_gradeExact == 0) {
+        if (_isValidGrade(yr)) return false;
+      } else {
+        if (_gradeLevel == 'jhs' && (yr == null || yr < 7 || yr > 10))
+          return false;
+        if (_gradeLevel == 'shs' && (yr == null || yr < 11 || yr > 12))
+          return false;
+        if (_gradeExact != null && yr != _gradeExact) return false;
+        if (_gradeStrand != null && _strandOf(s) != _gradeStrand) return false;
       }
       if (q.isNotEmpty) {
         final name = (s['full_name'] as String? ?? '').toLowerCase();
-        final lrn  = (s['lrn']       as String? ?? '').toLowerCase();
+        final lrn = (s['lrn'] as String? ?? '').toLowerCase();
         if (!name.contains(q) && !lrn.contains(q)) return false;
       }
       return true;
@@ -122,11 +175,15 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
     list.sort((a, b) {
       int cmp;
       if (_sortField == 'full_name') {
-        cmp = (a['full_name'] as String? ?? '').compareTo(b['full_name'] as String? ?? '');
+        cmp = (a['full_name'] as String? ?? '').compareTo(
+          b['full_name'] as String? ?? '',
+        );
       } else if (_sortField == 'lrn') {
         cmp = (a['lrn'] as String? ?? '').compareTo(b['lrn'] as String? ?? '');
       } else if (_sortField == 'year_level') {
-        cmp = ((a['year_level'] as int?) ?? 0).compareTo((b['year_level'] as int?) ?? 0);
+        cmp = ((a['year_level'] as int?) ?? 0).compareTo(
+          (b['year_level'] as int?) ?? 0,
+        );
       } else if (_sortField == 'is_active') {
         final ai = a['is_active'] == true ? 1 : 0;
         final bi = b['is_active'] == true ? 1 : 0;
@@ -136,12 +193,245 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
         final bc = _regCounts[b['lrn'] as String? ?? ''] ?? 0;
         cmp = ac.compareTo(bc);
       } else {
-        cmp = ((a['created_at'] as String?) ?? '').compareTo((b['created_at'] as String?) ?? '');
+        cmp = ((a['created_at'] as String?) ?? '').compareTo(
+          (b['created_at'] as String?) ?? '',
+        );
       }
       return _sortAsc ? cmp : -cmp;
     });
 
+    final visibleLrns = list
+        .map((s) => s['lrn'] as String? ?? '')
+        .where((lrn) => lrn.isNotEmpty)
+        .toSet();
+    _selectedLrns.removeWhere((lrn) => !visibleLrns.contains(lrn));
     setState(() => _filtered = list);
+  }
+
+  bool _allFilteredSelected(List<Map<String, dynamic>> rows) =>
+      rows.isNotEmpty &&
+      rows.every((s) => _selectedLrns.contains(s['lrn'] as String? ?? ''));
+
+  void _toggleStudentSelection(String lrn) {
+    setState(() {
+      if (!_selectedLrns.add(lrn)) _selectedLrns.remove(lrn);
+    });
+  }
+
+  void _toggleAllFilteredSelection(List<Map<String, dynamic>> rows) {
+    setState(() {
+      if (_allFilteredSelected(rows)) {
+        _selectedLrns.removeAll(
+          rows
+              .map((s) => s['lrn'] as String? ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+      } else {
+        _selectedLrns.addAll(
+          rows
+              .map((s) => s['lrn'] as String? ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+      }
+    });
+  }
+
+  Future<void> _bulkDeactivateStudents() async {
+    final lrns = _selectedLrns.toList();
+    if (lrns.isEmpty || _bulkWorking) return;
+
+    final ok = await WebAlert.confirm(
+      context: context,
+      title: 'Deactivate ${lrns.length} Students?',
+      message:
+          'Selected students will no longer be able to log in. '
+          'Their profiles and registration history will be kept.',
+      confirmLabel: 'Deactivate',
+      confirmColor: const Color(0xFFF59E0B),
+      iconColor: const Color(0xFFF59E0B),
+      iconBg: const Color(0xFFFFFBEB),
+      icon: Icons.person_off_outlined,
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _bulkWorking = true);
+    try {
+      final updated = await SupabaseService.client
+          .from('students')
+          .update({'is_active': false})
+          .in_('lrn', lrns)
+          .select('lrn');
+      final updatedLrns = (updated as List)
+          .map((row) => (row as Map<String, dynamic>)['lrn'] as String)
+          .toSet();
+      if (updatedLrns.isEmpty) {
+        throw const FriendlyException(
+            'None of the selected students could be updated. They may have '
+            'been removed, or you don’t have permission to change them.');
+      }
+
+      for (final student in _all) {
+        final lrn = student['lrn'] as String?;
+        if (lrn != null && updatedLrns.contains(lrn)) {
+          student['is_active'] = false;
+        }
+      }
+      _selectedLrns.removeAll(updatedLrns);
+      _applyFilter();
+
+      if (mounted) {
+        final failedCount = lrns.length - updatedLrns.length;
+        if (failedCount == 0) {
+          await WebAlert.success(
+            context: context,
+            title: 'Students Deactivated',
+            message:
+                '${updatedLrns.length} student accounts have been deactivated.',
+          );
+        } else {
+          adminErrorAlert(context,
+              FriendlyException('${updatedLrns.length} students were deactivated, but '
+                  '$failedCount couldn’t be updated. Please try those again.'),
+              title: 'Some students weren’t updated', icon: SwalIcon.warning);
+        }
+      }
+    } catch (e) {
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t deactivate the students');
+    } finally {
+      if (mounted) setState(() => _bulkWorking = false);
+    }
+  }
+
+  Future<void> _bulkActivateStudents() async {
+    final lrns = _selectedLrns.toList();
+    if (lrns.isEmpty || _bulkWorking) return;
+
+    final ok = await WebAlert.confirm(
+      context: context,
+      title: 'Activate ${lrns.length} Students?',
+      message: 'Selected students will regain access to their accounts.',
+      confirmLabel: 'Activate',
+      confirmColor: const Color(0xFF10B981),
+      iconColor: const Color(0xFF10B981),
+      iconBg: const Color(0xFFECFDF5),
+      icon: Icons.person_add_outlined,
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _bulkWorking = true);
+    try {
+      final updated = await SupabaseService.client
+          .from('students')
+          .update({'is_active': true})
+          .in_('lrn', lrns)
+          .select('lrn');
+      final updatedLrns = (updated as List)
+          .map((row) => (row as Map<String, dynamic>)['lrn'] as String)
+          .toSet();
+      if (updatedLrns.isEmpty) {
+        throw const FriendlyException(
+            'None of the selected students could be updated. They may have '
+            'been removed, or you don’t have permission to change them.');
+      }
+
+      for (final student in _all) {
+        final lrn = student['lrn'] as String?;
+        if (lrn != null && updatedLrns.contains(lrn)) {
+          student['is_active'] = true;
+        }
+      }
+      _selectedLrns.removeAll(updatedLrns);
+      _applyFilter();
+
+      if (mounted) {
+        final failedCount = lrns.length - updatedLrns.length;
+        if (failedCount == 0) {
+          await WebAlert.success(
+            context: context,
+            title: 'Students Activated',
+            message: '${updatedLrns.length} student accounts are active again.',
+          );
+        } else {
+          adminErrorAlert(context,
+              FriendlyException('${updatedLrns.length} students were activated, but '
+                  '$failedCount couldn’t be updated. Please try those again.'),
+              title: 'Some students weren’t updated', icon: SwalIcon.warning);
+        }
+      }
+    } catch (e) {
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t activate the students');
+    } finally {
+      if (mounted) setState(() => _bulkWorking = false);
+    }
+  }
+
+  Future<void> _bulkDeleteStudents() async {
+    final lrns = _selectedLrns.toList();
+    if (lrns.isEmpty || _bulkWorking) return;
+
+    final ok = await WebAlert.confirm(
+      context: context,
+      title: 'Delete ${lrns.length} Students?',
+      message:
+          'This permanently removes the selected profiles, revokes '
+          'their login access, and deletes their event registration history. '
+          'This cannot be undone.',
+      confirmLabel: 'Delete Students',
+      confirmColor: const Color(0xFFEF4444),
+      iconColor: const Color(0xFFEF4444),
+      iconBg: const Color(0xFFFEF2F2),
+      icon: Icons.delete_outline_rounded,
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _bulkWorking = true);
+    final deletedLrns = <String>{};
+    final failures = <String>[];
+    try {
+      for (final lrn in lrns) {
+        try {
+          final response = await SupabaseService.client.functions.invoke(
+            'delete-student',
+            body: {'lrn': lrn},
+          );
+          final body = response.data is Map
+              ? Map<String, dynamic>.from(response.data as Map)
+              : null;
+          if (response.status != 200) {
+            failures.add('$lrn: ${friendlyError(body?['message'], fallback: 'It couldn’t be deleted.')}');
+          } else {
+            deletedLrns.add(lrn);
+          }
+        } catch (e) {
+          debugPrint('delete-student $lrn failed: $e');
+          failures.add('$lrn: ${friendlyError(e)}');
+        }
+      }
+
+      _all.removeWhere(
+        (student) => deletedLrns.contains(student['lrn'] as String? ?? ''),
+      );
+      _selectedLrns.removeAll(deletedLrns);
+      _applyFilter();
+      if (mounted) {
+        if (failures.isEmpty) {
+          await WebAlert.success(
+            context: context,
+            title: 'Students Deleted',
+            message:
+                '${deletedLrns.length} student profiles and their associated '
+                'registration history have been removed.',
+          );
+        } else {
+          adminErrorAlert(context,
+              FriendlyException('${deletedLrns.length} students were deleted, but '
+                  '${failures.length} couldn’t be and are still selected. ${failures.first}'),
+              title: 'Some students weren’t deleted', icon: SwalIcon.warning);
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _bulkWorking = false);
+    }
   }
 
   void _setSort(String field) {
@@ -149,55 +439,128 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
       _sortAsc = !_sortAsc;
     } else {
       _sortField = field;
-      _sortAsc   = field == 'full_name' || field == 'lrn' ||
-                   field == 'year_level' || field == 'is_active';
+      _sortAsc =
+          field == 'full_name' ||
+          field == 'lrn' ||
+          field == 'year_level' ||
+          field == 'is_active';
     }
-    _applyFilter();
+    _applyFilter(resetPage: true);
   }
 
   Future<void> _toggleActive(String lrn, bool cur) async {
     final ok = await WebAlert.confirm(
-      context:      context,
-      title:        cur ? 'Deactivate Student?' : 'Activate Student?',
-      message:      cur
+      context: context,
+      title: cur ? 'Deactivate Student?' : 'Activate Student?',
+      message: cur
           ? 'This student will no longer be able to log in.'
           : 'This student will regain access to their account.',
       confirmLabel: cur ? 'Deactivate' : 'Activate',
       confirmColor: cur ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
-      iconColor:    cur ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
-      iconBg:       cur ? const Color(0xFFFFFBEB) : const Color(0xFFECFDF5),
-      icon:         cur ? Icons.person_off_outlined : Icons.person_add_outlined,
+      iconColor: cur ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
+      iconBg: cur ? const Color(0xFFFFFBEB) : const Color(0xFFECFDF5),
+      icon: cur ? Icons.person_off_outlined : Icons.person_add_outlined,
     );
     if (ok != true) return;
     try {
-      final updated = await SupabaseService.client.from('students')
-          .update({'is_active': !cur}).eq('lrn', lrn).select();
+      final updated = await SupabaseService.client
+          .from('students')
+          .update({'is_active': !cur})
+          .eq('lrn', lrn)
+          .select();
       if ((updated as List).isEmpty) {
-        if (mounted) _snack('Failed: student not found or the update was not permitted.');
+        if (mounted) {
+          adminErrorAlert(context, _notUpdated,
+              title: cur ? 'Couldn’t deactivate the student' : 'Couldn’t activate the student');
+        }
         return;
       }
       final idx = _all.indexWhere((s) => s['lrn'] == lrn);
-      if (idx != -1) { _all[idx] = {..._all[idx], 'is_active': !cur}; _applyFilter(); }
+      if (idx != -1) {
+        _all[idx] = {..._all[idx], 'is_active': !cur};
+        _applyFilter();
+      }
+      if (cur && mounted) {
+        await WebAlert.success(
+          context: context,
+          title: 'Student Deactivated',
+          message: 'The student can no longer log in to their account.',
+        );
+      } else if (mounted) {
+        await WebAlert.success(
+          context: context,
+          title: 'Student Activated',
+          message: 'The student can now log in to their account.',
+        );
+      }
     } catch (e) {
-      if (mounted) _snack('Failed: $e');
+      if (mounted) {
+        adminErrorAlert(context, e,
+            title: cur ? 'Couldn’t deactivate the student' : 'Couldn’t activate the student');
+      }
     }
   }
 
+  static const _notUpdated = FriendlyException(
+      'This student couldn’t be updated — the record may have been removed, '
+      'or you don’t have permission to change it.');
+
   Future<void> _editStudent(Map<String, dynamic> student) async {
     final result = await showDialog<Map<String, dynamic>?>(
-      context: context, builder: (_) => _StudentDialog(student: student));
+      context: context,
+      builder: (_) => _StudentDialog(student: student),
+    );
     if (result == null) return;
+    final newPassword = result.remove('_new_password') as String?;
     try {
-      final updated = await SupabaseService.client.from('students')
-          .update(result).eq('lrn', student['lrn'] as String).select();
+      final updated = await SupabaseService.client
+          .from('students')
+          .update(result)
+          .eq('lrn', student['lrn'] as String)
+          .select();
       if ((updated as List).isEmpty) {
-        if (mounted) _snack('Failed: student not found or the update was not permitted.');
+        if (mounted) adminErrorAlert(context, _notUpdated, title: 'Couldn’t save the student');
         return;
       }
       final idx = _all.indexWhere((s) => s['lrn'] == student['lrn']);
-      if (idx != -1) { _all[idx] = {..._all[idx], ...result}; _applyFilter(); }
-      if (mounted) WebAlert.success(context: context, title: 'Saved', message: 'Student profile updated.');
-    } catch (e) { if (mounted) _snack('Failed: $e'); }
+      if (idx != -1) {
+        _all[idx] = {..._all[idx], ...result};
+        _applyFilter();
+      }
+
+      if (newPassword != null) {
+        final err = await adminResetPassword(
+          role: 'student',
+          id: student['lrn'] as String,
+          password: newPassword,
+        );
+        if (err != null) {
+          if (mounted) {
+            adminErrorAlert(context,
+                FriendlyException('The profile was saved, but the password wasn’t reset. $err'),
+                title: 'Password not reset', icon: SwalIcon.warning);
+          }
+          return;
+        }
+      }
+      if (mounted) {
+        WebAlert.success(
+          context: context,
+          title: 'Saved',
+          message: newPassword == null
+              ? 'Student profile updated.'
+              : 'Profile updated and password reset. Share the new password '
+                    'with ${result['full_name'] ?? 'the student'}.',
+        );
+      }
+    } catch (e) {
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t save the student');
+    }
+  }
+
+  Future<void> _importStudents() async {
+    final changed = await AdminStudentImportDialog.show(context, _all);
+    if (changed == true && mounted) await _load(silent: true);
   }
 
   Future<void> _addStudent() async {
@@ -208,9 +571,10 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
         student: null,
         onCreate: (data) async {
           try {
-            createdName      = data['full_name'] as String?;
-            final password   = data['password'] as String;
-            final studentData = Map<String, dynamic>.from(data)..remove('password');
+            createdName = data['full_name'] as String?;
+            final password = data['password'] as String;
+            final studentData = Map<String, dynamic>.from(data)
+              ..remove('password');
             final res = await SupabaseService.client.functions.invoke(
               'create-student',
               body: {...studentData, 'password': password},
@@ -219,11 +583,14 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
                 ? Map<String, dynamic>.from(res.data as Map)
                 : null;
             if (res.status != 200) {
-              return body?['message'] as String? ?? 'Failed to create account.';
+              return friendlyError(body?['message'],
+                  fallback: 'The account couldn’t be created. Please try again.');
             }
             return null; // success
           } catch (e) {
-            return 'Failed: $e';
+            debugPrint('create-student failed: $e');
+            return friendlyError(e,
+                fallback: 'The account couldn’t be created. Please try again.');
           }
         },
       ),
@@ -234,15 +601,18 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
       WebAlert.success(
         context: context,
         title: 'Account Created',
-        message: 'Student account for ${createdName ?? 'student'} has been created.',
+        message:
+            'Student account for ${createdName ?? 'student'} has been created.',
       );
     }
   }
 
   Future<void> _deleteStudent(String lrn, String name) async {
     final ok = await WebAlert.confirm(
-      context: context, title: 'Delete Student?',
-      message: 'This will permanently remove $name\'s profile, revoke their login, '
+      context: context,
+      title: 'Delete Student?',
+      message:
+          'This will permanently remove $name\'s profile, revoke their login, '
           'and delete all their event registration history.',
       confirmLabel: 'Delete',
     );
@@ -252,510 +622,1107 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
         'delete-student',
         body: {'lrn': lrn},
       );
-      final body = res.data is Map ? Map<String, dynamic>.from(res.data as Map) : null;
+      final body = res.data is Map
+          ? Map<String, dynamic>.from(res.data as Map)
+          : null;
       if (res.status != 200) {
-        if (mounted) _snack(body?['message'] as String? ?? 'Failed to delete student.');
+        if (mounted) {
+          adminErrorAlert(context, body?['message'],
+              title: 'Couldn’t delete the student',
+              fallback: 'The student couldn’t be deleted. Please try again.');
+        }
         return;
       }
       _all.removeWhere((s) => s['lrn'] == lrn);
       _applyFilter();
-      if (mounted) WebAlert.success(context: context, title: 'Deleted',
-          message: 'Student record removed and login access revoked.');
-    } catch (e) { if (mounted) _snack('Failed: $e'); }
+      if (mounted)
+        WebAlert.success(
+          context: context,
+          title: 'Deleted',
+          message: 'Student record removed and login access revoked.',
+        );
+    } catch (e) {
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t delete the student');
+    }
   }
-
-  void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(msg, style: const TextStyle(fontFamily: 'Poppins')),
-        backgroundColor: const Color(0xFFEF4444)));
 
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final totalCount        = _all.length;
-    final activeCount       = _all.where((s) => s['is_active'] == true).length;
-    final inactiveCount     = totalCount - activeCount;
-    final noAuthCount       = _all.where((s) => s['user_id'] == null).length;
-    final unregisteredCount = _all.where((s) =>
-        (_regCounts[s['lrn'] as String? ?? ''] ?? 0) == 0).length;
-    final hasFilter         = _search.isNotEmpty || _statusFilter != 'All' || _yearFilter != 'All';
-    final yearOpts          = _yearOptions;
+    final totalCount = _all.length;
+    final activeCount = _all.where((s) => s['is_active'] == true).length;
+    final inactiveCount = totalCount - activeCount;
+    final unregisteredCount = _all
+        .where((s) => (_regCounts[s['lrn'] as String? ?? ''] ?? 0) == 0)
+        .length;
+    final hasFilter =
+        _search.isNotEmpty || _statusFilter != 'All' || _hasGradeFilter;
+    // Current page (clamped — a delete or filter can shrink the list).
+    final pageCount = _filtered.isEmpty
+        ? 1
+        : (_filtered.length + kAdminPageSize - 1) ~/ kAdminPageSize;
+    final page = _page.clamp(0, pageCount - 1);
+    final pageRows = _filtered
+        .skip(page * kAdminPageSize)
+        .take(kAdminPageSize)
+        .toList();
+    final gradeCounts = {
+      for (final g in [7, 8, 9, 10, 11, 12])
+        g: _all.where((s) => (s['year_level'] as int?) == g).length,
+    };
+    // SHS counts keyed by strand ('HUMSS' | 'GAS' | 'STEM') → grade.
+    final strandCounts = {
+      for (final st in _kStrands)
+        st: {
+          for (final g in _kShsGrades)
+            g: _all
+                .where(
+                  (s) => (s['year_level'] as int?) == g && _strandOf(s) == st,
+                )
+                .length,
+        },
+    };
+    final unassignedCount = _all
+        .where((s) => !_isValidGrade(s['year_level'] as int?))
+        .length;
     final filterDesc = [
       if (_statusFilter != 'All') _statusFilter,
-      if (_yearFilter   != 'All') _yearFilter,
-      if (_search.isNotEmpty)     '"$_search"',
+      if (_hasGradeFilter) _gradeLabel(_gradeLevel, _gradeExact, _gradeStrand),
+      if (_search.isNotEmpty) '"$_search"',
     ].join(' · ');
     final emptySubtitle = filterDesc.isEmpty
         ? 'Add your first student to get started.'
         : 'No students match $filterDesc.';
 
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: kAdminAccent));
+      return const Center(
+        child: CircularProgressIndicator(color: kAdminAccent),
+      );
     }
     if (_error) {
       return AdminErrorState(message: _errorMsg, onRetry: _load);
     }
 
     return SingleChildScrollView(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // ── Page header ───────────────────────────────────────────────────
-      Container(
-        padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
-        color: t.card,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Students',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
-                    fontWeight: FontWeight.w800, color: t.text)),
-              const SizedBox(height: 2),
-              Text('$totalCount enrolled · $activeCount active · $noAuthCount unlinked',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub)),
-            ])),
-            WebBtn(label: 'Add Student', icon: Icons.add_rounded, onTap: _addStudent),
-          ]),
-          const SizedBox(height: 16),
-          // ── Stat tiles ────────────────────────────────────────────────
-          Row(children: [
-            AdminStatCard(label: 'Total Enrolled', value: '$totalCount',
-                color: kAdminAccent, icon: Icons.people_rounded),
-            const SizedBox(width: 10),
-            AdminStatCard(label: 'Active', value: '$activeCount',
-                color: const Color(0xFF10B981), icon: Icons.check_circle_rounded),
-            const SizedBox(width: 10),
-            AdminStatCard(
-              label: 'Inactive',
-              value: '$inactiveCount',
-              color: inactiveCount > 0 ? kMuted : const Color(0xFF10B981),
-              icon:  Icons.person_off_outlined,
-            ),
-            const SizedBox(width: 10),
-            AdminStatCard(
-              label: 'No Auth',
-              value: '$noAuthCount',
-              color: noAuthCount > 0 ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
-              icon:  Icons.no_accounts_rounded,
-            ),
-            const SizedBox(width: 10),
-            AdminStatCard(
-              label: 'Never Registered',
-              value: '$unregisteredCount',
-              color: unregisteredCount > 0 ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
-              icon:  Icons.event_busy_rounded,
-            ),
-          ]),
-          const SizedBox(height: 14),
-          // ── Grade breakdown strip ──────────────────────────────────────
-          // flex:4 JHS + flex:2 SHS → each chip gets equal width naturally
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(
-              flex: 4,
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('JHS',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5,
-                      fontWeight: FontWeight.w700, color: Color(0xFF6D28D9),
-                      letterSpacing: 0.8)),
-                const SizedBox(height: 5),
-                Row(children: [
-                  for (final g in [7, 8, 9, 10]) ...[
-                    Expanded(child: _GradeChip(
-                      grade: g,
-                      count: _all.where((s) => (s['year_level'] as int?) == g).length,
-                      isJhs: true,
-                    )),
-                    if (g < 10) const SizedBox(width: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Page header ───────────────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
+            color: t.card,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Students',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              color: t.text,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    WebBtn(
+                      label: 'Import from registrar',
+                      icon: Icons.upload_file_rounded,
+                      onTap: _importStudents,
+                      outlined: true,
+                    ),
+                    const SizedBox(width: 10),
+                    WebBtn(
+                      label: 'Add Student',
+                      icon: Icons.add_rounded,
+                      onTap: _addStudent,
+                    ),
                   ],
-                ]),
-              ]),
-            ),
-            const SizedBox(width: 16),
-            Container(width: 1, height: 58,
-                margin: const EdgeInsets.only(top: 14), color: t.border),
-            const SizedBox(width: 16),
-            Expanded(
-              flex: 2,
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('SHS',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5,
-                      fontWeight: FontWeight.w700, color: Color(0xFF0EA5E9),
-                      letterSpacing: 0.8)),
-                const SizedBox(height: 5),
-                Row(children: [
-                  for (final g in [11, 12]) ...[
-                    Expanded(child: _GradeChip(
-                      grade: g,
-                      count: _all.where((s) => (s['year_level'] as int?) == g).length,
-                      isJhs: false,
-                    )),
-                    if (g < 12) const SizedBox(width: 8),
-                  ],
-                ]),
-              ]),
-            ),
-          ]),
-        ]),
-      ),
-      // ── Filter bar ───────────────────────────────────────────────────
-      Container(
-        padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
-        decoration: BoxDecoration(
-          color: t.bg,
-          border: Border(bottom: BorderSide(color: t.border)),
-        ),
-        child: Row(children: [
-          WebSearchField(
-            controller: _searchCtrl, hint: 'Search name or LRN…',
-            onChanged: (v) { _search = v; _applyFilter(); }, width: 200),
-          const SizedBox(width: 14),
-          Container(width: 1, height: 18, color: t.border),
-          const SizedBox(width: 14),
-          Text('Status:',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w600, color: t.text)),
-          const SizedBox(width: 8),
-          for (final f in ['All', 'Active', 'Inactive', 'No Auth', 'No Regs']) ...[
-            WebFilterChip(
-              label: f, selected: _statusFilter == f,
-              onTap: () { _statusFilter = f; _applyFilter(); },
-              count: f == 'All'      ? totalCount
-                   : f == 'Active'   ? activeCount
-                   : f == 'Inactive' ? inactiveCount
-                   : f == 'No Auth'  ? noAuthCount
-                   :                   unregisteredCount,
-              selectedColor: f == 'No Auth'  ? const Color(0xFFF59E0B)
-                           : f == 'No Regs'  ? const Color(0xFFF59E0B)
-                           : f == 'Inactive' ? kMuted
-                           : f == 'Active'   ? const Color(0xFF10B981)
-                           : null,
-            ),
-            const SizedBox(width: 6),
-          ],
-          if (yearOpts.length > 1) ...[
-            const SizedBox(width: 12),
-            Container(width: 1, height: 18, color: t.border),
-            const SizedBox(width: 12),
-            Text('Grade:',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                  fontWeight: FontWeight.w600, color: t.text)),
-            const SizedBox(width: 8),
-            Container(
-              height: 28,
-              padding: const EdgeInsets.only(left: 10, right: 6),
-              decoration: BoxDecoration(
-                color: _yearFilter != 'All'
-                    ? kAdminAccent.withValues(alpha: 0.07)
-                    : t.card,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: _yearFilter != 'All'
-                      ? kAdminAccent.withValues(alpha: 0.45)
-                      : t.border,
-                  width: _yearFilter != 'All' ? 1.5 : 1.0,
                 ),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: yearOpts.contains(_yearFilter) ? _yearFilter : 'All',
-                  isDense: true,
-                  icon: Icon(Icons.keyboard_arrow_down_rounded, size: 14,
-                      color: _yearFilter != 'All' ? kAdminAccent : t.muted),
-                  onChanged: (v) {
-                    if (v != null) { _yearFilter = v; _applyFilter(); }
-                  },
-                  selectedItemBuilder: (ctx) => yearOpts.map((y) => Center(
-                    child: Text(y,
-                      style: TextStyle(
-                        fontFamily: 'Poppins', fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                        color: _yearFilter != 'All' ? kAdminAccent : t.text,
-                      )),
-                  )).toList(),
-                  items: yearOpts.map((y) {
-                    final cnt = y == 'All'
-                        ? totalCount
-                        : _all.where((s) {
-                            final yr = int.tryParse(y.replaceAll('Grade ', ''));
-                            return (s['year_level'] as int?) == yr;
-                          }).length;
-                    return DropdownMenuItem<String>(
-                      value: y,
-                      child: Text('$y ($cnt)',
-                        style: TextStyle(
-                          fontFamily: 'Poppins', fontSize: 12,
-                          fontWeight: y == _yearFilter ? FontWeight.w700 : FontWeight.w400,
-                          color: y == _yearFilter ? kAdminAccent : t.text,
-                        )),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-          ],
-          if (hasFilter) ...[
-            const Spacer(),
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: () {
-                  _search = ''; _statusFilter = 'All'; _yearFilter = 'All';
-                  _searchCtrl.clear();
-                  _applyFilter();
-                },
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.close_rounded, size: 13, color: t.muted),
-                  const SizedBox(width: 4),
-                  Text('Clear filters', style: TextStyle(fontFamily: 'Poppins',
-                      fontSize: 11.5, fontWeight: FontWeight.w600, color: t.muted)),
-                ]),
-              ),
-            ),
-          ],
-        ]),
-      ),
-      // ── Body ─────────────────────────────────────────────────────────
-        if (_filtered.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(kWebPad),
-            child: WebEmptyState(
-              icon: Icons.people_outline_rounded,
-              title: 'No students found',
-              subtitle: emptySubtitle,
-              action: hasFilter
-                  ? TextButton(
-                      onPressed: () {
-                        _search = ''; _statusFilter = 'All'; _yearFilter = 'All';
-                        _searchCtrl.clear();
-                        _applyFilter();
-                      },
-                      child: const Text('Clear all filters',
-                        style: TextStyle(fontFamily: 'Poppins',
-                            fontWeight: FontWeight.w600, color: kAdminAccent)))
-                  : null),
-          )
-        else
-          Padding(
-            padding: const EdgeInsets.all(kWebPad),
-            child: WebCard(
-              padding: EdgeInsets.zero,
-              child: Column(children: [
-                _StudentTableHeader(
-                  sortField: _sortField,
-                  sortAsc:   _sortAsc,
-                  onSort:    _setSort,
-                ),
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _filtered.length,
-                  separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
-                  itemBuilder: (_, i) => _StudentRow(
-                    student:  _filtered[i],
-                    regCount: _regCounts[_filtered[i]['lrn'] as String? ?? ''] ?? 0,
-                    onEdit:   () => _editStudent(_filtered[i]),
-                    onToggle: () => _toggleActive(
-                      _filtered[i]['lrn'] as String,
-                      _filtered[i]['is_active'] == true),
-                    onDelete: () => _deleteStudent(
-                      _filtered[i]['lrn'] as String,
-                      _filtered[i]['full_name'] as String? ?? '—'),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: t.border))),
-                  child: Text(
-                    hasFilter
-                        ? 'Showing ${_filtered.length} of $totalCount students'
-                        : '${_filtered.length} students total',
-                    style: TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11.5, color: t.muted)),
-                ),
-              ]),
+                const SizedBox(height: 8),
+              ],
             ),
           ),
-      ]),
+          // ── Filter bar ───────────────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
+            decoration: BoxDecoration(
+              color: t.bg,
+              border: Border(bottom: BorderSide(color: t.border)),
+            ),
+            child: Row(
+              children: [
+                WebSearchField(
+                  controller: _searchCtrl,
+                  hint: 'Search name or LRN…',
+                  onChanged: (v) {
+                    _search = v;
+                    _applyFilter(resetPage: true);
+                  },
+                  width: 200,
+                ),
+                const SizedBox(width: 14),
+                Container(width: 1, height: 18, color: t.border),
+                const SizedBox(width: 14),
+                Text(
+                  'Status:',
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: t.text,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                for (final f in ['All', 'Active', 'Inactive', 'No Regs']) ...[
+                  WebFilterChip(
+                    label: f,
+                    selected: _statusFilter == f,
+                    onTap: () {
+                      _statusFilter = f;
+                      _applyFilter(resetPage: true);
+                    },
+                    count: f == 'All'
+                        ? totalCount
+                        : f == 'Active'
+                        ? activeCount
+                        : f == 'Inactive'
+                        ? inactiveCount
+                        : unregisteredCount,
+                    selectedColor: f == 'No Regs'
+                        ? const Color(0xFFF59E0B)
+                        : f == 'Inactive'
+                        ? kMuted
+                        : f == 'Active'
+                        ? const Color(0xFF10B981)
+                        : null,
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                const SizedBox(width: 8),
+                Container(width: 1, height: 18, color: t.border),
+                const SizedBox(width: 14),
+                _GradeFilterMenu(
+                  total: totalCount,
+                  counts: gradeCounts,
+                  strandCounts: strandCounts,
+                  unassigned: unassignedCount,
+                  level: _gradeLevel,
+                  exact: _gradeExact,
+                  strand: _gradeStrand,
+                  onSelect: _setGrade,
+                ),
+                if (hasFilter) ...[
+                  const Spacer(),
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTap: _clearFilters,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.close_rounded, size: 13, color: t.muted),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Clear filters',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: t.muted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          // ── Body ─────────────────────────────────────────────────────────
+          if (_filtered.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(kWebPad),
+              child: WebEmptyState(
+                icon: Icons.people_outline_rounded,
+                title: 'No students found',
+                subtitle: emptySubtitle,
+                action: hasFilter
+                    ? TextButton(
+                        onPressed: _clearFilters,
+                        child: const Text(
+                          'Clear all filters',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontWeight: FontWeight.w600,
+                            color: kAdminAccent,
+                          ),
+                        ),
+                      )
+                    : null,
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.all(kWebPad),
+              child: WebCard(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    if (_selectedLrns.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: kAdminAccent.withValues(alpha: 0.06),
+                          border: Border(bottom: BorderSide(color: t.border)),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${_selectedLrns.length} selected from ${_filtered.length} filtered students',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: t.text,
+                                ),
+                              ),
+                            ),
+                            _StudentBulkActionButton(
+                              label: 'Deactivate',
+                              icon: Icons.person_off_outlined,
+                              backgroundColor: const Color(0xFFFFF4CC),
+                              foregroundColor: const Color(0xFF9A6700),
+                              onTap: _bulkWorking
+                                  ? () {}
+                                  : _bulkDeactivateStudents,
+                            ),
+                            const SizedBox(width: 8),
+                            _StudentBulkActionButton(
+                              label: 'Activate',
+                              icon: Icons.person_add_outlined,
+                              backgroundColor: const Color(0xFFE4F8EE),
+                              foregroundColor: const Color(0xFF087443),
+                              onTap: _bulkWorking ? () {} : _bulkActivateStudents,
+                            ),
+                            const SizedBox(width: 8),
+                            _StudentBulkActionButton(
+                              label: 'Delete',
+                              icon: Icons.delete_outline_rounded,
+                              backgroundColor: const Color(0xFFFFE4E4),
+                              foregroundColor: const Color(0xFFB42318),
+                              onTap: _bulkWorking ? () {} : _bulkDeleteStudents,
+                            ),
+                            const SizedBox(width: 8),
+                            TextButton(
+                              onPressed: _bulkWorking
+                                  ? null
+                                  : () => setState(_selectedLrns.clear),
+                              child: Text(
+                                'Clear',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 12,
+                                  color: t.sub,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    _StudentTableHeader(
+                      sortField: _sortField,
+                      sortAsc: _sortAsc,
+                      onSort: _setSort,
+                      allSelected: _allFilteredSelected(_filtered),
+                      onToggleAll: () => _toggleAllFilteredSelection(_filtered),
+                    ),
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: pageRows.length,
+                      separatorBuilder: (_, _) =>
+                          Divider(height: 1, color: t.border),
+                      itemBuilder: (_, i) {
+                        final s = pageRows[i];
+                        return _StudentRow(
+                          student: s,
+                          regCount: _regCounts[s['lrn'] as String? ?? ''] ?? 0,
+                          selected: _selectedLrns.contains(
+                            s['lrn'] as String? ?? '',
+                          ),
+                          onSelect: () => _toggleStudentSelection(
+                            s['lrn'] as String? ?? '',
+                          ),
+                          onEdit: () => _editStudent(s),
+                          onToggle: () => _toggleActive(
+                            s['lrn'] as String,
+                            s['is_active'] == true,
+                          ),
+                          onDelete: () => _deleteStudent(
+                            s['lrn'] as String,
+                            s['full_name'] as String? ?? '—',
+                          ),
+                        );
+                      },
+                    ),
+                    AdminPaginationBar(
+                      page: page,
+                      total: _filtered.length,
+                      unfiltered: hasFilter ? totalCount : null,
+                      noun: 'students',
+                      onPage: (p) => setState(() => _page = p),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
 
+class _StudentBulkActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final VoidCallback onTap;
+
+  const _StudentBulkActionButton({
+    required this.label,
+    required this.icon,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: backgroundColor,
+    borderRadius: BorderRadius.circular(9),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(9),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: foregroundColor),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: foregroundColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class _StudentRow extends StatefulWidget {
   final Map<String, dynamic> student;
-  final int          regCount;
+  final int regCount;
+  final bool selected;
+  final VoidCallback onSelect;
   final VoidCallback onEdit, onToggle, onDelete;
-  const _StudentRow({required this.student, required this.regCount, required this.onEdit, required this.onToggle, required this.onDelete});
-  @override State<_StudentRow> createState() => _StudentRowState();
+  const _StudentRow({
+    required this.student,
+    required this.regCount,
+    required this.selected,
+    required this.onSelect,
+    required this.onEdit,
+    required this.onToggle,
+    required this.onDelete,
+  });
+  @override
+  State<_StudentRow> createState() => _StudentRowState();
 }
+
 class _StudentRowState extends State<_StudentRow> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
-    final t           = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final s           = widget.student;
-    final active      = s['is_active'] == true;
-    final linked      = s['user_id'] != null;
-    final yr          = s['year_level'] as int?;
-    final initials    = (s['full_name'] as String? ?? '?').trim().split(' ')
-        .where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase()).take(2).join();
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final s = widget.student;
+    final active = s['is_active'] == true;
+    final linked = s['user_id'] != null;
+    final yr = s['year_level'] as int?;
+    final initials = (s['full_name'] as String? ?? '?')
+        .trim()
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase())
+        .take(2)
+        .join();
     final avatarColor = active ? kAdminAccent : t.muted;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _h = true),
-      onExit:  (_) => setState(() => _h = false),
+      onExit: (_) => setState(() => _h = false),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
         color: _h ? kAdminAccent.withValues(alpha: 0.03) : Colors.transparent,
         child: IntrinsicHeight(
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Container(width: 3, color: active ? Colors.transparent : t.muted.withValues(alpha: 0.30)),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Row(children: [
-          // Avatar
-          Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(
-              color: avatarColor.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: avatarColor.withValues(alpha: 0.18)),
-            ),
-            child: Center(child: Text(initials,
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                  fontWeight: FontWeight.w700, color: avatarColor))),
-          ),
-          const SizedBox(width: 12),
-          // Name + "no auth" warning
-          Expanded(flex: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(s['full_name'] as String? ?? '—',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: active ? t.text : t.muted),
-              maxLines: 1, overflow: TextOverflow.ellipsis),
-            if (!linked)
-              const Text('No auth account',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                    color: Color(0xFFF59E0B), fontWeight: FontWeight.w600)),
-          ])),
-          // LRN
-          Expanded(flex: 2, child: Text(formatLrn(s['lrn'] as String? ?? '—'),
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub),
-            maxLines: 1, overflow: TextOverflow.ellipsis)),
-          // Year level badge
-          Expanded(child: yr != null
-            ? Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF6D28D9).withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFF6D28D9).withValues(alpha: 0.18)),
-                ),
-                child: Text('G$yr',
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                      fontWeight: FontWeight.w700, color: Color(0xFF6D28D9))))
-            : Text('—', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted))),
-          // Registration count
-          Expanded(child: widget.regCount > 0
-              ? Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(20),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                width: 3,
+                color: active
+                    ? Colors.transparent
+                    : t.muted.withValues(alpha: 0.30),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
                   ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.how_to_reg_rounded, size: 11,
-                        color: const Color(0xFF10B981).withValues(alpha: 0.80)),
-                    const SizedBox(width: 4),
-                    Text('${widget.regCount}',
-                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                          fontWeight: FontWeight.w700, color: Color(0xFF10B981))),
-                  ]),
-                )
-              : Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: t.muted.withValues(alpha: 0.07),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text('0',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                        fontWeight: FontWeight.w500, color: t.muted)))),
-          // Status badge
-          Expanded(child: WebStatusBadge(
-            label: active ? 'Active' : 'Inactive',
-            color: active ? const Color(0xFF10B981) : t.muted)),
-          // Account link status — amber when unlinked
-          Expanded(child: Row(children: [
-            Container(width: 7, height: 7,
-                decoration: BoxDecoration(
-                  color: linked ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-                  shape: BoxShape.circle)),
-            const SizedBox(width: 6),
-            Text(linked ? 'Linked' : 'No account',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                  fontWeight: linked ? FontWeight.w400 : FontWeight.w600,
-                  color: linked ? const Color(0xFF10B981) : const Color(0xFFF59E0B))),
-          ])),
-          // Created date
-          Expanded(flex: 2, child: Text(webFmtDate(s['created_at'] as String?),
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted))),
-          // Actions — fade in on row hover
-          AnimatedOpacity(
-            opacity: _h ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 150),
-            child: SizedBox(
-              width: 108,
-              child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                AdminActBtn(icon: Icons.edit_outlined,
-                    color: kAdminAccent, tip: 'Edit', onTap: widget.onEdit),
-                const SizedBox(width: 6),
-                AdminActBtn(
-                  icon:  active ? Icons.person_off_outlined : Icons.person_add_outlined,
-                  color: active ? const Color(0xFFF59E0B) : const Color(0xFF10B981),
-                  tip:   active ? 'Deactivate' : 'Activate',
-                  onTap: widget.onToggle),
-                const SizedBox(width: 6),
-                AdminActBtn(icon: Icons.delete_outline_rounded,
-                    color: const Color(0xFFEF4444), tip: 'Delete', onTap: widget.onDelete),
-              ]),
-            ),
-          ),
-                ]),      // closes inner Row (Padding child)
-              ),         // closes Padding
-            ),           // closes Expanded
-          ]),            // closes outer Row (IntrinsicHeight child)
-        ),               // closes IntrinsicHeight
-      ),                 // closes AnimatedContainer
-    );                   // closes MouseRegion
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 32,
+                        child: Checkbox(
+                          value: widget.selected,
+                          onChanged: (_) => widget.onSelect(),
+                          activeColor: kAdminAccent,
+                          side: BorderSide(
+                            color: t.muted.withValues(alpha: 0.55),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Avatar
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: avatarColor.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: avatarColor.withValues(alpha: 0.18),
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            initials,
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: avatarColor,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Name + "no auth" warning
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              s['full_name'] as String? ?? '—',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: active ? t.text : t.muted,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (!linked)
+                              const Text(
+                                'No auth account',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 10,
+                                  color: Color(0xFFF59E0B),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      // LRN
+                      Expanded(
+                        flex: 2,
+                        child: Text(
+                          formatLrn(s['lrn'] as String? ?? '—'),
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12,
+                            color: t.sub,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      // Year level badge
+                      Expanded(
+                        child: yr != null
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 9,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(
+                                    0xFF6D28D9,
+                                  ).withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: const Color(
+                                      0xFF6D28D9,
+                                    ).withValues(alpha: 0.18),
+                                  ),
+                                ),
+                                child: Text(
+                                  s['strand'] is String &&
+                                          (yr == 11 || yr == 12)
+                                      ? 'G$yr · ${s['strand']}'
+                                      : 'G$yr',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF6D28D9),
+                                  ),
+                                ),
+                              )
+                            : Text(
+                                '—',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 12,
+                                  color: t.muted,
+                                ),
+                              ),
+                      ),
+                      // Registration count
+                      Expanded(
+                        child: widget.regCount > 0
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(
+                                    0xFF10B981,
+                                  ).withValues(alpha: 0.10),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.how_to_reg_rounded,
+                                      size: 11,
+                                      color: const Color(
+                                        0xFF10B981,
+                                      ).withValues(alpha: 0.80),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${widget.regCount}',
+                                      style: const TextStyle(
+                                        fontFamily: 'Poppins',
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF10B981),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: t.muted.withValues(alpha: 0.07),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  '0',
+                                  style: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    color: t.muted,
+                                  ),
+                                ),
+                              ),
+                      ),
+                      // Status badge
+                      Expanded(
+                        child: WebStatusBadge(
+                          label: active ? 'Active' : 'Inactive',
+                          color: active ? const Color(0xFF10B981) : t.muted,
+                        ),
+                      ),
+                      // Account link status — amber when unlinked
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: linked
+                                    ? const Color(0xFF10B981)
+                                    : const Color(0xFFF59E0B),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              linked ? 'Linked' : 'No account',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 11.5,
+                                fontWeight: linked
+                                    ? FontWeight.w400
+                                    : FontWeight.w600,
+                                color: linked
+                                    ? const Color(0xFF10B981)
+                                    : const Color(0xFFF59E0B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Created date
+                      Expanded(
+                        flex: 2,
+                        child: Text(
+                          webFmtDate(s['created_at'] as String?),
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 11.5,
+                            color: t.muted,
+                          ),
+                        ),
+                      ),
+                      // Actions — always visible so they're discoverable without hovering
+                      // (and never focusable/clickable while invisible).
+                      SizedBox(
+                        width: 108,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            AdminActBtn(
+                              icon: Icons.edit_outlined,
+                              color: kAdminAccent,
+                              tip: 'Edit',
+                              onTap: widget.onEdit,
+                            ),
+                            const SizedBox(width: 6),
+                            AdminActBtn(
+                              icon: active
+                                  ? Icons.person_off_outlined
+                                  : Icons.person_add_outlined,
+                              color: active
+                                  ? const Color(0xFFF59E0B)
+                                  : const Color(0xFF10B981),
+                              tip: active ? 'Deactivate' : 'Activate',
+                              onTap: widget.onToggle,
+                            ),
+                            const SizedBox(width: 6),
+                            AdminActBtn(
+                              icon: Icons.delete_outline_rounded,
+                              color: const Color(0xFFEF4444),
+                              tip: 'Delete',
+                              onTap: widget.onDelete,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ), // closes inner Row (Padding child)
+                ), // closes Padding
+              ), // closes Expanded
+            ],
+          ), // closes outer Row (IntrinsicHeight child)
+        ), // closes IntrinsicHeight
+      ), // closes AnimatedContainer
+    ); // closes MouseRegion
   }
 }
 
-// ─── Grade breakdown chip (used in the per-grade strip) ──────────────────────
+// ─── Grade filter menu ───────────────────────────────────────────────────────
+// Trigger:  [ 🎓 Grade · All grades ▾ ]   active: [ 🎓 Grade · STEM · Grade 12 ✕ ]
+// Menu:
+//   ✓ All grades                                                  15
+//   ─────────────────────────────┬─────────────────────────────────
+//   JUNIOR HIGH               6  │ SENIOR HIGH                    9
+//       Grade 7               3  │    STEM                        4
+//       Grade 8               1  │        Grade 11                2
+//       …                        │        Grade 12                2
+//                                │    HUMSS / GAS …
+//   ─────────────────────────────┴─────────────────────────────────
+//   ⚠ Unassigned grade                                             2
+// The trigger mirrors WebFilterChip's metrics so it sits flush with the
+// Status chips; the menu uses the card surface so it matches both themes.
 
-class _GradeChip extends StatelessWidget {
-  final int  grade, count;
-  final bool isJhs;
-  const _GradeChip({required this.grade, required this.count, required this.isJhs});
+const _kJhsGrades = [7, 8, 9, 10];
+const _kShsGrades = [11, 12];
+const _kStrands = ['STEM', 'HUMSS', 'GAS'];
+
+// Menu geometry: panel padding 6, item horizontal padding 10, 1px column rule.
+// Panel 420 → inner 412 (4px padding). Two 200px columns + 9px rule = 409.
+// Item horizontal padding is 8, so content = column − 16.
+const double _kMenuWidth = 420;
+const double _kColWidth = 200;
+const double _kColItemW = 184;
+const double _kFullItemW = 396;
+
+// SHS strand of a student row, normalized: 'HUMSS' | 'GAS' | 'STEM' | 'none'.
+String _strandOf(Map<String, dynamic> s) {
+  final v = s['strand'];
+  return v is String && _kStrands.contains(v) ? v : 'none';
+}
+
+String _strandName(String strand) => strand == 'none' ? 'No strand' : strand;
+
+String _gradeLabel(String level, int? exact, String? strand) {
+  if (exact == 0) return 'Unassigned';
+  if (strand != null) {
+    return exact != null
+        ? '${_strandName(strand)} · Grade $exact'
+        : _strandName(strand);
+  }
+  if (exact != null) return 'Grade $exact';
+  return switch (level) {
+    'jhs' => 'Junior High',
+    'shs' => 'Senior High',
+    _ => 'All grades',
+  };
+}
+
+class _GradeFilterMenu extends StatefulWidget {
+  final int total, unassigned;
+  final Map<int, int> counts; // grade → students
+  final Map<String, Map<int, int>> strandCounts; // strand → grade → students
+  final String level; // 'all' | 'jhs' | 'shs'
+  final int? exact; // 7–12, 0 = unassigned
+  final String? strand; // 'HUMSS' | 'GAS' | 'STEM' | 'none'
+  final void Function(String level, int? exact, String? strand) onSelect;
+
+  const _GradeFilterMenu({
+    required this.total,
+    required this.counts,
+    required this.strandCounts,
+    required this.unassigned,
+    required this.level,
+    required this.exact,
+    required this.strand,
+    required this.onSelect,
+  });
+
+  @override
+  State<_GradeFilterMenu> createState() => _GradeFilterMenuState();
+}
+
+class _GradeFilterMenuState extends State<_GradeFilterMenu> {
+  final _menu = MenuController();
+
+  bool get _active =>
+      widget.level != 'all' || widget.exact != null || widget.strand != null;
+
+  bool _isSel(String level, int? exact, String? strand) =>
+      widget.level == level && widget.exact == exact && widget.strand == strand;
+
+  int _sum(List<int> grades) =>
+      grades.fold(0, (acc, g) => acc + (widget.counts[g] ?? 0));
+
+  int _strandTotal(String st) =>
+      (widget.strandCounts[st] ?? const {}).values.fold(0, (a, b) => a + b);
 
   @override
   Widget build(BuildContext context) {
-    final color = isJhs ? const Color(0xFF6D28D9) : const Color(0xFF0EA5E9);
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.16)),
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+
+    Widget divider() => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+      child: Divider(height: 1, thickness: 1, color: t.border),
+    );
+
+    // ── Left column: Junior High ────────────────────────────────────────────
+    final jhsColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _GradeMenuItem(
+          label: 'JUNIOR HIGH',
+          count: _sum(_kJhsGrades),
+          heading: true,
+          width: _kColItemW,
+          selected: _isSel('jhs', null, null),
+          onPressed: () => widget.onSelect('jhs', null, null),
+        ),
+        for (final g in _kJhsGrades)
+          _GradeMenuItem(
+            label: 'Grade $g',
+            count: widget.counts[g] ?? 0,
+            indent: 1,
+            width: _kColItemW,
+            selected: _isSel('all', g, null),
+            onPressed: () => widget.onSelect('all', g, null),
+          ),
+      ],
+    );
+
+    // ── Right column: Senior High, strand first ─────────────────────────────
+    final shsColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _GradeMenuItem(
+          label: 'SENIOR HIGH',
+          count: _sum(_kShsGrades),
+          heading: true,
+          width: _kColItemW,
+          selected: _isSel('shs', null, null),
+          onPressed: () => widget.onSelect('shs', null, null),
+        ),
+        for (final st in _kStrands) ...[
+          _GradeMenuItem(
+            label: st,
+            count: _strandTotal(st),
+            indent: 1,
+            strong: true,
+            width: _kColItemW,
+            selected: _isSel('shs', null, st),
+            onPressed: () => widget.onSelect('shs', null, st),
+          ),
+          for (final g in _kShsGrades)
+            _GradeMenuItem(
+              label: 'Grade $g',
+              count: widget.strandCounts[st]?[g] ?? 0,
+              indent: 2,
+              width: _kColItemW,
+              selected: _isSel('shs', g, st),
+              onPressed: () => widget.onSelect('shs', g, st),
+            ),
+        ],
+      ],
+    );
+
+    return MenuAnchor(
+      controller: _menu,
+      alignmentOffset: const Offset(0, 6),
+      style: adminFilterMenuStyle(t, width: _kMenuWidth, maxHeight: 680),
+      menuChildren: [
+        _GradeMenuItem(
+          label: 'All grades',
+          count: widget.total,
+          width: _kFullItemW,
+          selected: !_active,
+          onPressed: () => widget.onSelect('all', null, null),
+        ),
+        divider(),
+        // Two columns: Junior High │ Senior High (by strand). Each column
+        // needs a fixed width: MenuItemButton's label row expands to fill
+        // its parent, and a bare Row hands its children unbounded width.
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: _kColWidth,
+                child: Align(alignment: Alignment.topLeft, child: jhsColumn),
+              ),
+              Container(
+                width: 1,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                color: t.border,
+              ),
+              SizedBox(
+                width: _kColWidth,
+                child: Align(alignment: Alignment.topLeft, child: shsColumn),
+              ),
+            ],
+          ),
+        ),
+        if (widget.unassigned > 0) ...[
+          divider(),
+          _GradeMenuItem(
+            label: 'Unassigned grade',
+            count: widget.unassigned,
+            warning: true,
+            width: _kFullItemW,
+            tooltip: 'No grade set, or a grade outside 7–12',
+            selected: widget.exact == 0,
+            onPressed: () => widget.onSelect('all', 0, null),
+          ),
+        ],
+      ],
+      builder: (context, controller, _) => AdminFilterTrigger(
+        icon: Icons.school_rounded,
+        label: 'Grade',
+        value: _gradeLabel(widget.level, widget.exact, widget.strand),
+        active: _active,
+        open: controller.isOpen,
+        onTap: () => controller.isOpen ? controller.close() : controller.open(),
+        onClear: () {
+          controller.close();
+          widget.onSelect('all', null, null);
+        },
       ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('$count',
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 15,
-              fontWeight: FontWeight.w800, color: color, height: 1.1)),
-        const SizedBox(height: 2),
-        Text('Grade $grade',
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5,
-              fontWeight: FontWeight.w600,
-              color: color.withValues(alpha: 0.70))),
-      ]),
+    );
+  }
+}
+
+// One compact menu row: check · label · right-aligned count.
+// Built on MenuItemButton so arrow keys / Enter / Esc work out of the box.
+class _GradeMenuItem extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool selected, heading, strong, warning;
+  final int indent; // 0 = flush, 1 = under a heading, 2 = under a strand
+  final double width; // content width (column vs full-width row)
+  final String? tooltip;
+  final VoidCallback onPressed;
+
+  const _GradeMenuItem({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onPressed,
+    required this.width,
+    this.heading = false,
+    this.strong = false,
+    this.warning = false,
+    this.indent = 0,
+    this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    const amber = Color(0xFFF59E0B);
+    final accent = warning ? amber : kAdminAccent;
+    final empty = count == 0;
+
+    final labelColor = selected
+        ? accent
+        : warning
+        ? amber
+        : heading
+        ? t.sub
+        : empty
+        ? t.muted
+        : t.text;
+
+    final item = MenuItemButton(
+      onPressed: onPressed,
+      style: ButtonStyle(
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: 8),
+        ),
+        minimumSize: WidgetStatePropertyAll(Size(0, heading ? 26 : 30)),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        ),
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (selected) return accent.withValues(alpha: 0.10);
+          if (states.contains(WidgetState.hovered) ||
+              states.contains(WidgetState.focused)) {
+            return t.dark
+                ? Colors.white.withValues(alpha: 0.05)
+                : const Color(0xFFF1F5F9);
+          }
+          return Colors.transparent;
+        }),
+      ),
+      child: SizedBox(
+        width: width,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 14,
+              child: warning && !selected
+                  ? const Icon(
+                      Icons.warning_amber_rounded,
+                      size: 12,
+                      color: amber,
+                    )
+                  : selected
+                  ? Icon(Icons.check_rounded, size: 13, color: accent)
+                  : null,
+            ),
+            SizedBox(width: 6.0 + indent * 12),
+            Expanded(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: heading ? 10 : 12,
+                  letterSpacing: heading ? 0.8 : 0,
+                  fontWeight: selected || heading
+                      ? FontWeight.w700
+                      : strong
+                      ? FontWeight.w600
+                      : FontWeight.w400,
+                  color: labelColor,
+                ),
+              ),
+            ),
+            SizedBox(
+              width: 24,
+              child: Text(
+                '$count',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  color: selected ? accent : t.muted,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return Semantics(
+      selected: selected,
+      label: '$label, $count students',
+      child: tooltip == null ? item : Tooltip(message: tooltip!, child: item),
     );
   }
 }
@@ -764,25 +1731,41 @@ class _GradeChip extends StatelessWidget {
 
 class _StudentTableHeader extends StatelessWidget {
   final String sortField;
-  final bool   sortAsc;
+  final bool sortAsc;
+  final bool allSelected;
   final void Function(String) onSort;
+  final VoidCallback onToggleAll;
   const _StudentTableHeader({
-    required this.sortField, required this.sortAsc, required this.onSort});
+    required this.sortField,
+    required this.sortAsc,
+    required this.onSort,
+    required this.allSelected,
+    required this.onToggleAll,
+  });
 
   Widget _sortCol(String label, String field, {int flex = 1}) => Expanded(
     flex: flex,
     child: AdminSortColBtn(
-      label: label, field: field,
+      label: label,
+      field: field,
       active: sortField == field,
-      asc:    sortAsc && sortField == field,
+      asc: sortAsc && sortField == field,
       onSort: onSort,
     ),
   );
 
   Widget _staticCol(String label, Color color, {int flex = 1}) => Expanded(
     flex: flex,
-    child: Text(label, style: TextStyle(fontFamily: 'Poppins',
-        fontSize: 10.5, fontWeight: FontWeight.w700, color: color, letterSpacing: 0.8)),
+    child: Text(
+      label,
+      style: TextStyle(
+        fontFamily: 'Poppins',
+        fontSize: 10.5,
+        fontWeight: FontWeight.w700,
+        color: color,
+        letterSpacing: 0.8,
+      ),
+    ),
   );
 
   @override
@@ -794,22 +1777,61 @@ class _StudentTableHeader extends StatelessWidget {
         color: t.bg,
         border: Border(bottom: BorderSide(color: t.border)),
       ),
-      child: Row(children: [
-        const SizedBox(width: 52),
-        _sortCol('FULL NAME',  'full_name',  flex: 3),
-        _sortCol('LRN',        'lrn',        flex: 2),
-        _sortCol('GRADE',      'year_level'),
-        _sortCol('REGS',       'reg_count'),
-        _sortCol('STATUS',     'is_active'),
-        _staticCol('AUTH',     t.sub),
-        _sortCol('CREATED',    'created_at', flex: 2),
-        const SizedBox(width: 108),
-      ]),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 32,
+            child: Tooltip(
+              message: 'Select all filtered students',
+              child: Checkbox(
+                value: allSelected,
+                onChanged: (_) => onToggleAll(),
+                activeColor: kAdminAccent,
+                side: BorderSide(color: t.muted.withValues(alpha: 0.55)),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          _sortCol('FULL NAME', 'full_name', flex: 3),
+          _sortCol('LRN', 'lrn', flex: 2),
+          _sortCol('GRADE', 'year_level'),
+          _sortCol('REGS', 'reg_count'),
+          _sortCol('STATUS', 'is_active'),
+          _staticCol('AUTH', t.sub),
+          _sortCol('CREATED', 'created_at', flex: 2),
+          // Same width as the row's 3 action buttons (3×32 + 2×6 gaps), so
+          // centring it puts it over the middle (Activate/Deactivate) button.
+          SizedBox(
+            width: 108,
+            child: Text(
+              'ACTIONS',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: t.sub,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 // ─── Student dialog ────────────────────────────────────────────────────────
+// Three short sections — Student · Grade level · Login — with labels above
+// every field and errors shown inline under the field that caused them.
+//   • LRN: the school prefix (123456 - 26) is filled in and the admin types
+//     only the last 4 digits; "Different LRN prefix?" switches to all 12
+//     (transferees, other enrollment years). The student signs in with the
+//     full LRN, shown live under the field.
+//   • Grade: compact number chips grouped by level; Strand slides in for 11–12.
+//   • Password: one visible field + Generate, since the admin has to hand it
+//     to the student and there is no self-service reset.
 
 class _StudentDialog extends StatefulWidget {
   final Map<String, dynamic>? student;
@@ -817,35 +1839,84 @@ class _StudentDialog extends StatefulWidget {
   // Returns an error message string on failure, or null on success.
   final Future<String?> Function(Map<String, dynamic>)? onCreate;
   const _StudentDialog({required this.student, this.onCreate});
-  @override State<_StudentDialog> createState() => _StudentDialogState();
+  @override
+  State<_StudentDialog> createState() => _StudentDialogState();
 }
+
 class _StudentDialogState extends State<_StudentDialog>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
-  late final Animation<double>   _scale, _fade;
-  final _lrnCtrl        = TextEditingController();
-  final _nameCtrl       = TextEditingController();
-  final _pwCtrl         = TextEditingController();
-  final _confirmPwCtrl  = TextEditingController();
-  bool  _pwHidden        = true;
-  bool  _confirmPwHidden = true;
-  bool  _saving          = false;
-  int?  _selectedYear;
+  late final Animation<double> _scale, _fade;
+  // The last 4 digits after kSchoolLrnPrefix — or, with _fullLrn, the whole
+  // 12-digit LRN (auto-formatted).
+  final _lrnCtrl = TextEditingController();
+  bool _fullLrn = false;
+  final _sectionCtrl = TextEditingController();
+  final _lastCtrl = TextEditingController();
+  final _firstCtrl = TextEditingController();
+  // True when an older student (saved before name parts existed) was split
+  // from full_name by guesswork — the admin is asked to double-check it.
+  bool _nameGuessed = false;
+  final _pwCtrl = TextEditingController();
+  bool _pwHidden = false; // visible: admin must share it
+  bool _saving = false;
+  bool _resetPw = false; // edit mode: "Reset password" opened
+  int? _selectedYear;
+  String? _selectedStrand;
+  Map<String, String> _errors = {};
+
+
+  static const _strandNames = {
+    'STEM': 'Science, Technology, Engineering & Mathematics',
+    'HUMSS': 'Humanities & Social Sciences',
+    'GAS': 'General Academic Strand',
+  };
 
   bool get _isEdit => widget.student != null;
+  bool get _isShs => _selectedYear == 11 || _selectedYear == 12;
+  // Edit mode: only accounts with a login have a password to reset.
+  bool get _hasLogin => widget.student?['user_id'] != null;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 260));
-    _scale = Tween<double>(begin: 0.87, end: 1.0)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack));
-    _fade  = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+    _scale = Tween<double>(
+      begin: 0.94,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
     _ctrl.forward();
     if (_isEdit) {
-      _lrnCtrl.text  = widget.student!['lrn']       as String? ?? '';
-      _nameCtrl.text = widget.student!['full_name']  as String? ?? '';
-      _selectedYear  = widget.student!['year_level'] as int?;
+      final s = widget.student!;
+      final first = (s['first_name'] as String? ?? '').trim();
+      final last = (s['last_name'] as String? ?? '').trim();
+      if (first.isNotEmpty && last.isNotEmpty) {
+        _firstCtrl.text = first;
+        _lastCtrl.text = last;
+      } else {
+        // Best guess for older rows: last word = last name, rest = first name.
+        final words = (s['full_name'] as String? ?? '')
+            .trim()
+            .split(RegExp(r'\s+'))
+            .where((w) => w.isNotEmpty)
+            .toList();
+        if (words.length >= 2) {
+          _lastCtrl.text = words.last;
+          _firstCtrl.text = words.sublist(0, words.length - 1).join(' ');
+          _nameGuessed = true;
+        } else if (words.length == 1) {
+          _firstCtrl.text = words.first;
+          _nameGuessed = true;
+        }
+      }
+      _selectedYear = widget.student!['year_level'] as int?;
+      final st = widget.student!['strand'];
+      _selectedStrand = st is String && _kStrands.contains(st) ? st : null;
+      _sectionCtrl.text = widget.student!['section'] as String? ?? '';
     }
   }
 
@@ -853,44 +1924,68 @@ class _StudentDialogState extends State<_StudentDialog>
   void dispose() {
     _ctrl.dispose();
     _lrnCtrl.dispose();
-    _nameCtrl.dispose();
+    _sectionCtrl.dispose();
+    _lastCtrl.dispose();
+    _firstCtrl.dispose();
     _pwCtrl.dispose();
-    _confirmPwCtrl.dispose();
     super.dispose();
   }
 
+  // ── Validation / submit ────────────────────────────────────────────────────
+
+  // The full 12-digit LRN the form describes.
+  String get _lrn => _fullLrn
+      ? lrnDigits(_lrnCtrl.text)
+      : '$kSchoolLrnPrefix${lrnDigits(_lrnCtrl.text)}';
+
+  Map<String, String> _validate() {
+    final yr = _selectedYear;
+    return {
+      if (!_isEdit && lrnDigits(_lrnCtrl.text).length != (_fullLrn ? 12 : 4))
+        'lrn': _fullLrn
+            ? 'Enter the full 12-digit LRN'
+            : 'Enter the last 4 digits of the LRN',
+      if (_lastCtrl.text.trim().isEmpty) 'last': 'Last name is required',
+      if (_firstCtrl.text.trim().isEmpty) 'first': 'First name is required',
+      if (yr == null || yr < 7 || yr > 12) 'grade': 'Select a grade level',
+      if (_isShs && _selectedStrand == null) 'strand': 'Select a strand',
+      if ((!_isEdit || _resetPw) && _pwCtrl.text.length < 6)
+        'password': 'Use at least 6 characters',
+    };
+  }
+
+  void _clearError(String key) {
+    if (_errors.containsKey(key)) setState(() => _errors.remove(key));
+  }
+
   Future<void> _submit() async {
-    final lrn  = _lrnCtrl.text.replaceAll(RegExp(r'\D'), '');
-    final name = _nameCtrl.text.trim();
-    final pw   = _pwCtrl.text;
-    if (!_isEdit && !RegExp(r'^\d{12}$').hasMatch(lrn)) {
-      _snack('LRN must be exactly 12 digits'); return;
-    }
-    if (!_isEdit && !lrn.startsWith(kRequiredLrnPrefix)) {
-      final prefixDisplay = '${kRequiredLrnPrefix.substring(0, 6)} - ${kRequiredLrnPrefix.substring(6, 8)}';
-      _snack('LRN must start with $prefixDisplay '
-          '— students log in with only the last 4 digits, which are rebuilt using this prefix.');
-      return;
-    }
-    if (name.isEmpty) { _snack('Full name is required'); return; }
-    if (!_isEdit && pw.length < 6) {
-      _snack('Password must be at least 6 characters'); return;
-    }
-    if (!_isEdit && _confirmPwCtrl.text != pw) {
-      _snack('Passwords do not match'); return;
-    }
-    final data = <String, dynamic>{'full_name': name, 'year_level': _selectedYear};
-    if (!_isEdit) {
-      data['lrn']       = lrn;
-      data['password']  = pw;
-      data['is_active'] = true;
-    }
+    if (_saving) return;
+    final errs = _validate();
+    setState(() => _errors = errs);
+    if (errs.isNotEmpty) return;
+
+    final data = <String, dynamic>{
+      'first_name': _cleanName(_firstCtrl.text),
+      'last_name': _cleanName(_lastCtrl.text),
+      // Display value, natural order — greetings/avatars/tickets read this.
+      'full_name':
+          '${_cleanName(_firstCtrl.text)} ${_cleanName(_lastCtrl.text)}',
+      'year_level': _selectedYear,
+      'strand': _isShs ? _selectedStrand : null,
+      'section': _cleanSection(_sectionCtrl.text),
+    };
 
     if (_isEdit) {
       // Edit mode: pop immediately with data for the parent to save.
+      // '_new_password' is stripped by the parent before the profile update.
+      if (_resetPw) data['_new_password'] = _pwCtrl.text;
       Navigator.of(context).pop(data);
       return;
     }
+
+    data['lrn'] = _lrn;
+    data['password'] = _pwCtrl.text;
+    data['is_active'] = true;
 
     // Add mode: call onCreate inside the dialog so we can show a loading state.
     setState(() => _saving = true);
@@ -898,214 +1993,493 @@ class _StudentDialogState extends State<_StudentDialog>
     if (!mounted) return;
     if (err != null) {
       setState(() => _saving = false);
-      _snack(err);
+      // [err] is already in plain words (friendlyError in onCreate).
+      adminErrorAlert(context, FriendlyException(err), title: 'Couldn’t create the account');
       return;
     }
     Navigator.of(context).pop(true); // true = success
   }
 
-  void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(msg, style: const TextStyle(fontFamily: 'Poppins')),
-        backgroundColor: Colors.red));
+  void _generatePassword() {
+    setState(() {
+      _pwCtrl.text = adminGeneratePassword();
+      _pwHidden = false;
+      _errors.remove('password');
+    });
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     return FadeTransition(
-    opacity: _fade,
-    child: ScaleTransition(
-      scale: _scale,
-      child: Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 440, maxHeight: 680),
-          child: adminDialogShell(
-            icon: Icons.people_rounded, iconColor: kAdminAccent,
-            title: _isEdit ? 'Edit Student' : 'Add Student',
-            loading: _saving,
-            body: Column(children: [
-              if (!_isEdit) ...[
-                AdminInfoNote('Admin-provisioned account. The student will log in using the last 4 digits of their LRN as their username.'),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _lrnCtrl,
-                  enabled: !_saving,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [_LrnFormatter()],
-                  decoration: webInputDeco('e.g. 123456 - 26 - 1234', icon: Icons.badge_outlined, dark: t.dark),
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text)),
-                const SizedBox(height: 12),
-              ],
-              TextField(
-                controller: _nameCtrl,
-                enabled: !_saving,
-                decoration: webInputDeco('Full Name', icon: Icons.person_outline_rounded, dark: t.dark),
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text)),
-              const SizedBox(height: 12),
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Grade Level',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                      fontWeight: FontWeight.w600, color: t.sub)),
-                const SizedBox(height: 10),
-                // Junior High School row
-                Text('Junior High School',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                      fontWeight: FontWeight.w600, color: t.muted, letterSpacing: 0.4)),
-                const SizedBox(height: 6),
-                Row(children: [
-                  for (final y in [7, 8, 9, 10]) ...[
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: _saving ? null : () => setState(
-                            () => _selectedYear = _selectedYear == y ? null : y),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 140),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          decoration: BoxDecoration(
-                            color: _selectedYear == y
-                                ? kAdminAccent.withValues(alpha: 0.10)
-                                : t.inputBg,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: _selectedYear == y ? kAdminAccent : t.border,
-                              width: _selectedYear == y ? 1.5 : 1.0,
+      opacity: _fade,
+      child: ScaleTransition(
+        scale: _scale,
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 28,
+            vertical: 40,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460, maxHeight: 700),
+            child: adminDialogShell(
+              icon: _isEdit
+                  ? Icons.edit_outlined
+                  : Icons.person_add_alt_1_rounded,
+              iconColor: kAdminAccent,
+              title: _isEdit ? 'Edit Student' : 'Add Student',
+              subtitle: _isEdit
+                  ? 'Update this student’s profile.'
+                  : 'Create a login for a new student.',
+              loading: _saving,
+              confirmLabel: _isEdit ? 'Save Changes' : 'Add Student',
+              confirmColor: kAdminAccent,
+              onConfirm: _submit,
+              body: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+
+                  // ── Student ────────────────────────────────────────────────
+                  _section('STUDENT', t),
+                  _label('LRN', t),
+                  if (_isEdit)
+                    _readOnlyField(
+                      formatLrn(widget.student!['lrn'] as String? ?? '—'),
+                      t,
+                    )
+                  else
+                    _lrnField(t),
+                  const SizedBox(height: 14),
+                  // Last name first — matches how school rosters list students.
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _label('Last name', t),
+                            _nameField(
+                              _lastCtrl,
+                              'last',
+                              'e.g. Dela Cruz',
+                              t,
+                              autofocus: _isEdit,
                             ),
-                          ),
-                          child: Text('Grade $y',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontFamily: 'Poppins', fontSize: 12,
-                              fontWeight: _selectedYear == y
-                                  ? FontWeight.w700 : FontWeight.w400,
-                              color: _selectedYear == y ? kAdminAccent : t.sub,
-                            )),
+                          ],
                         ),
                       ),
-                    ),
-                    if (y < 10) const SizedBox(width: 8),
-                  ],
-                ]),
-                const SizedBox(height: 10),
-                // Senior High School row
-                Text('Senior High School',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                      fontWeight: FontWeight.w600, color: t.muted, letterSpacing: 0.4)),
-                const SizedBox(height: 6),
-                Row(children: [
-                  for (final y in [11, 12]) ...[
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: _saving ? null : () => setState(
-                            () => _selectedYear = _selectedYear == y ? null : y),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 140),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          decoration: BoxDecoration(
-                            color: _selectedYear == y
-                                ? kAdminAccent.withValues(alpha: 0.10)
-                                : t.inputBg,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: _selectedYear == y ? kAdminAccent : t.border,
-                              width: _selectedYear == y ? 1.5 : 1.0,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _label('First name', t),
+                            _nameField(
+                              _firstCtrl,
+                              'first',
+                              'e.g. Juan',
+                              t,
+                              submitOnEnter: _isEdit,
                             ),
-                          ),
-                          child: Text('Grade $y',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontFamily: 'Poppins', fontSize: 12,
-                              fontWeight: _selectedYear == y
-                                  ? FontWeight.w700 : FontWeight.w400,
-                              color: _selectedYear == y ? kAdminAccent : t.sub,
-                            )),
+                          ],
                         ),
                       ),
+                    ],
+                  ),
+                  if (_nameGuessed) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.info_outline_rounded,
+                          size: 14,
+                          color: Color(0xFFF59E0B),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Split automatically from the saved name — check that the '
+                            'last and first names are correct before saving.',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 11,
+                              color: t.sub,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    if (y < 12) const SizedBox(width: 8),
                   ],
-                  // Spacer to prevent Grade 11 / 12 from stretching across full width
-                  const Expanded(flex: 2, child: SizedBox()),
-                ]),
-              ]),
-              if (!_isEdit) ...[
-                const SizedBox(height: 14),
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _lrnCtrl,
-                  builder: (_, v, _) {
-                    final lrn   = v.text.replaceAll(RegExp(r'\D'), '');
-                    final last4 = lrn.length >= 4
-                        ? lrn.substring(lrn.length - 4)
-                        : lrn.isEmpty ? '—' : lrn;
-                    return AdminCredentialPreview(username: last4, isReady: lrn.length == 12);
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _pwCtrl,
-                  obscureText: _pwHidden,
-                  enabled: !_saving,
-                  decoration: webInputDeco('Password', icon: Icons.lock_outline_rounded, dark: t.dark).copyWith(
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _pwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                        size: 18, color: t.sub,
-                      ),
-                      onPressed: () => setState(() => _pwHidden = !_pwHidden),
-                    ),
+
+                  // ── Grade level ────────────────────────────────────────────
+                  const SizedBox(height: 24),
+                  _section('GRADE LEVEL', t),
+                  _choiceRow('Junior High', [
+                    for (final y in _kJhsGrades) _gradeChip(y, t),
+                  ], t),
+                  const SizedBox(height: 8),
+                  _choiceRow('Senior High', [
+                    for (final y in _kShsGrades) _gradeChip(y, t),
+                  ], t),
+                  if (_errors['grade'] != null)
+                    _inlineError(_errors['grade']!, indent: true),
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    alignment: Alignment.topCenter,
+                    child: _isShs
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _choiceRow('Strand', [
+                                  for (final st in _kStrands)
+                                    Tooltip(
+                                      message: _strandNames[st]!,
+                                      waitDuration: const Duration(
+                                        milliseconds: 400,
+                                      ),
+                                      child: _ChoiceChip(
+                                        label: st,
+                                        selected: _selectedStrand == st,
+                                        enabled: !_saving,
+                                        onTap: () => setState(() {
+                                          _selectedStrand = st;
+                                          _errors.remove('strand');
+                                        }),
+                                      ),
+                                    ),
+                                ], t),
+                                if (_errors['strand'] != null)
+                                  _inlineError(
+                                    _errors['strand']!,
+                                    indent: true,
+                                  ),
+                              ],
+                            ),
+                          )
+                        : const SizedBox(width: double.infinity),
                   ),
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
-                ),
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _pwCtrl,
-                  builder: (_, v, _) => AdminPasswordStrengthBar(password: v.text),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _confirmPwCtrl,
-                  obscureText: _confirmPwHidden,
-                  enabled: !_saving,
-                  decoration: webInputDeco('Confirm Password', icon: Icons.lock_outline_rounded, dark: t.dark).copyWith(
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _confirmPwHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                        size: 18, color: t.sub,
-                      ),
-                      onPressed: () => setState(() => _confirmPwHidden = !_confirmPwHidden),
-                    ),
+                  const SizedBox(height: 14),
+                  adminFormLabel('Section', t, hint: 'Optional'),
+                  TextField(
+                    controller: _sectionCtrl,
+                    enabled: !_saving,
+                    textCapitalization: TextCapitalization.words,
+                    textInputAction: TextInputAction.next,
+                    style: _inputStyle(t),
+                    decoration: _deco('e.g. Sampaguita', t),
                   ),
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.text),
-                ),
-              ],
-            ]),
-            confirmLabel: _isEdit ? 'Save Changes' : 'Add Student',
-            confirmColor: kAdminAccent,
-            onConfirm: _submit,
+
+                  // ── Login ──────────────────────────────────────────────────
+                  const SizedBox(height: 24),
+                  _section('LOGIN', t),
+                  if (_isEdit && !_hasLogin)
+                    const AdminNoLoginNote(recipient: 'student')
+                  else if (_isEdit && !_resetPw)
+                    AdminResetPasswordPrompt(
+                      recipient: 'student',
+                      accent: kAdminAccent,
+                      enabled: !_saving,
+                      onReset: () => setState(() {
+                        _resetPw = true;
+                        _pwCtrl.text = adminGeneratePassword();
+                        _pwHidden = false;
+                      }),
+                    )
+                  else ...[
+                    AdminInitialPasswordField(
+                      controller: _pwCtrl,
+                      hidden: _pwHidden,
+                      enabled: !_saving,
+                      error: _errors['password'],
+                      recipient: 'student',
+                      accent: kAdminAccent,
+                      autofocus: _isEdit,
+                      label: _isEdit ? 'New password' : 'Initial password',
+                      note: _isEdit
+                          ? 'Saved with Save Changes. Share it with the student — '
+                                'their old password stops working.'
+                          : null,
+                      onToggleHidden: () =>
+                          setState(() => _pwHidden = !_pwHidden),
+                      onGenerate: _generatePassword,
+                      onSubmitted: _submit,
+                      onChanged: (_) {
+                        _clearError('password');
+                        setState(() {});
+                      },
+                    ),
+                    if (_isEdit)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          onPressed: _saving
+                              ? null
+                              : () => setState(() {
+                                  _resetPw = false;
+                                  _pwCtrl.clear();
+                                  _errors.remove('password');
+                                }),
+                          style: TextButton.styleFrom(
+                            foregroundColor: t.sub,
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            minimumSize: const Size(0, 30),
+                          ),
+                          child: const Text(
+                            'Keep current password',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
       ),
-    ),
+    );
+  }
+
+  // ── Pieces ─────────────────────────────────────────────────────────────────
+
+  // "123456 - 26" — the school prefix as people read it.
+  static final _schoolPrefix =
+      '${kSchoolLrnPrefix.substring(0, 6)} - ${kSchoolLrnPrefix.substring(6)}';
+
+  // Add mode: the school prefix sits inside the field and only the last 4
+  // digits are typed. "Different LRN prefix?" switches to all 12 digits.
+  Widget _lrnField(WebTk t) {
+    final complete = lrnDigits(_lrnCtrl.text).length == (_fullLrn ? 12 : 4);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          key: ValueKey(_fullLrn),   // a fresh field (and focus) after switching
+          controller: _lrnCtrl,
+          enabled: !_saving,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          inputFormatters: _fullLrn
+              ? const [LrnInputFormatter()]
+              : [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(4),
+                ],
+          onChanged: (_) {
+            _clearError('lrn');
+            setState(() {});   // keeps the "signs in with …" line live
+          },
+          style: _inputStyle(t).copyWith(
+            fontFeatures: const [FontFeature.tabularFigures()],
+            letterSpacing: 0.5,
+          ),
+          decoration: _deco(_fullLrn ? '123456 - 26 - 0001' : '0001', t,
+              error: _errors['lrn']).copyWith(
+            // The school prefix is shown as part of the field — never typed.
+            prefixIcon: _fullLrn ? null : adminFieldPrefix('$_schoolPrefix -', t),
+            prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+            helperText: _errors['lrn'] != null
+                ? null
+                : complete
+                    ? 'The student signs in with ${formatLrn(_lrn)}'
+                    : _fullLrn
+                        ? 'Type all 12 digits — the student signs in with this LRN.'
+                        : 'Type the last 4 digits — the student signs in with the full LRN.',
+          ),
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: _saving ? null : _toggleLrnMode,
+            style: TextButton.styleFrom(
+              foregroundColor: kAdminAccent,
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                  fontWeight: FontWeight.w600),
+            ),
+            child: Text(_fullLrn
+                ? 'Use the school prefix ($_schoolPrefix)'
+                : 'Different LRN prefix?'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _toggleLrnMode() {
+    final digits = lrnDigits(_lrnCtrl.text);
+    setState(() {
+      _errors.remove('lrn');
+      _fullLrn = !_fullLrn;
+      if (_fullLrn) {
+        // Start from the school prefix so only the part that differs is retyped.
+        _lrnCtrl.text = const LrnInputFormatter()
+            .formatEditUpdate(TextEditingValue.empty,
+                TextEditingValue(text: '$kSchoolLrnPrefix$digits'))
+            .text;
+      } else {
+        // Keep the last 4 digits when the LRN already uses the school prefix.
+        _lrnCtrl.text = digits.length == 12 && digits.startsWith(kSchoolLrnPrefix)
+            ? digits.substring(8)
+            : '';
+      }
+    });
+  }
+
+  Widget _nameField(
+    TextEditingController ctrl,
+    String errorKey,
+    String hint,
+    WebTk t, {
+    bool autofocus = false,
+    bool submitOnEnter = false,
+  }) => TextField(
+    controller: ctrl,
+    enabled: !_saving,
+    autofocus: autofocus,
+    textCapitalization: TextCapitalization.words,
+    textInputAction: submitOnEnter
+        ? TextInputAction.done
+        : TextInputAction.next,
+    onSubmitted: submitOnEnter ? (_) => _submit() : null,
+    onChanged: (_) => _clearError(errorKey),
+    style: _inputStyle(t),
+    decoration: _deco(hint, t, error: _errors[errorKey]),
   );
-}
+
+  static String _cleanName(String raw) => adminCleanName(raw);
+
+  // Optional; blank → null. Title-cased like names ("SAMPAGUITA" → "Sampaguita").
+  static String? _cleanSection(String raw) {
+    final s = adminCleanName(raw);
+    return s.isEmpty ? null : s;
+  }
+
+  Widget _readOnlyField(String value, WebTk t) => AdminReadOnlyField(
+    value: value,
+    lockMessage: 'LRN can’t be changed after the account is created',
+  );
+
+  Widget _gradeChip(int y, WebTk t) => _ChoiceChip(
+    label: '$y',
+    selected: _selectedYear == y,
+    enabled: !_saving,
+    minWidth: 46,
+    onTap: () => setState(() {
+      _selectedYear = y;
+      if (!_isShs) _selectedStrand = null;
+      _errors.remove('grade');
+    }),
+  );
+
+  // Row label on the left, chips on the right — keeps the two levels aligned.
+  Widget _choiceRow(String label, List<Widget> chips, WebTk t) => Row(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      SizedBox(
+        width: 96,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: t.sub,
+          ),
+        ),
+      ),
+      Expanded(child: Wrap(spacing: 6, runSpacing: 6, children: chips)),
+    ],
+  );
+
+  // Thin wrappers over the shared admin form blocks (admin_shared.dart).
+  Widget _section(String text, WebTk t) => adminFormSection(text, t);
+
+  Widget _label(String text, WebTk t, {double bottom = 6}) =>
+      adminFormLabel(text, t, bottom: bottom);
+
+  Widget _inlineError(String text, {bool indent = false}) =>
+      adminFormInlineError(text, indent: indent ? 96 : 0);
+
+
+
+  TextStyle _inputStyle(WebTk t) => adminInputStyle(t);
+
+  InputDecoration _deco(String hint, WebTk t, {String? error}) =>
+      adminFormDeco(hint, t, error: error);
 }
 
-// ─── LRN auto-formatter ───────────────────────────────────────────────────────
-// As admin types 12 digits, inserts " - " separators: XXXXXX - XX - XXXX.
-class _LrnFormatter extends TextInputFormatter {
+// ─── Choice chip (grade / strand pickers) ─────────────────────────────────────
+// Material + InkWell so it gets hover, focus ring and Enter/Space activation.
+class _ChoiceChip extends StatelessWidget {
+  final String label;
+  final bool selected, enabled;
+  final double minWidth;
+  final VoidCallback onTap;
+  const _ChoiceChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.enabled = true,
+    this.minWidth = 64,
+  });
+
   @override
-  TextEditingValue formatEditUpdate(
-      TextEditingValue oldValue, TextEditingValue newValue) {
-    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
-    final capped = digits.length > 12 ? digits.substring(0, 12) : digits;
-    final buf    = StringBuffer();
-    for (var i = 0; i < capped.length; i++) {
-      if (i == 6 || i == 8) buf.write(' - ');
-      buf.write(capped[i]);
-    }
-    final out = buf.toString();
-    return TextEditingValue(
-      text: out,
-      selection: TextSelection.collapsed(offset: out.length),
+  Widget build(BuildContext context) {
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: Material(
+        color: selected ? kAdminAccent.withValues(alpha: 0.10) : t.inputBg,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: selected ? kAdminAccent : t.border,
+            width: selected ? 1.5 : 1.0,
+          ),
+        ),
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(8),
+          hoverColor: kAdminAccent.withValues(alpha: 0.05),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: minWidth, minHeight: 34),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Center(
+                widthFactor: 1,
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 12.5,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected ? kAdminAccent : t.text,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../core/services/registration_service.dart';
 import '../../../core/app_colors.dart';
+import '../../../core/friendly_error.dart';
+import '../../../shared/widgets/error_alert.dart';
 
 /// Full-screen camera screen for the student to take a selfie during check-in.
 /// Opened automatically when the organizer clicks "Confirm" on the scan screen.
@@ -65,7 +67,12 @@ class _SelfieScreenState extends State<SelfieScreen> {
       await _controller!.initialize();
       if (mounted) setState(() => _cameraReady = true);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      debugPrint('Selfie camera failed to start: $e');
+      if (mounted) {
+        setState(() => _error = friendlyError(e,
+            fallback: 'The camera couldn’t be started. Close other apps that '
+                'use the camera and try again.'));
+      }
     }
   }
 
@@ -77,9 +84,8 @@ class _SelfieScreenState extends State<SelfieScreen> {
       if (mounted) setState(() { _captured = file; _capturedBytes = bytes; });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not capture photo: $e')),
-        );
+        showErrorAlert(context, e,
+            title: 'Couldn’t take the photo', fallback: 'Please try again.');
       }
     }
   }
@@ -110,13 +116,8 @@ class _SelfieScreenState extends State<SelfieScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Upload failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
         setState(() => _uploading = false);
+        showErrorAlert(context, e, title: 'Couldn’t send your selfie');
       }
     }
   }

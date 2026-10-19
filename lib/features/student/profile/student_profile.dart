@@ -7,6 +7,7 @@ import 'package:eventhub/core/services/supabase_service.dart';
 import 'package:eventhub/shared/widgets/app_loader.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/theme_store.dart';
+import '../../../shared/widgets/error_alert.dart';
 import '../../../core/services/app_lang_prefs.dart';
 import '../../../core/services/student_notif_prefs.dart';
 
@@ -29,6 +30,21 @@ class _ProfileBodyState extends State<ProfileBody> {
   String  fullName        = '';
   String  studentId       = '';
   String  gradeSection    = '';
+  int?    _year;                 // 7–12
+  String? _strand;               // 'STEM' | 'HUMSS' | 'GAS' (Senior High only)
+  String? _section;              // e.g. "Sampaguita" (from the registrar import)
+
+  static const _strandNames = {
+    'STEM':  'Science, Technology, Engineering & Mathematics',
+    'HUMSS': 'Humanities & Social Sciences',
+    'GAS':   'General Academic Strand',
+  };
+
+  bool get _isShs => _year == 11 || _year == 12;
+
+  String get _levelName => _year == null
+      ? ''
+      : _isShs ? 'Senior High' : (_year! >= 7 && _year! <= 10 ? 'Junior High' : '');
   String  role            = 'Student';
   String  email           = '';
   String  memberSince     = '';
@@ -71,6 +87,11 @@ class _ProfileBodyState extends State<ProfileBody> {
         fullName         = fn.isNotEmpty ? fn : 'Student';
         studentId        = studentRow?['lrn'] as String? ?? '—';
         gradeSection     = yr != null ? 'Grade $yr' : '—';
+        _year            = yr;
+        final st         = studentRow?['strand'];
+        _strand          = st is String && _strandNames.containsKey(st) ? st : null;
+        final sec        = (studentRow?['section'] as String?)?.trim();
+        _section         = sec == null || sec.isEmpty ? null : sec;
         email            = user.email ?? '—';
         memberSince      = dt != null ? '${mos[dt.month - 1]} ${dt.year}' : '—';
         profilePhotoUrl  = studentRow?['profile_image_url'] as String?;
@@ -194,10 +215,7 @@ class _ProfileBodyState extends State<ProfileBody> {
     } catch (e) {
       if (mounted) {
         setState(() => _uploadingPhoto = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed: $e'),
-              backgroundColor: const Color(0xFFEF4444)),
-        );
+        showErrorAlert(context, e, title: 'Couldn’t update your photo');
       }
     }
   }
@@ -264,11 +282,26 @@ class _ProfileBodyState extends State<ProfileBody> {
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 15,
                       fontWeight: FontWeight.w700, color: t.text),
                   maxLines: 1, overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 2),
-                Text(email,
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                      color: t.muted),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                // LRN under the name — it's what students log in with. The
+                // login email is an internal @gmail.com address, not shown.
+                if (studentId.isNotEmpty && studentId != '—') ...[
+                  const SizedBox(height: 2),
+                  Text('LRN ${formatLrn(studentId)}',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                        color: t.muted,
+                        fontFeatures: const [FontFeature.tabularFigures()]),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+                // Grade + strand at a glance, e.g. [Grade 11] [STEM]
+                if (_year != null) ...[
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 6, runSpacing: 6, children: [
+                    _identityChip('Grade $_year', t),
+                    if (_isShs && _strand != null)
+                      _identityChip(_strand!, t, highlight: true),
+                    if (_section != null) _identityChip(_section!, t),
+                  ]),
+                ],
               ],
             ),
           ),
@@ -276,6 +309,21 @@ class _ProfileBodyState extends State<ProfileBody> {
       ),
     );
   }
+
+  Widget _identityChip(String label, AppTk t, {bool highlight = false}) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+    decoration: BoxDecoration(
+      color: highlight ? kGold.withValues(alpha: 0.12) : t.shimmer1,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(
+          color: highlight ? kGold.withValues(alpha: 0.35) : t.border),
+    ),
+    child: Text(label,
+      style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
+          fontWeight: FontWeight.w600,
+          letterSpacing: highlight ? 0.4 : 0,
+          color: highlight ? const Color(0xFFB8861C) : t.sub)),
+  );
 
   // ── Stats card ────────────────────────────────────────────────────────────
 
@@ -396,13 +444,24 @@ class _ProfileBodyState extends State<ProfileBody> {
           subtitle: 'Managed by your administrator',
           children: [
             const SizedBox(height: 4),
-            _infoTile(Icons.email_outlined, 'Email Address', email, t: t),
-            _divider(t),
             _infoTile(Icons.badge_rounded, 'Student ID (LRN)',
                 formatLrn(studentId), t: t, isId: true, onTap: _copyLrn),
             _divider(t),
-            _infoTile(Icons.school_rounded, 'Grade Level', gradeSection, t: t),
+            _infoTile(Icons.school_rounded, 'Grade Level',
+                _levelName.isEmpty ? gradeSection : '$gradeSection · $_levelName', t: t),
             _divider(t),
+            if (_isShs) ...[
+              _infoTile(Icons.auto_stories_rounded, 'Strand',
+                  _strand != null
+                      ? '$_strand — ${_strandNames[_strand]}'
+                      : 'Not assigned yet — contact your administrator',
+                  t: t, muted: _strand == null),
+              _divider(t),
+            ],
+            if (_section != null) ...[
+              _infoTile(Icons.groups_rounded, 'Section', _section!, t: t),
+              _divider(t),
+            ],
             _infoTile(Icons.calendar_month_rounded, 'Member Since',
                 memberSince, t: t),
             const SizedBox(height: 6),
@@ -432,7 +491,7 @@ class _ProfileBodyState extends State<ProfileBody> {
   }
 
   Widget _infoTile(IconData icon, String label, String value, {
-    required AppTk t, bool isId = false, VoidCallback? onTap,
+    required AppTk t, bool isId = false, bool muted = false, VoidCallback? onTap,
   }) {
     Widget tile = Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -477,9 +536,13 @@ class _ProfileBodyState extends State<ProfileBody> {
                   )
                 else
                   Text(value,
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                        fontWeight: FontWeight.w600, color: t.text),
-                    overflow: TextOverflow.ellipsis),
+                    style: TextStyle(fontFamily: 'Poppins',
+                        fontSize: muted ? 12 : 13,
+                        fontWeight: muted ? FontWeight.w400 : FontWeight.w600,
+                        fontStyle: muted ? FontStyle.italic : FontStyle.normal,
+                        color: muted ? t.muted : t.text),
+                    // Long strand names wrap instead of being cut off.
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
@@ -1430,11 +1493,13 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
         _snack('Profile updated!', isError: false);
         Navigator.of(context).pop(true);
       } else {
-        _snack('Failed to update profile.', isError: true);
+        showErrorAlert(context, null,
+            title: 'Couldn’t update your profile',
+            fallback: 'Your profile couldn’t be updated. Please try again.');
       }
     } catch (e) {
       if (!mounted) return;
-      _snack('Update failed: $e', isError: true);
+      showErrorAlert(context, e, title: 'Couldn’t update your profile');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1578,9 +1643,6 @@ class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
         _formCard(t: t, children: [
           _lockedField(label: 'Grade / Section', value: widget.gradeSection ?? '—',
               icon: Icons.school_outlined, isFirst: true, t: t),
-          _cardDivider(t),
-          _lockedField(label: 'Email Address', value: widget.email ?? '—',
-              icon: Icons.email_outlined, t: t),
           _cardDivider(t),
           _lockedField(label: 'Student ID (LRN)', value: formatLrn(widget.studentId ?? '—'),
               icon: Icons.badge_outlined, isId: true, isLast: true, t: t),

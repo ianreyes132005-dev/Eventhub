@@ -1,8 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'create_event_screen.dart';
+import 'event_actions.dart';
 import '../../../../shared/widgets/app_loader.dart';
+import '../../../../shared/utils/date_utils.dart' show timeAgo;
+import '../../../../shared/utils/realtime_utils.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../core/services/student_count_service.dart';
 import '../../../../core/services/supabase_service.dart';
 
 class EventDetailsScreen extends StatefulWidget {
@@ -22,6 +28,17 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   Map<String, dynamic>? _event;
   List<Map<String, dynamic>> _registrations = [];
   String? _organizerName;
+  String? _organizerId;
+  int?    _studentCount = StudentCountService.cached;   // = capacity
+  bool _actionBusy = false;   // cancel / restore in progress
+
+  RealtimeChannel? _channel;
+  Timer?           _debounce;
+  bool _fetching = false;     // a load is running…
+  bool _refetch  = false;     // …and another change arrived meanwhile
+
+  String? get _eventId =>
+      widget.eventData?['id'] as String? ?? widget.eventData?['event_id'] as String?;
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -29,44 +46,96 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   void initState() {
     super.initState();
     _loadData();
+    _subscribeRealtime();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
+    super.dispose();
+  }
+
+  // ── Live updates ───────────────────────────────────────────────────────────
+  // Check-ins, new registrations and changes to the event itself (approval,
+  // cancellation, edits from the web) show up without pulling to refresh.
+
+  void _subscribeRealtime() {
+    final id = _eventId;
+    if (id == null || id.isEmpty) return;
+    final channel = Supabase.instance.client.channel('org-mobile-event-$id');
+    for (final table in const ['events', 'registrations']) {
+      channel.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (payload, [ref]) {
+          if (_concernsThisEvent(table, payload)) _scheduleRefresh();
+        },
+      );
+    }
+    _channel = channel..subscribe();
+  }
+
+  bool _concernsThisEvent(String table, Object? payload) {
+    final row = realtimeRow(payload);
+    if (row == null) return false;
+    if (table == 'events') return row['event_id'] == _eventId;
+    final eventId = row['event_id'];
+    if (eventId != null) return eventId == _eventId;
+    // A deleted registration only carries its id.
+    return _registrations.any((r) => r['id'] == row['id']);
+  }
+
+  void _scheduleRefresh() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      if (mounted && !_loading) _loadData(silent: true);
+    });
   }
 
   // ── Data fetch ─────────────────────────────────────────────────────────────
 
-  Future<void> _loadData() async {
-    setState(() { _loading = true; _loadError = false; });
-
-    final eventId = widget.eventData?['id']       as String? ??
-                    widget.eventData?['event_id']  as String?;
+  /// [silent]: refresh in place (live updates, pull-to-refresh, after an
+  /// action) — no full-screen loader, and a failure keeps what's on screen.
+  Future<void> _loadData({bool silent = false}) async {
+    if (_fetching) { _refetch = true; return; }
+    final eventId = _eventId;
 
     if (eventId == null || eventId.isEmpty) {
       if (mounted) setState(() { _loading = false; _loadError = true; });
       return;
     }
 
+    _fetching = true;
+    if (!silent) setState(() { _loading = true; _loadError = false; });
+
     try {
       final sb = Supabase.instance.client;
-      final organizerId = await SupabaseService.getCurrentOrganizerId();
+      _organizerId ??= await SupabaseService.getCurrentOrganizerId();
+      final organizerId = _organizerId;
 
       var eventQuery = sb.from('events').select().eq('event_id', eventId);
       if (organizerId != null && organizerId.isNotEmpty) {
         eventQuery = eventQuery.eq('organizer_id', organizerId);
       }
 
-      final results = await Future.wait([
+      final results = await Future.wait<dynamic>([
         eventQuery.maybeSingle(),
         sb.from('registrations')
             .select()
             .eq('event_id', eventId)
             .order('registered_at', ascending: false),
+        StudentCountService.activeStudents(),
       ]);
 
       final eventRow = results[0] as Map?;
       final regs     = results[1] as List;
+      final students = results[2] as int?;
 
-      String? orgName;
+      // The organizer's name doesn't change while this screen is open.
+      var orgName = _organizerName;
       final orgId = eventRow?['organizer_id'] as String?;
-      if (orgId != null) {
+      if (orgName == null && orgId != null) {
         final orgRow = await sb
             .from('organizers')
             .select('full_name')
@@ -80,12 +149,39 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         _event         = eventRow != null ? Map<String, dynamic>.from(eventRow) : null;
         _registrations = List<Map<String, dynamic>>.from(regs);
         _organizerName = orgName;
+        _studentCount  = students;
         _loading       = false;
+        _loadError     = false;
       });
     } catch (e) {
       debugPrint('EventDetailsScreen load error: $e');
-      if (mounted) setState(() { _loading = false; _loadError = true; });
+      if (mounted && !silent) setState(() { _loading = false; _loadError = true; });
+    } finally {
+      _fetching = false;
+      if (_refetch && mounted) {
+        _refetch = false;
+        _loadData(silent: true);
+      }
     }
+  }
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+  // The same rules as the web Events table: edit upcoming / cancelled events,
+  // cancel any approved event that hasn't ended (ongoing included), restore a
+  // cancelled one before it ends.
+
+  void _openEdit() {
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => CreateEventScreen(existing: _d)))
+        .then((_) { if (mounted) _loadData(silent: true); });
+  }
+
+  Future<void> _runAction(Future<bool> Function() action) async {
+    setState(() => _actionBusy = true);
+    final changed = await action();
+    if (!mounted) return;
+    setState(() => _actionBusy = false);
+    if (changed) _loadData(silent: true);
   }
 
   // ── Computed accessors ─────────────────────────────────────────────────────
@@ -98,15 +194,17 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   String  get _type     => _d['event_type']   as String? ?? _d['type']  as String? ?? '—';
   String  get _desc     => _d['description']  as String? ?? '';
   String? get _imgUrl   => _d['event_image_url'] as String?;
-  String  get _status   =>
-      ((_d['event_status'] as String?) ?? (_d['status'] as String?) ?? 'upcoming')
-          .toLowerCase();
+  // From the clock (cancellation is the only stored status that counts) —
+  // the stored event_status is 'upcoming' for every live event.
+  String  get _status   => eventStatusValue(_d);
   // Orthogonal to _status — admin moderation gate, not the event's own
   // lifecycle. See admin_web_events.dart / Section 18 of supabase_schema.sql.
   String  get _approval => (_d['approval_status'] as String? ?? 'approved').toLowerCase();
   String? get _rejectionReason => _d['rejection_reason'] as String?;
 
-  int get _capacity   => _d['max_participants'] as int? ?? _d['capacity']   as int? ?? 0;
+  // Capacity = every active student (0 until the count is known, which hides
+  // the "of N" parts).
+  int get _capacity   => _studentCount ?? 0;
   // Use registrations count as ground truth; fall back to DB column.
   int get _registered => _registrations.isNotEmpty
       ? _registrations.length
@@ -118,10 +216,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
           r['status'] == 'pending' || r['status'] == 'qr_scanned').length;
   int get _remaining  =>
       _capacity > 0 ? (_capacity - _registered).clamp(0, _capacity) : 0;
-  double get _fillRatio =>
-      _capacity > 0 ? (_registered / _capacity).clamp(0.0, 1.0) : 0;
+  double get _fillRatio => capacityFill(_registered, _capacity);
+  // Of the students who registered, how many came — measuring against the
+  // whole school would make a packed 40-seat seminar read 20%.
   int get _attendancePct =>
-      _capacity > 0 ? (_checkedIn / _capacity * 100).clamp(0, 100).toInt() : 0;
+      _registered > 0 ? (_checkedIn / _registered * 100).clamp(0, 100).toInt() : 0;
 
   // ── Formatting ─────────────────────────────────────────────────────────────
 
@@ -165,28 +264,16 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   }
 
   Color get _statusColor {
+    if (checkInOpenUntil(_d) != null) return kCheckInOpenColor;
     switch (_status) {
-      case 'ongoing':
-      case 'active':    return const Color(0xFF16A34A);
-      case 'past':
-      case 'completed':
+      case 'ongoing':   return const Color(0xFF16A34A);
       case 'ended':     return kMuted;
       case 'cancelled': return Colors.red;
       default:          return const Color(0xFFE87A00);
     }
   }
 
-  String get _statusDisplay {
-    switch (_status) {
-      case 'ongoing':   return 'Ongoing';
-      case 'active':    return 'Active';
-      case 'completed': return 'Completed';
-      case 'past':      return 'Ended';
-      case 'ended':     return 'Ended';
-      case 'cancelled': return 'Cancelled';
-      default:          return 'Upcoming';
-    }
-  }
+  String get _statusDisplay => organizerEventStatusLabel(_d);
 
   String _regStatusLabel(String s) {
     const map = {
@@ -319,14 +406,24 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: t.bg,
+        bottomNavigationBar: _buildActionBar(t),
         body: RefreshIndicator(
           color: kGold,
-          onRefresh: _loadData,
+          onRefresh: () => _loadData(silent: true),
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               // ── Collapsible hero ───────────────────────────────────────────
               _buildHeroSliver(),
+
+              // ── Cancellation reason (only when cancelled) ──────────────────
+              if (eventIsCancelled(_d))
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: _buildCancelledCard(t),
+                  ),
+                ),
 
               // ── Rejection reason (only when rejected) ────────────────────────
               if (_approval == 'rejected' && (_rejectionReason ?? '').isNotEmpty)
@@ -453,7 +550,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       _heroBadge(_type, kGold),
                       _heroBadge(_statusDisplay, _statusColor),
                       if (_approval != 'approved')
-                        _heroBadge(approvalStatusLabel(_approval), approvalStatusColor(_approval)),
+                        _heroBadge(approvalLabelFor(_d), approvalColorFor(_d)),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -515,7 +612,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     final data = [
       (value: '$_registered',    label: 'Registered',  icon: Icons.confirmation_num_outlined, color: kGold),
       (value: '$_checkedIn',     label: 'Checked In',  icon: Icons.how_to_reg_rounded,        color: const Color(0xFF16A34A)),
-      (value: '$_remaining',     label: 'Remaining',   icon: Icons.event_seat_rounded,        color: const Color(0xFF2563EB)),
+      (value: _capacity > 0 ? '$_remaining' : '—', label: 'Remaining', icon: Icons.event_seat_rounded, color: const Color(0xFF2563EB)),
       (value: '$_attendancePct%',label: 'Attendance',  icon: Icons.bar_chart_rounded,         color: const Color(0xFF7C3AED)),
     ];
 
@@ -601,9 +698,117 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
+  // ── Cancellation card ──────────────────────────────────────────────────────
+  // Why and when it was cancelled — the reason registered students were shown.
+
+  Widget _buildCancelledCard(AppTk t) {
+    const red    = Color(0xFFEF4444);
+    final reason = (_d['cancel_reason'] as String?)?.trim() ?? '';
+    final when   = timeAgo(_d['cancelled_at'] as String? ?? _d['updated_at'] as String?);
+    return _sectionCard(t,
+      icon: Icons.event_busy_rounded,
+      iconBg: red.withValues(alpha: 0.12),
+      iconColor: red,
+      title: when.isEmpty ? 'Event Cancelled' : 'Event Cancelled · $when',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(reason.isEmpty ? 'No reason recorded.' : reason,
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, height: 1.5,
+                color: reason.isEmpty ? t.muted : t.text,
+                fontStyle: reason.isEmpty ? FontStyle.italic : FontStyle.normal)),
+          const SizedBox(height: 8),
+          Text(
+            organizerCanRestoreEvent(_d)
+                ? 'Registered students were notified. Registrations and attendance '
+                  'records are kept — you can restore the event before it ends.'
+                : 'Registered students were notified. Registrations and attendance '
+                  'records are kept.',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                color: t.muted, fontStyle: FontStyle.italic, height: 1.45)),
+        ],
+      ),
+    );
+  }
+
+  // ── Action bar ─────────────────────────────────────────────────────────────
+  // Only what this event allows right now; nothing at all once it has ended.
+
+  Widget? _buildActionBar(AppTk t) {
+    if (_loading || _loadError) return null;
+    final canEdit    = organizerCanEditEvent(_d);
+    final canCancel  = organizerCanCancelEvent(_d);
+    final canRestore = organizerCanRestoreEvent(_d);
+    if (!canEdit && !canCancel && !canRestore) return null;
+
+    Widget? secondary;
+    if (canCancel || canRestore) {
+      final color = canRestore ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
+      secondary = OutlinedButton.icon(
+        onPressed: _actionBusy
+            ? null
+            : () => _runAction(() => canRestore
+                ? restoreEventFlow(context, _d)
+                : cancelEventFlow(context, _d)),
+        icon: _actionBusy
+            ? SizedBox(width: 16, height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: color))
+            : Icon(canRestore ? Icons.restore_rounded : Icons.event_busy_rounded,
+                size: 18, color: color),
+        label: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(canRestore ? 'Restore Event' : 'Cancel Event',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
+                fontWeight: FontWeight.w700, color: color)),
+        ),
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: color.withValues(alpha: 0.55), width: 1.5),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      );
+    }
+
+    final edit = canEdit
+        ? ElevatedButton.icon(
+            onPressed: _actionBusy ? null : _openEdit,
+            icon: const Icon(Icons.edit_rounded, size: 18),
+            label: const FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text('Edit Event',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
+                    fontWeight: FontWeight.w700)),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kGold,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+          )
+        : null;
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          color: t.card,
+          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 20, offset: const Offset(0, -4))],
+        ),
+        child: Row(children: [
+          if (secondary != null) Expanded(child: secondary),
+          if (secondary != null && edit != null) const SizedBox(width: 12),
+          if (edit != null) Expanded(child: edit),
+        ]),
+      ),
+    );
+  }
+
   // ── Rejection reason card ───────────────────────────────────────────────────
-  // Editing and saving this event (Manage Event) resubmits it for review —
-  // no separate "resubmit" action needed, see manage_event_screen.dart.
+  // Editing and saving this event resubmits it for review — no separate
+  // "resubmit" action needed (see _saveChanges in create_event_screen.dart).
 
   Widget _buildRejectionCard(AppTk t) {
     return _sectionCard(t,
@@ -673,11 +878,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   // ── Registration fill card ─────────────────────────────────────────────────
 
   Widget _buildFillCard(AppTk t) {
-    final fillColor = _fillRatio >= 0.9
-        ? Colors.red
-        : _fillRatio >= 0.7
-            ? Colors.orange
-            : kGold;
+    // One colour: capacity is the whole student body, so a fuller event is
+    // just a popular one — nobody is ever turned away.
+    const fillColor = kGold;
 
     return _sectionCard(t,
       icon: Icons.people_rounded,

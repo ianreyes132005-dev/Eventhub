@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../../core/services/registration_service.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../core/friendly_error.dart';
+import '../../../../shared/widgets/error_alert.dart';
 
 /// Shown after the organizer scans a student's QR code.
 /// Handles all status transitions including re-triggering the selfie camera
@@ -19,6 +21,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
   bool _loading    = true;
   bool _confirming = false;
   String? _error;
+  bool    _windowClosed = false;   // valid ticket, but check-in isn't open
 
   AppTk get _t => AppTk(Theme.of(context).brightness == Brightness.dark);
 
@@ -35,14 +38,36 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
         setState(() { _error = 'No registration found for this QR code.'; _loading = false; });
         return;
       }
-      // Auto-advance pending â†’ qr_scanned on first scan
+      // Check-in only runs inside the event's window (1 h before start →
+      // 2 h after end) and never for a cancelled event. Finished
+      // registrations (submitted / checked in / rejected) can still be viewed.
+      if (const {'pending', 'qr_scanned', 'photo_required'}.contains(reg['status'])) {
+        final problem = await RegistrationService.checkInProblem(reg['event_id'] as String?);
+        if (problem != null) {
+          if (!mounted) return;
+          setState(() {
+            _windowClosed = true;
+            _error = '${reg['student_name'] ?? 'This student'} · '
+                '${reg['event_title'] ?? 'this event'}\n\n$problem';
+            _loading = false;
+          });
+          return;
+        }
+      }
+      // Auto-advance pending → qr_scanned on first scan
       if (reg['status'] == 'pending') {
         await RegistrationService.updateStatus(reg['id'] as String, 'qr_scanned');
         reg['status'] = 'qr_scanned';
       }
       setState(() { _reg = reg; _loading = false; });
     } catch (e) {
-      setState(() { _error = e.toString(); _loading = false; });
+      debugPrint('QR check failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _error = friendlyError(e,
+            fallback: 'This QR code couldn’t be checked. Please try again.');
+        _loading = false;
+      });
     }
   }
 
@@ -60,7 +85,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
         Navigator.of(context).pop(true);
       }
     } catch (e) {
-      if (mounted) _showSnack('Error: $e', Colors.red);
+      if (mounted) showErrorAlert(context, e, title: 'Couldn’t open the student’s camera');
     } finally {
       if (mounted) setState(() => _confirming = false);
     }
@@ -80,7 +105,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
         Navigator.of(context).pop(true);
       }
     } catch (e) {
-      if (mounted) _showSnack('Error: $e', Colors.red);
+      if (mounted) showErrorAlert(context, e, title: 'Couldn’t open the student’s camera');
     } finally {
       if (mounted) setState(() => _confirming = false);
     }
@@ -138,7 +163,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
               child: Icon(Icons.qr_code_2, size: 40, color: Colors.red.shade400),
             ),
             const SizedBox(height: 20),
-            Text('Invalid QR Code',
+            Text(_windowClosed ? 'Check-in isn’t open' : 'Invalid QR Code',
                 style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 18, color: _t.text)),
             const SizedBox(height: 8),
             Text(_error!, textAlign: TextAlign.center,

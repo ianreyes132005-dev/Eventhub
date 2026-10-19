@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/services/registration_service.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
+import '../../../../shared/widgets/error_alert.dart';
 import '../../../../core/app_colors.dart';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -630,19 +631,10 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
           }
           _applyFilter();
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'Failed to update status. Please try again.',
-              style: TextStyle(fontFamily: 'Poppins'),
-            ),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        );
+        // Rule messages (e.g. "Check-in opens 1 hour before…") show as written.
+        showErrorAlert(context, e,
+            title: 'Couldn’t update the status',
+            fallback: 'The status couldn’t be updated. Please try again.');
       }
     } finally {
       _statusUpdatingIds.remove(id);
@@ -678,21 +670,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
         _applyFilter();
       });
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Error: $e',
-              style: const TextStyle(fontFamily: 'Poppins'),
-            ),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        );
-      }
+      if (mounted) showErrorAlert(context, e, title: 'Couldn’t delete the registration');
     }
   }
 

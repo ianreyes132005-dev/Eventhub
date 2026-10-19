@@ -5,13 +5,17 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
+import '../../../core/services/organizer_session_guard.dart';
 import '../../../shared/widgets/event_phase_pill.dart';
 import 'web_shared.dart';
 
 class WebDashboardPage extends StatefulWidget {
   final String? orgId;
   final String? name;
-  const WebDashboardPage({super.key, this.orgId, this.name});
+  /// Switches the shell to another tab (the stat cards link to Events and
+  /// Registrations).
+  final void Function(OrganizerPage page)? onNavigate;
+  const WebDashboardPage({super.key, this.orgId, this.name, this.onNavigate});
 
   @override
   State<WebDashboardPage> createState() => _WebDashboardPageState();
@@ -89,11 +93,25 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     try {
       final client = SupabaseService.client;
       final now    = DateTime.now();
+      final user = client.auth.currentUser;
+      if (user == null) throw StateError('Your session has expired. Please sign in again.');
+      final organizer = await client
+          .from('organizers')
+          .select('is_active')
+          .eq('user_id', user.id)
+          .maybeSingle();
+      if (organizer == null) {
+        throw StateError('Could not find your organizer profile.');
+      }
+      if (!await OrganizerSessionGuard.ensureActive(
+        context,
+        isActive: organizer['is_active'] == true,
+      )) return;
 
       final eventRows = await client
           .from('events')
           .select('event_id, title, event_date, end_date, start_time, end_time, location, '
-                  'event_status, max_participants, organizer_id')
+                  'event_status, approval_status, archived_at, organizer_id')
           .eq('organizer_id', widget.orgId!);
 
       final events   = List<Map<String, dynamic>>.from(eventRows as List);
@@ -112,14 +130,15 @@ class _WebDashboardPageState extends State<WebDashboardPage>
 
       // ── Stats ─────────────────────────────────────────────────────────
       const activeStatuses = {'upcoming', 'ongoing'};
-      _activeEvents = events
-          .where((e) => activeStatuses.contains(eventStatusValue(e)))
-          .length;
+      _activeEvents = activeApprovedEventCount(events, now: now);
       _totalRegs    = orgRegs.length;
 
       // ── Upcoming events ───────────────────────────────────────────────
       final upcoming = events
-          .where((e) => activeStatuses.contains(eventStatusValue(e)))
+          .where((e) =>
+              eventIsApproved(e) &&
+              !eventIsArchived(e) &&
+              activeStatuses.contains(eventStatusValue(e, now: now)))
           .toList()
         ..sort((a, b) {
           final da = DateTime.tryParse(a['event_date'] ?? '') ?? DateTime(9999);
@@ -189,7 +208,6 @@ class _WebDashboardPageState extends State<WebDashboardPage>
           'title':           (e['title'] as String?) ?? '—',
           'checkedIn':       checkedIn,
           'total':           total,
-          'maxParticipants': (e['max_participants'] as int?) ?? 0,
         };
       }).toList();
 
@@ -329,18 +347,23 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             ? const Color(0xFF10B981)
             : rate >= 40 ? kGold : const Color(0xFFEF4444);
 
+    final nav = widget.onNavigate;
     final cards = [
       _DashStatCard(
         value:       '$_activeEvents',
         label:       'Active Events',
         icon:        Icons.event_available_rounded,
         accentColor: const Color(0xFF3B82F6),
+        hint:        'Opens the Events tab',
+        onTap:       nav == null ? null : () => nav(OrganizerPage.events),
       ),
       _DashStatCard(
         value:       '$_totalRegs',
         label:       'Total Registrations',
         icon:        Icons.how_to_reg_rounded,
         accentColor: const Color(0xFF8B5CF6),
+        hint:        'Opens the Registrations tab',
+        onTap:       nav == null ? null : () => nav(OrganizerPage.registrations),
       ),
       _DashStatCard(
         value:       hasPastData ? '$rate%' : '—',
@@ -752,11 +775,10 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     const blue = Color(0xFF2563EB);
 
     final totalCheckedIn       = _eventAttendance.fold<int>(0, (s, e) => s + (e['checkedIn']       as int));
-    final totalMaxParticipants = _eventAttendance.fold<int>(0, (s, e) => s + (e['maxParticipants'] as int));
     final totalRegistered      = _eventAttendance.fold<int>(0, (s, e) => s + (e['total']           as int));
-    final rate = totalMaxParticipants > 0
-        ? (totalCheckedIn / totalMaxParticipants * 100).round()
-        : totalRegistered > 0 ? (totalCheckedIn / totalRegistered * 100).round() : 0;
+    // Checked in out of registered. Capacity is now the whole student body,
+    // so measuring against it would make a full event look poorly attended.
+    final rate = totalRegistered > 0 ? (totalCheckedIn / totalRegistered * 100).round() : 0;
     final rateColor = rate >= 70
         ? const Color(0xFF16A34A)
         : rate >= 40
@@ -805,7 +827,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Overall capacity filled',
+                Text('Overall attendance',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w500, color: t.sub)),
                 Text('$rate%',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: rateColor)),
@@ -815,9 +837,8 @@ class _WebDashboardPageState extends State<WebDashboardPage>
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: totalMaxParticipants > 0
-                    ? totalCheckedIn / totalMaxParticipants
-                    : totalRegistered > 0 ? totalCheckedIn / totalRegistered : 0.0),
+                tween: Tween(begin: 0, end: totalRegistered > 0
+                    ? totalCheckedIn / totalRegistered : 0.0),
                 duration: const Duration(milliseconds: 700),
                 curve: Curves.easeOut,
                 builder: (_, v, _) => LinearProgressIndicator(
@@ -873,16 +894,11 @@ class _WebDashboardPageState extends State<WebDashboardPage>
         final e               = entry.value;
         final total           = e['total']           as int;
         final checkedIn       = e['checkedIn']       as int;
-        final maxParticipants = e['maxParticipants'] as int;
         final title           = e['title']           as String;
         final dateLabel       = (e['label'] as String).replaceAll('\n', ' ');
-        final rate            = maxParticipants > 0
-            ? (checkedIn / maxParticipants * 100).round()
-            : total > 0 ? (checkedIn / total * 100).round() : 0;
+        final rate            = total > 0 ? (checkedIn / total * 100).round() : 0;
         final rateColor       = rate >= 70 ? green : rate >= 40 ? kGold : red;
-        final fraction        = maxParticipants > 0
-            ? (checkedIn / maxParticipants).clamp(0.0, 1.0)
-            : total > 0 ? (checkedIn / total).clamp(0.0, 1.0) : 0.0;
+        final fraction        = total > 0 ? (checkedIn / total).clamp(0.0, 1.0) : 0.0;
 
         return Padding(
           padding: EdgeInsets.only(
@@ -929,9 +945,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        maxParticipants > 0
-                            ? '$checkedIn / $maxParticipants'
-                            : '$checkedIn',
+                        total > 0 ? '$checkedIn / $total' : '$checkedIn',
                         style: TextStyle(fontFamily: 'Poppins',
                           fontSize: 10, fontWeight: FontWeight.w500, color: t.muted)),
                     ],
@@ -1017,12 +1031,18 @@ class _DashStatCard extends StatefulWidget {
   final String   label;
   final IconData icon;
   final Color    accentColor;
+  /// Makes the card a link: pointer, hover lift, arrow, keyboard focus.
+  final VoidCallback? onTap;
+  /// Where the link goes, for screen readers (e.g. 'Opens the Events tab').
+  final String?  hint;
 
   const _DashStatCard({
     required this.value,
     required this.label,
     required this.icon,
     required this.accentColor,
+    this.onTap,
+    this.hint,
   });
 
   @override
@@ -1031,105 +1051,166 @@ class _DashStatCard extends StatefulWidget {
 
 class _DashStatCardState extends State<_DashStatCard> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.accentColor;
-    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    return MouseRegion(
-      cursor:  SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit:  (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve:    Curves.easeOut,
-        transform: Matrix4.translationValues(0, _hovered ? -4 : 0, 0),
-        transformAlignment: Alignment.center,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color:      _hovered ? c.withValues(alpha: 0.14) : t.shadow,
-              blurRadius: _hovered ? 24 : 10,
-              offset:     Offset(0, _hovered ? 10 : 2),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(width: 4, color: c),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
-                    decoration: BoxDecoration(
-                      color: t.card,
-                      border: Border(
-                        top:    BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : t.border, width: 1.5),
-                        right:  BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : t.border, width: 1.5),
-                        bottom: BorderSide(color: _hovered ? c.withValues(alpha: 0.30) : t.border, width: 1.5),
-                      ),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment:  MainAxisAlignment.center,
-                            mainAxisSize:       MainAxisSize.min,
-                            children: [
-                              Text(
-                                widget.value,
-                                style: TextStyle(
-                                  fontFamily:    'Poppins',
-                                  fontSize:      28,
-                                  fontWeight:    FontWeight.w800,
-                                  color:         _hovered ? c : t.text,
-                                  height:        1.0,
-                                  letterSpacing: -0.5,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                widget.label,
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize:   12.5,
-                                  fontWeight: FontWeight.w500,
-                                  color:      t.sub,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Container(
-                          width:  52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                c.withValues(alpha: 0.18),
-                                c.withValues(alpha: 0.07),
-                              ],
-                              begin: Alignment.topLeft,
-                              end:   Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(13),
-                            border: Border.all(color: c.withValues(alpha: 0.20)),
-                          ),
-                          child: Icon(widget.icon, color: c, size: 24),
-                        ),
-                      ],
+    final c    = widget.accentColor;
+    final t    = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final link = widget.onTap != null;
+    // Only cards that go somewhere react — a hand cursor and a lift on a
+    // static card promise a click that does nothing.
+    final lit  = link && (_hovered || _focused);
+
+    final card = AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve:    Curves.easeOut,
+      transform: Matrix4.translationValues(0, lit ? -4 : 0, 0),
+      transformAlignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color:      lit ? c.withValues(alpha: 0.14) : t.shadow,
+            blurRadius: lit ? 24 : 10,
+            offset:     Offset(0, lit ? 10 : 2),
+          ),
+        ],
+      ),
+      // Keyboard focus ring.
+      foregroundDecoration: _focused
+          ? BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: c, width: 2),
+            )
+          : null,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(width: 4, color: c),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+                  decoration: BoxDecoration(
+                    color: t.card,
+                    border: Border(
+                      top:    BorderSide(color: lit ? c.withValues(alpha: 0.30) : t.border, width: 1.5),
+                      right:  BorderSide(color: lit ? c.withValues(alpha: 0.30) : t.border, width: 1.5),
+                      bottom: BorderSide(color: lit ? c.withValues(alpha: 0.30) : t.border, width: 1.5),
                     ),
                   ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment:  MainAxisAlignment.center,
+                          mainAxisSize:       MainAxisSize.min,
+                          children: [
+                            Text(
+                              widget.value,
+                              style: TextStyle(
+                                fontFamily:    'Poppins',
+                                fontSize:      28,
+                                fontWeight:    FontWeight.w800,
+                                color:         lit ? c : t.text,
+                                height:        1.0,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    widget.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize:   12.5,
+                                      fontWeight: FontWeight.w500,
+                                      color:      lit ? c : t.sub,
+                                    ),
+                                  ),
+                                ),
+                                // Arrow slides in on hover / focus: "this opens a page".
+                                if (link) ...[
+                                  const SizedBox(width: 4),
+                                  AnimatedSlide(
+                                    duration: const Duration(milliseconds: 200),
+                                    curve:    Curves.easeOut,
+                                    offset:   lit ? Offset.zero : const Offset(-0.5, 0),
+                                    child: AnimatedOpacity(
+                                      duration: const Duration(milliseconds: 200),
+                                      opacity:  lit ? 1 : 0,
+                                      child: Icon(Icons.arrow_forward_rounded, size: 14, color: c),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Container(
+                        width:  52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              c.withValues(alpha: 0.18),
+                              c.withValues(alpha: 0.07),
+                            ],
+                            begin: Alignment.topLeft,
+                            end:   Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(13),
+                          border: Border.all(color: c.withValues(alpha: 0.20)),
+                        ),
+                        child: Icon(widget.icon, color: c, size: 24),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (!link) return card;
+    // Click, or Tab to it and press Enter / Space. Hover comes from a
+    // MouseRegion (like the other web widgets) — the detector's own hover
+    // highlight switches off after any touch input.
+    return FocusableActionDetector(
+      mouseCursor: SystemMouseCursors.click,
+      onShowFocusHighlight: (v) => setState(() => _focused = v),
+      actions: {
+        ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) {
+          widget.onTap!();
+          return null;
+        }),
+      },
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit:  (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Semantics(
+            button: true,
+            label: '${widget.label}: ${widget.value}',
+            hint: widget.hint,
+            onTap: widget.onTap,
+            excludeSemantics: true,
+            child: card,
           ),
         ),
       ),

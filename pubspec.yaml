@@ -50,6 +50,11 @@ dependencies:
   app_links: ^3.0.0
   qr_flutter: ^4.1.0
   shared_preferences: ^2.2.0
+  archive: ^3.6.1
+  xml: ^6.5.0
+  pdf: ^3.12.0
+  image: 4.3.0
+  package_info_plus: ^9.0.1
 
 dev_dependencies:
   flutter_test:

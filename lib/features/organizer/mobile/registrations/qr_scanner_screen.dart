@@ -4,6 +4,8 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'scan_confirm_screen.dart';
 import 'package:eventhub/core/services/registration_service.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../core/friendly_error.dart';
+import '../../../../shared/widgets/error_alert.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen
@@ -422,6 +424,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
   bool _loading = true;
   bool _confirming = false;
   String? _error;
+  bool    _windowClosed = false;   // valid ticket, but check-in isn't open
 
   @override
   void initState() {
@@ -440,6 +443,23 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
           });
         return;
       }
+      // Check-in only runs inside the event's window (1 h before start →
+      // 2 h after end) and never for a cancelled event. Finished
+      // registrations (submitted / checked in / rejected) can still be viewed.
+      if (const {'pending', 'qr_scanned', 'photo_required'}.contains(reg['status'])) {
+        final problem = await RegistrationService.checkInProblem(reg['event_id'] as String?);
+        if (problem != null) {
+          if (mounted) {
+            setState(() {
+              _windowClosed = true;
+              _error = '${reg['student_name'] ?? 'This student'} · '
+                  '${reg['event_title'] ?? 'this event'}\n\n$problem';
+              _loading = false;
+            });
+          }
+          return;
+        }
+      }
       if (reg['status'] == 'pending') {
         await RegistrationService.updateStatus(
           reg['id'] as String,
@@ -453,9 +473,11 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
           _loading = false;
         });
     } catch (e) {
+      debugPrint('QR check failed: $e');
       if (mounted)
         setState(() {
-          _error = e.toString();
+          _error = friendlyError(e,
+              fallback: 'This QR code couldn’t be checked. Please try again.');
           _loading = false;
         });
     }
@@ -473,7 +495,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
     } catch (e) {
       if (mounted) {
         setState(() => _confirming = false);
-        _snack('Error: $e', Colors.red);
+        showErrorAlert(context, e, title: 'Couldn’t open the student’s camera');
       }
     }
   }
@@ -490,22 +512,11 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
     } catch (e) {
       if (mounted) {
         setState(() => _confirming = false);
-        _snack('Error: $e', Colors.red);
+        showErrorAlert(context, e, title: 'Couldn’t open the student’s camera');
       }
     }
   }
 
-  void _snack(String msg, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg, style: const TextStyle(fontFamily: 'Poppins')),
-        backgroundColor: color,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
 
   // ── Build ─────────────────────────────────────────────────────────────────
 
@@ -555,9 +566,9 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
             child: const Icon(Icons.qr_code_2, color: Colors.red, size: 28),
           ),
           const SizedBox(height: 14),
-          const Text(
-            'Invalid QR Code',
-            style: TextStyle(
+          Text(
+            _windowClosed ? 'Check-in isn’t open' : 'Invalid QR Code',
+            style: const TextStyle(
               fontFamily: 'Poppins',
               fontWeight: FontWeight.w700,
               fontSize: 16,

@@ -10,5 +10,7 @@ export '../../../shared/widgets/web/web_filter_chip.dart';
 export '../../../shared/widgets/web/web_empty_state.dart';
 export '../../../shared/widgets/web/web_status_badge.dart';
 export '../../../shared/widgets/web/web_alert.dart';
+export '../../../shared/widgets/web/swal.dart';
+export '../../../shared/widgets/error_alert.dart';
 export '../../../shared/utils/date_utils.dart';
 export '../../../shared/utils/status_helpers.dart';

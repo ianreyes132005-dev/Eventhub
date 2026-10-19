@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'supabase_service.dart';
 import 'audit_service.dart';
+import '../friendly_error.dart';
+import '../app_colors.dart';
 
 // Generates a RFC-4122 v4 UUID using dart:math — no external package needed.
 String _newUuid() {
@@ -24,6 +26,17 @@ String _newUuid() {
 class RegistrationService {
   static SupabaseClient get _db => SupabaseService.client;
 
+  /// Database rule violations (e.g. "Check-in opens 1 hour before the event
+  /// starts.") arrive as PostgrestException(message: …, code: …). Re-throw
+  /// them in plain words: rule messages as-is, database wording translated.
+  static Future<T> _plainErrors<T>(Future<T> Function() run) async {
+    try {
+      return await run();
+    } on PostgrestException catch (e) {
+      throw FriendlyException(friendlyError(e));
+    }
+  }
+
   // ──────────────────────────────────────────────────────────
   // Student operations
   // ──────────────────────────────────────────────────────────
@@ -41,7 +54,10 @@ class RegistrationService {
 
     // Fetch the student's pre-provisioned profile to get name and LRN.
     final profile = await SupabaseService.getProfile();
-    if (profile == null) throw Exception('Student profile not found');
+    if (profile == null) {
+      throw const FriendlyException(
+          'We couldn’t find your student profile. Please contact the administrator.');
+    }
 
     final studentName = profile['full_name'] as String? ?? '';
     final studentSchoolId = profile['lrn'] as String? ?? '';
@@ -53,48 +69,39 @@ class RegistrationService {
         .eq('event_id', eventId)
         .eq('student_user_id', user.id)
         .maybeSingle();
-    if (existing != null) throw Exception('Already registered for this event');
+    if (existing != null) {
+      throw const FriendlyException('You’re already registered for this event.');
+    }
 
-    // Validate event status, capacity, and deadline in a single fetch so we
-    // only pay one extra round-trip and all three checks are consistent.
+    // Validate approval, status and the registration window in a single
+    // fetch. (No capacity check: capacity is every active student, and each
+    // student registers once — see StudentCountService.)
     // maybeSingle(), not single() — a pending/rejected event is invisible to
     // students under RLS, so a stale event_id (e.g. a deep link held onto
     // from before an admin rejected it) must fail with a friendly message
     // here rather than a raw "JSON object requested, multiple (or no) rows
     // returned" Postgrest error.
+    // All columns (schedule, deadline) so the shared rule below
+    // sees the same data the server trigger checks.
     final eventRow = await _db
         .from('events')
-        .select('event_status, max_participants, current_participants, registration_deadline')
+        .select()
         .eq('event_id', eventId)
         .maybeSingle();
     if (eventRow == null) {
       throw Exception('This event is not available for registration.');
     }
 
-    final evStatus = (eventRow['event_status'] as String? ?? '').toLowerCase();
-    if (evStatus == 'cancelled' || evStatus == 'completed' ||
-        evStatus == 'past'      || evStatus == 'ended') {
-      throw Exception('Registration is closed — this event is no longer accepting sign-ups');
-    }
-
-    final maxP     = eventRow['max_participants']     as int?;
-    final currentP = eventRow['current_participants'] as int? ?? 0;
-    if (maxP != null && maxP > 0 && currentP >= maxP) {
-      throw Exception('This event is full — no spots remaining');
-    }
-
-    final deadlineStr = eventRow['registration_deadline'] as String?;
-    if (deadlineStr != null) {
-      final deadline = DateTime.tryParse(deadlineStr);
-      if (deadline != null && DateTime.now().toUtc().isAfter(deadline)) {
-        throw Exception('Registration is closed — the deadline has passed');
-      }
-    }
+    // Same rule as trg_enforce_registration_insert_rules — checked here first
+    // only for a friendlier message; the server is the real gate.
+    final closed = registrationClosedReason(
+        registrationState(Map<String, dynamic>.from(eventRow)));
+    if (closed != null) throw Exception(closed);
 
     // Generate the UUID client-side so id and qr_code are set atomically in one
     // insert — no race window where qr_code = 'PENDING' can be read or scanned.
     final id = _newUuid();
-    final row = await _db
+    final row = await _plainErrors(() => _db
         .from('registrations')
         .insert({
           'id':                id,
@@ -107,12 +114,11 @@ class RegistrationService {
           'status':            'pending',
         })
         .select()
-        .single();
+        .single());
 
-    // Capacity/deadline/status are re-validated server-side by
-    // trg_enforce_registration_insert_rules, and current_participants is
-    // now maintained automatically by trg_maintain_participant_count —
-    // no RPC call needed here any more.
+    // The window, status and one-registration-per-student rule are
+    // re-validated server-side by trg_enforce_registration_insert_rules, and
+    // current_participants is maintained by trg_maintain_participant_count.
 
     return Map<String, dynamic>.from(row);
   }
@@ -162,10 +168,10 @@ class RegistrationService {
       fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
     );
 
-    await _db.from('registrations').update({
+    await _plainErrors(() => _db.from('registrations').update({
       'selfie_url': path,
       'status': 'photo_submitted',
-    }).eq('id', registrationId);
+    }).eq('id', registrationId));
 
     return path;
   }
@@ -217,6 +223,16 @@ class RegistrationService {
     return List<Map<String, dynamic>>.from(rows as List);
   }
 
+  /// Why check-in isn't possible for [eventId] right now (cancelled, or
+  /// outside 1 h before start … 2 h after end), or null when it is.
+  /// Same window the server enforces in enforce_registration_update_rules.
+  static Future<String?> checkInProblem(String? eventId) async {
+    if (eventId == null) return null;
+    final ev = await _db.from('events').select().eq('event_id', eventId).maybeSingle();
+    if (ev == null) return null;
+    return checkInBlockedReason(Map<String, dynamic>.from(ev));
+  }
+
   /// Look up a registration by its QR code value (= the registration UUID).
   static Future<Map<String, dynamic>?> getByQRCode(String qrCode) async {
     final row = await _db
@@ -254,12 +270,12 @@ class RegistrationService {
       data['rejection_reason'] = rejectionReason;
     }
 
-    final updated = await _db
+    final updated = await _plainErrors(() => _db
         .from('registrations')
         .update(data)
         .eq('id', id)
         .select('event_id, event_title, student_name, student_school_id')
-        .maybeSingle();
+        .maybeSingle());
 
     if (updated != null && (status == 'checked_in' || status == 'rejected')) {
       String? organizerName;

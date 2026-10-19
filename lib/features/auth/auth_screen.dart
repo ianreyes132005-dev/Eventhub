@@ -12,15 +12,19 @@ import '../../core/services/rate_limit_service.dart';
 import '../../core/services/notif_read_store.dart';
 import '../../shared/widgets/gradient_button.dart';
 import '../../shared/widgets/app_alert.dart';
+import '../../shared/widgets/error_alert.dart';
+import '../../core/friendly_error.dart';
 import '../organizer/mobile/dashboard/organizer_dashboard.dart';
 import '../student/dashboard/student_dashboard.dart';
 import '../../core/app_colors.dart';
 import '../../core/theme_store.dart';
 import 'terms_content.dart';
+import '../../shared/utils/lrn_input_formatter.dart' show lrnDigits;
 
 // ── Enums ──────────────────────────────────────────────────────────────────────
-enum _LegalType  { terms, privacy }
-enum _LoginMode  { student, organizer }
+enum _LegalType { terms, privacy }
+
+enum _LoginMode { student, organizer }
 
 // ── Auth screen ────────────────────────────────────────────────────────────────
 class AuthScreen extends StatefulWidget {
@@ -32,19 +36,19 @@ class AuthScreen extends StatefulWidget {
 
 class _AuthScreenState extends State<AuthScreen> {
   final _loginFormKey = GlobalKey<FormState>();
-  bool       _loginLoading         = false;
-  bool       _loginShowPassword    = false;
-  bool       _rememberMe           = false;
-  bool       _isLoadingCredentials = true;
-  _LoginMode _mode                 = _LoginMode.student;
+  bool _loginLoading = false;
+  bool _loginShowPassword = false;
+  bool _rememberMe = false;
+  bool _isLoadingCredentials = true;
+  _LoginMode _mode = _LoginMode.student;
 
   // ── Rate limiting ──────────────────────────────────────────────────────────
-  int       _failedAttempts = 0;
+  int _failedAttempts = 0;
   DateTime? _lockedUntil;
-  Timer?    _lockTimer;
+  Timer? _lockTimer;
 
   static const String _kAttemptKey = 'rl_login_attempts';
-  static const String _kLockedKey  = 'rl_login_locked_until';
+  static const String _kLockedKey = 'rl_login_locked_until';
 
   bool get _isLocked =>
       _lockedUntil != null && DateTime.now().isBefore(_lockedUntil!);
@@ -67,23 +71,23 @@ class _AuthScreenState extends State<AuthScreen> {
   late final TextEditingController _emailCtrl;
   late final TextEditingController _lrnCtrl;
   late final TextEditingController _passwordCtrl;
-  late final TapGestureRecognizer  _termsTap;
-  late final TapGestureRecognizer  _privacyTap;
+  late final TapGestureRecognizer _termsTap;
+  late final TapGestureRecognizer _privacyTap;
 
   // ── Colors ────────────────────────────────────────────────────────────────────
   static const _kGoldLight = Color(0xFFFEF9E7);
-  static const _kBlue      = Color(0xFF0EA5E9);   // sky-500 — student accent
-  static const _kBlueLight = Color(0xFFE0F2FE);   // sky-100 — student bg tint
+  static const _kBlue = Color(0xFF0EA5E9); // sky-500 — student accent
+  static const _kBlueLight = Color(0xFFE0F2FE); // sky-100 — student bg tint
 
   @override
   void initState() {
     super.initState();
-    _emailCtrl    = TextEditingController();
-    _lrnCtrl      = TextEditingController();
+    _emailCtrl = TextEditingController();
+    _lrnCtrl = TextEditingController();
     _passwordCtrl = TextEditingController();
-    _termsTap     = TapGestureRecognizer()
+    _termsTap = TapGestureRecognizer()
       ..onTap = () => _showLegalSheet(_LegalType.terms);
-    _privacyTap   = TapGestureRecognizer()
+    _privacyTap = TapGestureRecognizer()
       ..onTap = () => _showLegalSheet(_LegalType.privacy);
     _loadSavedCredential();
     _loadRateLimitState();
@@ -132,8 +136,8 @@ class _AuthScreenState extends State<AuthScreen> {
       final remember = await _storage.read(key: 'remember_me') == 'true';
       if (!remember) return;
 
-      final savedMode  = await _storage.read(key: 'saved_mode');
-      final savedLrn   = await _storage.read(key: 'saved_lrn');
+      final savedMode = await _storage.read(key: 'saved_mode');
+      final savedLrn = await _storage.read(key: 'saved_lrn');
       final savedEmail = await _storage.read(key: 'saved_email');
 
       if (!mounted) return;
@@ -144,7 +148,7 @@ class _AuthScreenState extends State<AuthScreen> {
           if (savedEmail != null) _emailCtrl.text = savedEmail;
         } else {
           _mode = _LoginMode.student;
-          if (savedLrn != null) _lrnCtrl.text = savedLrn;
+          if (savedLrn != null) _lrnCtrl.text = _restoreSavedLrn(savedLrn);
         }
       });
     } catch (e) {
@@ -152,6 +156,13 @@ class _AuthScreenState extends State<AuthScreen> {
     } finally {
       if (mounted) setState(() => _isLoadingCredentials = false);
     }
+  }
+
+  // Remembered credentials from earlier app versions may contain either the
+  // full LRN or only the suffix. The login field now uses the last four digits.
+  String _restoreSavedLrn(String saved) {
+    final d = lrnDigits(saved);
+    return d.length > 4 ? d.substring(d.length - 4) : d;
   }
 
   Future<void> _saveCredential() async {
@@ -162,15 +173,19 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       await _storage.write(key: 'remember_me', value: 'true');
       await _storage.write(
-          key: 'saved_mode', value: _isOrganizer ? 'organizer' : 'student');
+        key: 'saved_mode',
+        value: _isOrganizer ? 'organizer' : 'student',
+      );
       if (_isOrganizer) {
         await _storage.write(
-            key: 'saved_email',
-            value: _emailCtrl.text.trim().toLowerCase());
+          key: 'saved_email',
+          value: _emailCtrl.text.trim().toLowerCase(),
+        );
       } else {
         await _storage.write(
-            key: 'saved_lrn',
-            value: _lrnCtrl.text.trim());
+          key: 'saved_lrn',
+          value: _restoreSavedLrn(_lrnCtrl.text),
+        );
       }
     } catch (e) {
       debugPrint('Error saving credential: $e');
@@ -192,17 +207,17 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _loadRateLimitState() async {
     try {
-      final prefs      = await SharedPreferences.getInstance();
-      final attempts   = prefs.getInt(_kAttemptKey) ?? 0;
-      final lockedMs   = prefs.getInt(_kLockedKey)  ?? 0;
-      final locked     = lockedMs > 0
+      final prefs = await SharedPreferences.getInstance();
+      final attempts = prefs.getInt(_kAttemptKey) ?? 0;
+      final lockedMs = prefs.getInt(_kLockedKey) ?? 0;
+      final locked = lockedMs > 0
           ? DateTime.fromMillisecondsSinceEpoch(lockedMs)
           : null;
       if (!mounted) return;
       final stillLocked = locked != null && locked.isAfter(DateTime.now());
       setState(() {
         _failedAttempts = stillLocked ? attempts : 0;
-        _lockedUntil    = stillLocked ? locked : null;
+        _lockedUntil = stillLocked ? locked : null;
       });
       if (stillLocked) {
         _startLockTimer();
@@ -218,13 +233,14 @@ class _AuthScreenState extends State<AuthScreen> {
     final lockDur = _failedAttempts >= 5
         ? const Duration(seconds: 30)
         : Duration.zero;
-    _lockedUntil = lockDur > Duration.zero
-        ? DateTime.now().add(lockDur)
-        : null;
+    _lockedUntil = lockDur > Duration.zero ? DateTime.now().add(lockDur) : null;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_kAttemptKey, _failedAttempts);
-      await prefs.setInt(_kLockedKey,  _lockedUntil?.millisecondsSinceEpoch ?? 0);
+      await prefs.setInt(
+        _kLockedKey,
+        _lockedUntil?.millisecondsSinceEpoch ?? 0,
+      );
     } catch (_) {}
     if (_lockedUntil != null) _startLockTimer();
     if (mounted) setState(() {});
@@ -232,7 +248,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _clearRateLimit() async {
     _failedAttempts = 0;
-    _lockedUntil    = null;
+    _lockedUntil = null;
     _lockTimer?.cancel();
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -244,14 +260,19 @@ class _AuthScreenState extends State<AuthScreen> {
   void _startLockTimer() {
     _lockTimer?.cancel();
     _lockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) { _lockTimer?.cancel(); return; }
+      if (!mounted) {
+        _lockTimer?.cancel();
+        return;
+      }
       if (!_isLocked) {
         _lockTimer?.cancel();
         _failedAttempts = 0;
-        SharedPreferences.getInstance().then((prefs) {
-          prefs.setInt(_kAttemptKey, 0);
-          prefs.remove(_kLockedKey);
-        }).catchError((_) {});
+        SharedPreferences.getInstance()
+            .then((prefs) {
+              prefs.setInt(_kAttemptKey, 0);
+              prefs.remove(_kLockedKey);
+            })
+            .catchError((_) {});
       }
       setState(() {});
     });
@@ -266,10 +287,7 @@ class _AuthScreenState extends State<AuthScreen> {
       return const Scaffold(
         backgroundColor: Color(0xFF1C1814),
         body: Center(
-          child: CircularProgressIndicator(
-            color: kGold,
-            strokeWidth: 2.5,
-          ),
+          child: CircularProgressIndicator(color: kGold, strokeWidth: 2.5),
         ),
       );
     }
@@ -293,7 +311,9 @@ class _AuthScreenState extends State<AuthScreen> {
               clipBehavior: Clip.antiAlias,
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(
-                  28, 32, 28,
+                  28,
+                  32,
+                  28,
                   MediaQuery.of(context).padding.bottom + 28,
                 ),
                 child: Column(
@@ -346,13 +366,11 @@ class _AuthScreenState extends State<AuthScreen> {
       children: [
         // Circular logo image with gold ring + glow
         Container(
-          width: 60, height: 60,
+          width: 60,
+          height: 60,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(
-              color: kGold.withValues(alpha: 0.55),
-              width: 2,
-            ),
+            border: Border.all(color: kGold.withValues(alpha: 0.55), width: 2),
             boxShadow: [
               BoxShadow(
                 color: kGold.withValues(alpha: 0.22),
@@ -365,16 +383,21 @@ class _AuthScreenState extends State<AuthScreen> {
             borderRadius: BorderRadius.circular(30),
             child: Image.asset(
               'assets/logo.jpg',
-              width: 60, height: 60,
+              width: 60,
+              height: 60,
               fit: BoxFit.cover,
               errorBuilder: (_, _, _) => Container(
-                width: 60, height: 60,
+                width: 60,
+                height: 60,
                 decoration: const BoxDecoration(
                   color: Color(0xFF2C2520),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.image_outlined,
-                    color: Colors.white38, size: 26),
+                child: const Icon(
+                  Icons.image_outlined,
+                  color: Colors.white38,
+                  size: 26,
+                ),
               ),
             ),
           ),
@@ -416,7 +439,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Widget _buildModeToggle() {
     final accent = _isOrganizer ? kGold : _kBlue;
-    final bg     = _isOrganizer ? _kGoldLight : _kBlueLight;
+    final bg = _isOrganizer ? _kGoldLight : _kBlueLight;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -424,10 +447,7 @@ class _AuthScreenState extends State<AuthScreen> {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: accent.withValues(alpha: 0.45),
-          width: 1.5,
-        ),
+        border: Border.all(color: accent.withValues(alpha: 0.45), width: 1.5),
       ),
       child: Material(
         color: Colors.transparent,
@@ -446,15 +466,14 @@ class _AuthScreenState extends State<AuthScreen> {
                   duration: const Duration(milliseconds: 200),
                   child: Container(
                     key: ValueKey(_isOrganizer),
-                    width: 36, height: 36,
+                    width: 36,
+                    height: 36,
                     decoration: BoxDecoration(
                       color: accent.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
-                      _isOrganizer
-                          ? Icons.badge_rounded
-                          : Icons.school_rounded,
+                      _isOrganizer ? Icons.badge_rounded : Icons.school_rounded,
                       size: 19,
                       color: accent,
                     ),
@@ -507,7 +526,8 @@ class _AuthScreenState extends State<AuthScreen> {
                 // Switch button
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
-                  width: 34, height: 34,
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
                     color: accent.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
@@ -570,7 +590,8 @@ class _AuthScreenState extends State<AuthScreen> {
           validator: (value) {
             final pass = value ?? '';
             if (pass.isEmpty) return 'Password is required';
-            if (pass.length < 6) return 'Password must be at least 6 characters';
+            if (pass.length < 6)
+              return 'Password must be at least 6 characters';
             return null;
           },
         ),
@@ -586,7 +607,8 @@ class _AuthScreenState extends State<AuthScreen> {
                 children: [
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
-                    width: 20, height: 20,
+                    width: 20,
+                    height: 20,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
@@ -627,17 +649,23 @@ class _AuthScreenState extends State<AuthScreen> {
                   key: const ValueKey('warn'),
                   margin: const EdgeInsets.only(bottom: 16),
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 12),
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFEF3C7),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                        color: const Color(0xFFF59E0B).withValues(alpha: 0.5)),
+                      color: const Color(0xFFF59E0B).withValues(alpha: 0.5),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.warning_amber_rounded,
-                          color: Color(0xFFD97706), size: 18),
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Color(0xFFD97706),
+                        size: 18,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -723,7 +751,8 @@ class _AuthScreenState extends State<AuthScreen> {
       validator: (value) {
         final username = value?.trim() ?? '';
         if (username.isEmpty) return 'Username is required';
-        if (username.length < 3) return 'Username must be at least 3 characters';
+        if (username.length < 3)
+          return 'Username must be at least 3 characters';
         if (username.contains('@') || username.contains(' ')) {
           return 'Enter your username only, without @gmail.com';
         }
@@ -738,15 +767,18 @@ class _AuthScreenState extends State<AuthScreen> {
       controller: _lrnCtrl,
       keyboardType: TextInputType.number,
       textInputAction: TextInputAction.next,
-      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      inputFormatters: [
+        FilteringTextInputFormatter.digitsOnly,
+        LengthLimitingTextInputFormatter(4),
+      ],
       decoration: _fieldDecoration(
-        hint: 'LRN (last 4 digits)',
+        hint: 'Last 4 digits of your LRN',
         icon: Icons.school_rounded,
       ),
       validator: (value) {
-        final lrn = value?.trim() ?? '';
-        if (lrn.isEmpty) return 'LRN is required';
-        if (lrn.length != 4) return 'Please enter the last 4 digits of your LRN';
+        final digits = lrnDigits(value ?? '');
+        if (digits.isEmpty) return 'LRN is required';
+        if (digits.length != 4) return 'Enter the last 4 digits of your LRN';
         return null;
       },
     );
@@ -759,8 +791,8 @@ class _AuthScreenState extends State<AuthScreen> {
     if (!_loginFormKey.currentState!.validate()) return;
     final email = _isOrganizer
         ? '${_emailCtrl.text.trim().toLowerCase()}@gmail.com'
-        : '$kRequiredLrnPrefix${_lrnCtrl.text.trim()}$_kEmailDomain';
-    final pass  = _passwordCtrl.text;
+        : '$kSchoolLrnPrefix${lrnDigits(_lrnCtrl.text)}$_kEmailDomain';
+    final pass = _passwordCtrl.text;
     setState(() => _loginLoading = true);
     // Block setupAuthStateListener from racing us to the navigator.
     SupabaseService.handlingAppLogin = true;
@@ -773,8 +805,10 @@ class _AuthScreenState extends State<AuthScreen> {
         return;
       }
 
-      final response = await Supabase.instance.client.auth
-          .signInWithPassword(email: email, password: pass);
+      final response = await Supabase.instance.client.auth.signInWithPassword(
+        email: email,
+        password: pass,
+      );
       final user = response.user;
       if (user == null) return;
 
@@ -792,7 +826,8 @@ class _AuthScreenState extends State<AuthScreen> {
           AppAlert.warning(
             context,
             title: 'Web Portal Only',
-            message: 'Admin accounts can only be accessed through the EventHub web portal. '
+            message:
+                'Admin accounts can only be accessed through the EventHub web portal. '
                 'Please use a browser to log in.',
             buttonText: 'Got it',
           );
@@ -817,7 +852,8 @@ class _AuthScreenState extends State<AuthScreen> {
           AppAlert.warning(
             context,
             title: 'Organizer Account Detected',
-            message: 'This account is registered as an Organizer.\n'
+            message:
+                'This account is registered as an Organizer.\n'
                 'Tap the toggle above to switch to Organizer Login.',
             buttonText: 'Got it',
             onDismiss: _switchMode,
@@ -834,7 +870,8 @@ class _AuthScreenState extends State<AuthScreen> {
           AppAlert.warning(
             context,
             title: 'Student Account Detected',
-            message: 'No organizer account found for these credentials.\n'
+            message:
+                'No organizer account found for these credentials.\n'
                 'Tap the toggle above to switch to Student Login.',
             buttonText: 'Got it',
             onDismiss: _switchMode,
@@ -854,7 +891,8 @@ class _AuthScreenState extends State<AuthScreen> {
             AppAlert.warning(
               context,
               title: 'Account Deactivated',
-              message: 'This organizer account has been deactivated. '
+              message:
+                  'This organizer account has been deactivated. '
                   'Contact an administrator for assistance.',
               buttonText: 'Got it',
             );
@@ -874,7 +912,8 @@ class _AuthScreenState extends State<AuthScreen> {
             AppAlert.warning(
               context,
               title: 'Account Deactivated',
-              message: 'This student account has been deactivated. '
+              message:
+                  'This student account has been deactivated. '
                   'Contact an administrator for assistance.',
               buttonText: 'Got it',
             );
@@ -891,49 +930,43 @@ class _AuthScreenState extends State<AuthScreen> {
       // ── Audit log ───────────────────────────────────────────────────────────
       if (isOrganizer) {
         AuditService.logLogin(
-          userId: user.id, role: 'organizer',
-          fullName:   organizerData!['full_name'] as String?,
-          identifier: (organizerData['organizer_id'] as String? ?? '').toLowerCase(),
+          userId: user.id,
+          role: 'organizer',
+          fullName: organizerData!['full_name'] as String?,
+          identifier: (organizerData['organizer_id'] as String? ?? '')
+              .toLowerCase(),
         );
       } else {
         AuditService.logLogin(
-          userId: user.id, role: 'student',
-          identifier: _lrnCtrl.text.trim(),
+          userId: user.id,
+          role: 'student',
+          identifier: '$kSchoolLrnPrefix${lrnDigits(_lrnCtrl.text)}',
         );
       }
 
       // ── Load per-user theme before navigating ───────────────────────────────
       await ThemeStore.loadForUser(
-          user.id, isOrganizer ? 'organizer' : 'student');
+        user.id,
+        isOrganizer ? 'organizer' : 'student',
+      );
       if (!isOrganizer) await NotifReadStore.loadForUser(user.id);
 
       // ── Route correctly ─────────────────────────────────────────────────────
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          _dashRoute(isOrganizer
-              ? const OrganizerDashboardScreen()
-              : const StudentDashboard()),
+          _dashRoute(
+            isOrganizer
+                ? const OrganizerDashboardScreen()
+                : const StudentDashboard(),
+          ),
         );
       }
     } catch (e, stack) {
       debugPrint('Login failed: $e\n$stack');
       await _recordFailure();
       unawaited(RateLimitService.recordFailure(email));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Login failed: ${_extractSupabaseError(e)}',
-              style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-            ),
-            backgroundColor: Colors.red[600],
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12)),
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          ),
-        );
-      }
+      if (mounted)
+        showErrorAlert(context, _loginError(e), title: 'Login failed');
     } finally {
       SupabaseService.handlingAppLogin = false;
       if (mounted) setState(() => _loginLoading = false);
@@ -958,8 +991,7 @@ class _AuthScreenState extends State<AuthScreen> {
       suffixIcon: suffix,
       filled: true,
       fillColor: Colors.grey[50],
-      contentPadding:
-          const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
+      contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(color: Colors.grey[200]!, width: 1.2),
@@ -989,12 +1021,17 @@ class _AuthScreenState extends State<AuthScreen> {
     return Text.rich(
       TextSpan(
         style: const TextStyle(
-            fontFamily: 'Poppins', fontSize: 12, height: 1.65),
+          fontFamily: 'Poppins',
+          fontSize: 12,
+          height: 1.65,
+        ),
         children: [
           TextSpan(
             text: 'By signing in, you agree to our ',
             style: TextStyle(
-                color: Colors.grey[600], fontWeight: FontWeight.w400),
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w400,
+            ),
           ),
           TextSpan(
             text: 'Terms and Conditions',
@@ -1009,7 +1046,9 @@ class _AuthScreenState extends State<AuthScreen> {
           TextSpan(
             text: ' and ',
             style: TextStyle(
-                color: Colors.grey[600], fontWeight: FontWeight.w400),
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w400,
+            ),
           ),
           TextSpan(
             text: 'Privacy Policy',
@@ -1024,7 +1063,9 @@ class _AuthScreenState extends State<AuthScreen> {
           TextSpan(
             text: '.',
             style: TextStyle(
-                color: Colors.grey[600], fontWeight: FontWeight.w400),
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w400,
+            ),
           ),
         ],
       ),
@@ -1032,25 +1073,29 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  String _extractSupabaseError(Object e) {
-    if (e is AuthException) return e.message;
-    if (e is PostgrestException) {
-      if (e.message.isNotEmpty) return e.message;
-      return e.details ?? e.hint ?? 'Supabase error';
+  // A wrong LRN / username or password is the usual cause — say which one
+  // this portal uses. Everything else is translated by friendlyError.
+  Object _loginError(Object e) {
+    if (e is AuthException &&
+        e.message.toLowerCase().contains('invalid login credentials')) {
+      return FriendlyException(
+        _isOrganizer
+            ? 'Incorrect username or password. Please try again.'
+            : 'Incorrect LRN or password. Please try again.',
+      );
     }
-    final text = e.toString();
-    return text.isEmpty ? 'Unknown error' : text;
+    return e;
   }
 
   Route<void> _dashRoute(Widget screen) => PageRouteBuilder<void>(
-    transitionDuration:        const Duration(milliseconds: 500),
+    transitionDuration: const Duration(milliseconds: 500),
     reverseTransitionDuration: const Duration(milliseconds: 350),
-    pageBuilder:        (ctx, a, b) => screen,
+    pageBuilder: (ctx, a, b) => screen,
     transitionsBuilder: (ctx, anim, b, child) {
-      final fade  = CurvedAnimation(parent: anim, curve: Curves.easeOut);
+      final fade = CurvedAnimation(parent: anim, curve: Curves.easeOut);
       final slide = Tween<Offset>(
         begin: const Offset(0, 0.022),
-        end:   Offset.zero,
+        end: Offset.zero,
       ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic));
       return FadeTransition(
         opacity: fade,
@@ -1086,7 +1131,8 @@ class _LegalSheet extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 12, bottom: 4),
               child: Container(
-                width: 40, height: 4,
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
                   color: Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(2),
@@ -1099,13 +1145,12 @@ class _LegalSheet extends StatelessWidget {
               child: Row(
                 children: [
                   Container(
-                    width: 50, height: 50,
+                    width: 50,
+                    height: 50,
                     decoration: BoxDecoration(
                       color: const Color(0xFFFEF9E7),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: kGold.withValues(alpha: 0.25),
-                      ),
+                      border: Border.all(color: kGold.withValues(alpha: 0.25)),
                     ),
                     child: Icon(
                       _isTerms
@@ -1148,8 +1193,11 @@ class _LegalSheet extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                       child: const Padding(
                         padding: EdgeInsets.all(8),
-                        child: Icon(Icons.close_rounded,
-                            size: 18, color: Colors.black54),
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 18,
+                          color: Colors.black54,
+                        ),
                       ),
                     ),
                   ),
@@ -1166,7 +1214,10 @@ class _LegalSheet extends StatelessWidget {
             ),
             Padding(
               padding: EdgeInsets.fromLTRB(
-                24, 12, 24, MediaQuery.of(ctx).padding.bottom + 20,
+                24,
+                12,
+                24,
+                MediaQuery.of(ctx).padding.bottom + 20,
               ),
               child: SizedBox(
                 width: double.infinity,
@@ -1177,7 +1228,8 @@ class _LegalSheet extends StatelessWidget {
                     foregroundColor: Colors.white,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                   child: const Text(
@@ -1197,58 +1249,86 @@ class _LegalSheet extends StatelessWidget {
     );
   }
 
-    List<Widget> _termsContent() => [
-      for (var i = 0; i < eventHubTerms.length; i++)
-        _section(
+  List<Widget> _termsContent() => [
+    for (var i = 0; i < eventHubTerms.length; i++)
+      _section(
         eventHubTerms[i].icon,
         eventHubTerms[i].title,
         eventHubTerms[i].body,
         isLast: i == eventHubTerms.length - 1,
-        ),
-      ];
+      ),
+  ];
 
   List<Widget> _privacyContent() => [
-        _section(Icons.info_outline_rounded, 'Information We Collect',
-            'We collect the following personal data to operate EventHub:\n\n'
-                '• Identity: full name, email address\n'
-                '• Student: Learner Reference Number (LRN), grade level\n'
-                '• Events: registrations, attendance records, timestamps\n'
-                '• Media: selfie photos submitted during event check-in\n'
-                '• Usage: AI chat session activity logs'),
-        _section(Icons.settings_suggest_outlined, 'How We Use Your Information',
-            'Your information is used to:\n\n'
-                '• Authenticate your identity and grant app access\n'
-                '• Process event registrations and generate QR tickets\n'
-                '• Facilitate the selfie check-in verification process\n'
-                '• Deliver school announcements and event updates\n'
-                '• Power personalized AI assistant responses\n'
-                '• Generate attendance analytics for organizers'),
-        _section(Icons.cloud_outlined, 'Data Storage & Security',
-            'All data is stored on secure cloud infrastructure provided by Supabase. We implement industry-standard security measures including encrypted connections (TLS) and role-based access controls to protect your personal information.'),
-        _section(Icons.face_outlined, 'Selfie and Photo Data',
-            'Selfie photos captured during event check-in are stored in a private, access-controlled storage bucket. These images are:\n\n'
-                '• Used exclusively for attendance verification\n'
-                '• Visible only to authorized event organizers\n'
-                '• Never shared with third parties\n'
-                '• Retained only as long as operationally necessary'),
-        _section(Icons.people_outline_rounded, 'Information Sharing',
-            'We do not sell, trade, or transfer your personal information to third parties. Your data may be shared with school administrators and authorized organizers only as needed to operate school events.'),
-        _section(Icons.access_time_outlined, 'Data Retention',
-            'Personal data is retained for the duration of your enrollment and a reasonable period thereafter, as required by school policy. You may request deletion of your data by contacting your school administrator.'),
-        _section(Icons.verified_user_outlined, 'Your Rights',
-            'You have the right to:\n\n'
-                '• Access the personal information we hold about you\n'
-                '• Request correction of inaccurate data\n'
-                '• Request deletion of your account and associated data\n'
-                '• Withdraw consent for data processing where applicable\n\n'
-                'Contact your school administrator to exercise these rights.'),
-        _section(Icons.mail_outline_rounded, 'Contact Us',
-            'For questions or concerns about this Privacy Policy, please contact your school administrator or reach out to the EventHub support team.',
-            isLast: true),
-      ];
+    _section(
+      Icons.info_outline_rounded,
+      'Information We Collect',
+      'We collect the following personal data to operate EventHub:\n\n'
+          '• Identity: full name, email address\n'
+          '• Student: Learner Reference Number (LRN), grade level\n'
+          '• Events: registrations, attendance records, timestamps\n'
+          '• Media: selfie photos submitted during event check-in\n'
+          '• Usage: AI chat session activity logs',
+    ),
+    _section(
+      Icons.settings_suggest_outlined,
+      'How We Use Your Information',
+      'Your information is used to:\n\n'
+          '• Authenticate your identity and grant app access\n'
+          '• Process event registrations and generate QR tickets\n'
+          '• Facilitate the selfie check-in verification process\n'
+          '• Deliver school announcements and event updates\n'
+          '• Power personalized AI assistant responses\n'
+          '• Generate attendance analytics for organizers',
+    ),
+    _section(
+      Icons.cloud_outlined,
+      'Data Storage & Security',
+      'All data is stored on secure cloud infrastructure provided by Supabase. We implement industry-standard security measures including encrypted connections (TLS) and role-based access controls to protect your personal information.',
+    ),
+    _section(
+      Icons.face_outlined,
+      'Selfie and Photo Data',
+      'Selfie photos captured during event check-in are stored in a private, access-controlled storage bucket. These images are:\n\n'
+          '• Used exclusively for attendance verification\n'
+          '• Visible only to authorized event organizers\n'
+          '• Never shared with third parties\n'
+          '• Retained only as long as operationally necessary',
+    ),
+    _section(
+      Icons.people_outline_rounded,
+      'Information Sharing',
+      'We do not sell, trade, or transfer your personal information to third parties. Your data may be shared with school administrators and authorized organizers only as needed to operate school events.',
+    ),
+    _section(
+      Icons.access_time_outlined,
+      'Data Retention',
+      'Personal data is retained for the duration of your enrollment and a reasonable period thereafter, as required by school policy. You may request deletion of your data by contacting your school administrator.',
+    ),
+    _section(
+      Icons.verified_user_outlined,
+      'Your Rights',
+      'You have the right to:\n\n'
+          '• Access the personal information we hold about you\n'
+          '• Request correction of inaccurate data\n'
+          '• Request deletion of your account and associated data\n'
+          '• Withdraw consent for data processing where applicable\n\n'
+          'Contact your school administrator to exercise these rights.',
+    ),
+    _section(
+      Icons.mail_outline_rounded,
+      'Contact Us',
+      'For questions or concerns about this Privacy Policy, please contact your school administrator or reach out to the EventHub support team.',
+      isLast: true,
+    ),
+  ];
 
-  Widget _section(IconData icon, String title, String body,
-      {bool isLast = false}) {
+  Widget _section(
+    IconData icon,
+    String title,
+    String body, {
+    bool isLast = false,
+  }) {
     return Padding(
       padding: EdgeInsets.only(bottom: isLast ? 4 : 20),
       child: Column(
@@ -1257,7 +1337,8 @@ class _LegalSheet extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 32, height: 32,
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
                   color: const Color(0xFFFEF9E7),
                   borderRadius: BorderRadius.circular(9),

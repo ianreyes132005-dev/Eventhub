@@ -7,16 +7,19 @@ import '../events/event_details_page.dart';
 import '../events/my_registered_events_page.dart';
 import '../profile/student_profile.dart';
 import '../notifications/notifications_screen.dart';
+import '../notifications/student_feed.dart';
 import '../check_in/selfie_screen.dart';
 import 'package:eventhub/core/services/registration_service.dart';
 import 'package:eventhub/core/services/notif_read_store.dart';
-import 'package:eventhub/core/services/student_notif_prefs.dart';
 import 'package:eventhub/shared/widgets/ai_chat_fab.dart';
 import 'package:eventhub/shared/widgets/app_loader.dart';
 import 'package:eventhub/shared/widgets/event_phase_pill.dart';
 import 'package:eventhub/shared/widgets/qr_code_dialog.dart';
 import 'package:eventhub/models/event_registration.dart';
 import 'package:eventhub/core/app_colors.dart';
+import 'package:eventhub/core/friendly_error.dart';
+import 'package:eventhub/shared/utils/event_labels.dart';
+import 'package:eventhub/shared/widgets/error_alert.dart';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,49 +51,6 @@ String _fmtTime(String? ts) {
   } catch (_) { return 'Recently'; }
 }
 
-DateTime? _eventDateTime(Map event, {required bool isEnd}) {
-  final eventDate = event['event_date'] as String?;
-  final dateValue = isEnd
-      ? (event['end_date'] as String? ?? eventDate)
-      : eventDate;
-  if (dateValue == null || dateValue.isEmpty) return null;
-
-  final date = DateTime.tryParse(dateValue);
-  if (date == null) return null;
-
-  final timeValue = event[isEnd ? 'end_time' : 'start_time'] as String?;
-  final fallbackHour = isEnd ? 23 : 8;
-  final fallbackMinute = isEnd ? 59 : 0;
-  final fallbackSecond = isEnd ? 59 : 0;
-  var hour = fallbackHour;
-  var minute = fallbackMinute;
-  var second = fallbackSecond;
-
-  if (timeValue != null && timeValue.isNotEmpty) {
-    final parts = timeValue.split(':');
-    final parsedHour = int.tryParse(parts[0]);
-    final parsedMinute = parts.length > 1 ? int.tryParse(parts[1]) : null;
-    final parsedSecond = parts.length > 2
-        ? int.tryParse(parts[2].split('.').first)
-        : 0;
-    if (parsedHour != null &&
-        parsedMinute != null &&
-        parsedSecond != null &&
-        parsedHour >= 0 &&
-        parsedHour <= 23 &&
-        parsedMinute >= 0 &&
-        parsedMinute <= 59 &&
-        parsedSecond >= 0 &&
-        parsedSecond <= 59) {
-      hour = parsedHour;
-      minute = parsedMinute;
-      second = parsedSecond;
-    }
-  }
-
-  return DateTime(date.year, date.month, date.day, hour, minute, second);
-}
-
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -102,7 +62,7 @@ class StudentDashboard extends StatefulWidget {
 }
 
 class _StudentDashboardState extends State<StudentDashboard>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _selectedIndex     = 0;
   int _notificationCount = 0;
 
@@ -111,18 +71,26 @@ class _StudentDashboardState extends State<StudentDashboard>
   // Home tab state
   bool    _homeLoading      = true;
   bool    _homeRefreshing   = false;
+  /// Why the first load failed — shows the error screen with Retry.
+  Object? _homeError;
   String? _studentName;
   int     _totalRegistrations = 0;
   int     _attendedCount      = 0;
-  int     _upcomingCount      = 0;
+  /// Registrations for events that are over (check-in closed, not
+  /// cancelled) — the attendance rate is measured against these.
+  int     _finishedCount      = 0;
+  int     _finishedAttended   = 0;
 
-  List<Map<String, dynamic>> _announcements        = [];
-  List<Map<String, dynamic>> _registrations          = [];
-  List<Map<String, dynamic>> _upcomingRegistrations  = [];
+  List<Map<String, dynamic>> _announcements         = [];
+  List<Map<String, dynamic>> _upcomingRegistrations = [];
 
   RealtimeChannel? _regChannel;
+  RealtimeChannel? _homeRegChannel;
   RealtimeChannel? _annChannel;
   Timer?           _annDebounce;
+  Timer?           _regDebounce;
+  Future<void>?    _inFlight;
+  bool             _refreshAgain = false;
   final Set<String> _selfiePrompted = {};
 
   // ── Init / dispose ────────────────────────────────────────────────────────
@@ -134,8 +102,10 @@ class _StudentDashboardState extends State<StudentDashboard>
       vsync: this,
       duration: const Duration(milliseconds: 900),
     );
+    WidgetsBinding.instance.addObserver(this);
     _loadHomeData();
     _subscribeToCheckInRequests();
+    _subscribeToMyRegistrations();
     _subscribeAnnouncements();
     NotifReadStore.unreadNotifier.addListener(_onNotifCountChanged);
   }
@@ -146,12 +116,23 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _annDebounce?.cancel();
+    _regDebounce?.cancel();
     _staggerCtrl.dispose();
     NotifReadStore.unreadNotifier.removeListener(_onNotifCountChanged);
     if (_regChannel != null) Supabase.instance.client.removeChannel(_regChannel!);
+    if (_homeRegChannel != null) Supabase.instance.client.removeChannel(_homeRegChannel!);
     if (_annChannel != null) Supabase.instance.client.removeChannel(_annChannel!);
     super.dispose();
+  }
+
+  // Back in the app (e.g. after checking in at the door) — catch up quietly.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_homeLoading) {
+      _loadHomeData(silent: true);
+    }
   }
 
   void _subscribeAnnouncements() {
@@ -169,14 +150,70 @@ class _StudentDashboardState extends State<StudentDashboard>
     _annChannel!.subscribe();
   }
 
+  // Registering (Events tab), every check-in step and a decline all change
+  // the student's own registrations — Home follows along.
+  void _subscribeToMyRegistrations() {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    _homeRegChannel = Supabase.instance.client.channel('student-home-regs-$uid')
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: '*',
+          schema: 'public',
+          table: 'registrations',
+          filter: 'student_user_id=eq.$uid',
+        ),
+        (_, [_]) {
+          _regDebounce?.cancel();
+          _regDebounce = Timer(const Duration(milliseconds: 600), () {
+            if (mounted) _loadHomeData(silent: true);
+          });
+        },
+      )
+      ..subscribe();
+  }
+
   // ── Data ─────────────────────────────────────────────────────────────────
 
-  Future<void> _loadHomeData({bool silent = false}) async {
-    if (silent && _homeRefreshing) return;
+  /// [silent] refreshes keep what's on screen (a thin bar instead of the
+  /// full loader) and a failure leaves it as it was; [userInitiated] (pull
+  /// to refresh) reports that failure. One load runs at a time — a request
+  /// in the meantime runs once after it.
+  Future<void> _loadHomeData({bool silent = false, bool userInitiated = false}) async {
+    final running = _inFlight;
+    if (running != null) {
+      _refreshAgain = true;
+      return running;
+    }
+    final done = Completer<void>();
+    _inFlight = done.future;
+    Object? error;
+    try {
+      error = await _fetchHome(silent: silent);
+    } finally {
+      _inFlight = null;
+      done.complete();
+    }
+    if (!mounted) return;
+    if (error != null && userInitiated) {
+      showErrorAlert(context, error, title: 'Couldn’t refresh');
+    }
+    if (_refreshAgain) {
+      _refreshAgain = false;
+      _loadHomeData(silent: true);
+    }
+  }
+
+  /// Returns the error when the load failed.
+  Future<Object?> _fetchHome({required bool silent}) async {
     if (silent) {
       if (mounted) setState(() => _homeRefreshing = true);
     } else {
-      setState(() => _homeLoading = true);
+      setState(() {
+        _homeLoading = true;
+        _homeError   = null;
+      });
     }
 
     try {
@@ -185,115 +222,68 @@ class _StudentDashboardState extends State<StudentDashboard>
       if (user == null) {
         if (mounted) setState(() { _homeLoading = false; _homeRefreshing = false; });
         if (!silent) _staggerCtrl.forward(from: 0);
-        return;
+        return null;
       }
 
-      // Parallel fetch: profile + announcements
-      final results = await Future.wait([
-        client.from('students').select('full_name').eq('user_id', user.id).maybeSingle(),
-        client.from('announcements')
-            .select('id, title, message, created_by, created_at')
-            .order('created_at', ascending: false)
-            .limit(3),
-      ]);
+      // The name, plus the same feed the Notifications screen loads —
+      // announcements with their authors, registrations with their events,
+      // and the notification list — so the bell number always matches it.
+      final nameFuture = client
+          .from('students')
+          .select('full_name')
+          .eq('user_id', user.id)
+          .maybeSingle();
+      final feed    = await StudentNotifications.load();
+      final profile = await nameFuture;
+      if (!mounted) return null;
 
-      // Registrations fetched separately (needs user.id, not parallelizable cleanly)
-      final regRows = await client
-          .from('registrations')
-          .select('*, events(event_id, title, event_date, end_date, start_time, end_time, '
-                  'location, event_image_url, description, event_status, '
-                  'max_participants, event_type)')
-          .eq('student_user_id', user.id)
-          .order('registered_at', ascending: false);
-      final regList = List<Map<String, dynamic>>.from(regRows as List);
+      final regs = feed.registrations;
+      final now  = DateTime.now();
+      // One rule for the Upcoming number and the list (app_colors.dart):
+      // not cancelled, not declined, until check-in closes.
+      final upcoming = regs.where((r) => registrationIsUpcoming(r, now: now)).toList()
+        ..sort((a, b) => _startOf(a).compareTo(_startOf(b)));
+      final finished = regs.where((r) => registrationIsFinished(r, now: now)).toList();
+      bool attended(Map<String, dynamic> r) => r['status'] == 'checked_in';
 
-      if (!mounted) return;
+      NotifReadStore.setAll(feed.notifications.map((n) => n.id));
 
-      final profile  = results[0] as Map<String, dynamic>?;
-      final annRaw   = List<Map<String, dynamic>>.from(results[1] as List);
-      final annUids  = annRaw.map((a) => a['created_by'] as String?).whereType<String>().toSet().toList();
-      final Map<String, String> annOrgNames = {};
-      if (annUids.isNotEmpty) {
-        final orgRows = List<Map<String, dynamic>>.from(
-          await client
-              .from('organizers')
-              .select('user_id, full_name')
-              .filter('user_id', 'in', '(${annUids.join(',')})'),
-        );
-        for (final o in orgRows) {
-          annOrgNames[o['user_id'] as String] = o['full_name'] as String? ?? '—';
-        }
-      }
-      final annList = annRaw.map((a) => <String, dynamic>{
-        ...a,
-        '_org': annOrgNames[a['created_by'] as String? ?? ''] ?? '—',
-      }).toList();
-      final today    = DateTime.now();
-      final todayMid = DateTime(today.year, today.month, today.day);
-
-      final upcomingCount = regList.where((r) {
-        if ((r['status'] as String?) == 'checked_in') return false;
-        final evMap = r['events'] as Map?;
-        final dStr  = evMap?['event_date'] as String?;
-        if (dStr == null) return false;
-        try {
-          final d = DateTime.parse(dStr);
-          return !DateTime(d.year, d.month, d.day).isBefore(todayMid);
-        } catch (_) { return false; }
-      }).length;
-
-      final sortedUpcoming = regList.where((r) {
-        final evMap = r['events'] as Map?;
-        if (evMap == null) return false;
-        final endTime = _eventDateTime(evMap, isEnd: true);
-        if (endTime == null) return false;
-        // Keep the event for an hour after its final end time so Completed can display.
-        return endTime.isAfter(today.subtract(const Duration(hours: 1)));
-      }).toList()
-        ..sort((a, b) {
-          final da = DateTime.tryParse(((a['events'] as Map?) ?? {})['event_date'] as String? ?? '') ?? DateTime(9999);
-          final db = DateTime.tryParse(((b['events'] as Map?) ?? {})['event_date'] as String? ?? '') ?? DateTime(9999);
-          return da.compareTo(db);
-        });
-
-      // Respect per-user preferences (Profile → Notifications). Verification
-      // statuses (photo_required / photo_submitted) are never filtered.
-      final disabledCats = await StudentNotifPrefs.disabled(user.id);
-      final notifIds = [
-        if (!disabledCats.contains(StudentNotifPrefs.announcements))
-          ...annList.map((a) => 'ann_${a['id']}'),
-        ...regList
-            .where((r) => const {'checked_in', 'photo_required', 'photo_submitted'}
-                .contains(r['status']))
-            .where((r) =>
-                r['status'] != 'checked_in' ||
-                !disabledCats.contains(StudentNotifPrefs.checkins))
-            .map((r) => 'reg_${r['id']}_${r['status']}'),
-      ];
-      NotifReadStore.setAll(notifIds);
-
-      if (mounted) {
-        setState(() {
-          _studentName           = profile?['full_name'] as String? ?? 'Student';
-          _totalRegistrations    = regList.length;
-          _attendedCount         = regList.where((r) => r['status'] == 'checked_in').length;
-          _upcomingCount         = upcomingCount;
-          _announcements         = annList;
-          _registrations         = regList;
-          _upcomingRegistrations = sortedUpcoming;
-          _notificationCount     = NotifReadStore.unreadNotifier.value;
-          _homeLoading           = false;
-          _homeRefreshing        = false;
-        });
-        if (!silent) _staggerCtrl.forward(from: 0);
-      }
+      final recovering = _homeError != null;
+      setState(() {
+        _studentName           = profile?['full_name'] as String? ?? 'Student';
+        _totalRegistrations    = regs.length;
+        _attendedCount         = regs.where(attended).length;
+        _finishedCount         = finished.length;
+        _finishedAttended      = finished.where(attended).length;
+        _announcements         = feed.announcements.take(3).toList();
+        _upcomingRegistrations = upcoming;
+        _notificationCount     = NotifReadStore.unreadNotifier.value;
+        _homeLoading           = false;
+        _homeRefreshing        = false;
+        _homeError             = null;
+      });
+      if (!silent || recovering) _staggerCtrl.forward(from: 0);
+      return null;
     } catch (e) {
       debugPrint('StudentDashboard load error: $e');
       if (mounted) {
-        setState(() { _homeLoading = false; _homeRefreshing = false; });
+        setState(() {
+          _homeLoading    = false;
+          _homeRefreshing = false;
+          // A failed background refresh keeps what's already on screen.
+          if (!silent) _homeError = e;
+        });
         if (!silent) _staggerCtrl.forward(from: 0);
       }
+      return e;
     }
+  }
+
+  // When a registration's event starts — orders "My upcoming events".
+  static DateTime _startOf(Map<String, dynamic> reg) {
+    final ev = reg['events'];
+    final start = ev is Map ? eventWindow(Map<String, dynamic>.from(ev))?.start : null;
+    return start ?? DateTime(9999);
   }
 
   // ── Realtime ─────────────────────────────────────────────────────────────
@@ -304,13 +294,14 @@ class _StudentDashboardState extends State<StudentDashboard>
       final status = record['status'] as String?;
       final regId  = record['id']     as String?;
       if (status == 'photo_required' && regId != null && !_selfiePrompted.contains(regId)) {
-        _selfiePrompted.add(regId);
         _openSelfieScreen(regId);
       }
     });
   }
 
   void _openSelfieScreen(String registrationId) {
+    // Remembered, so a realtime update can't open a second camera on top.
+    _selfiePrompted.add(registrationId);
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SelfieScreen(registrationId: registrationId),
@@ -447,7 +438,10 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   void _onNavBarTapped(int index) {
     HapticFeedback.selectionClick();
+    final backHome = index == 0 && _selectedIndex != 0;
     setState(() => _selectedIndex = index);
+    // e.g. right after registering on the Events tab.
+    if (backHome && !_homeLoading) _loadHomeData(silent: true);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -500,6 +494,7 @@ class _StudentDashboardState extends State<StudentDashboard>
         child: const AppFullScreenLoader(message: 'Loading your dashboard…'),
       );
     }
+    if (_homeError != null) return _buildLoadError(t);
 
     return Column(
       children: [
@@ -516,7 +511,7 @@ class _StudentDashboardState extends State<StudentDashboard>
           child: RefreshIndicator(
             color: kGold,
             backgroundColor: t.card,
-            onRefresh: () => _loadHomeData(silent: true),
+            onRefresh: () => _loadHomeData(silent: true, userInitiated: true),
             child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
@@ -530,6 +525,55 @@ class _StudentDashboardState extends State<StudentDashboard>
           ),
         ),
       ],
+    );
+  }
+
+  // First load failed — say so; an empty dashboard would read as "no events".
+  Widget _buildLoadError(AppTk t) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 36),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: const Icon(Icons.cloud_off_rounded, size: 36, color: Color(0xFFEF4444)),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Couldn’t load your dashboard',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w700, color: t.text),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              friendlyError(_homeError, fallback: 'Please check your connection and try again.'),
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub, height: 1.5),
+            ),
+            const SizedBox(height: 28),
+            ElevatedButton.icon(
+              onPressed: () => _loadHomeData(),
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Retry',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kGold,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 13),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -807,25 +851,20 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 
   Widget _buildMainEventBannerCard(Map<String, dynamic> reg, AppTk t) {
-    final evMap   = reg['events'] as Map?;
-    final title   = reg['event_title'] as String? ?? '—';
-    final dStr    = evMap?['event_date'] as String?;
-    if (dStr == null || evMap == null) return const SizedBox.shrink();
+    final evMap = reg['events'] as Map?;
+    if (evMap == null) return const SizedBox.shrink();
+    final event  = Map<String, dynamic>.from(evMap);
+    final window = eventWindow(event);
+    if (window == null) return const SizedBox.shrink();
 
-    final statusEvent = Map<String, dynamic>.from(evMap);
-    final startTime = _eventDateTime(evMap, isEnd: false);
-    final endTime = _eventDateTime(evMap, isEnd: true);
-    if (startTime == null) return const SizedBox.shrink();
-
-    final EventPhase initPhase =
-        eventPhaseFromStatus(eventStatusValue(statusEvent));
-    final target = startTime;
-
-    final location = evMap['location'] as String? ?? '';
-    final imageUrl = evMap['event_image_url'] as String?;
+    final title    = event['title'] as String? ?? reg['event_title'] as String? ?? '—';
+    final location = (event['location'] as String?)?.trim() ?? '';
+    final imageUrl = event['event_image_url'] as String?;
     final hasImage = imageUrl != null && imageUrl.isNotEmpty;
-    const months   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    final fmtDate  = '${months[target.month - 1]} ${target.day}';
+    // "Oct 25 · 1:00–4:00 PM" — the same labels as the organizer screens.
+    final date = dateRangeLabel(window.start, DateTime.tryParse(event['end_date'] as String? ?? ''));
+    final time = timeRangeLabel(event['start_time'] as String?, event['end_time'] as String?);
+    final when = time.isEmpty ? date : '$date · $time';
 
     return GestureDetector(
       onTap: () => _navigateToEventDetail(reg),
@@ -864,33 +903,20 @@ class _StudentDashboardState extends State<StudentDashboard>
                 ),
               ),
             ),
-            // Top-left phase pill
+            // Top-left phase pill — follows the clock (upcoming → ongoing →
+            // check-in open).
             Positioned(
               top: 14, left: 14,
-              child: EventPhasePill(phase: initPhase),
+              child: LiveEventPhasePill(event: event),
             ),
-            // Top-right QR chip — independent tap target to show the QR dialog
-            // directly without navigating to the event detail page.
+            // Top-right: where the student's ticket stands, with the action
+            // it needs — its own tap target, separate from the card.
             Positioned(
-              top: 14, right: 14,
-              child: GestureDetector(
-                onTap: () => _showNextEventQR(reg),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.40), width: 1.2),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.qr_code_2_rounded, size: 13, color: Colors.white),
-                      SizedBox(width: 5),
-                      Text('My QR', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
-                    ],
-                  ),
-                ),
+              top: 10, right: 10,
+              child: _RegistrationAction(
+                status: reg['status'] as String?,
+                onShowQr: () => _showNextEventQR(reg),
+                onTakeSelfie: () => _openSelfieScreen(reg['id'] as String),
               ),
             ),
             // Bottom content
@@ -923,11 +949,22 @@ class _StudentDashboardState extends State<StudentDashboard>
                             children: [
                               const Icon(Icons.calendar_today_rounded, size: 11, color: Colors.white70),
                               const SizedBox(width: 4),
-                              Text(fmtDate, style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.white70)),
-                              if (location.isNotEmpty) ...[
-                                const Text(' · ', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.white38)),
+                              Flexible(
+                                child: Text(
+                                  when,
+                                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: Colors.white),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (location.isNotEmpty) ...[
+                            const SizedBox(height: 3),
+                            Row(
+                              children: [
                                 const Icon(Icons.location_on_outlined, size: 11, color: Colors.white70),
-                                const SizedBox(width: 3),
+                                const SizedBox(width: 4),
                                 Expanded(
                                   child: Text(
                                     location,
@@ -937,16 +974,16 @@ class _StudentDashboardState extends State<StudentDashboard>
                                   ),
                                 ),
                               ],
-                            ],
-                          ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
                     const SizedBox(width: 16),
                     EventStatusTimer(
-                      start: startTime,
-                      end: endTime,
-                      statusEvent: statusEvent,
+                      start: window.start,
+                      end: window.end,
+                      statusEvent: event,
                     ),
                   ],
                 ),
@@ -1077,8 +1114,10 @@ class _StudentDashboardState extends State<StudentDashboard>
   // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildStatsCard(AppTk t) {
-    final hasData = _totalRegistrations > 0;
-    final rate    = hasData ? _attendedCount / _totalRegistrations : 0.0;
+    // Measured against events that are over (check-in closed, not
+    // cancelled) — an event still ahead can't have been attended yet.
+    final hasData = _finishedCount > 0;
+    final rate    = hasData ? _finishedAttended / _finishedCount : 0.0;
 
     void goToMyEvents() => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const MyRegisteredEventsPage()),
@@ -1111,7 +1150,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                           Icons.check_circle_rounded, const Color(0xFF16A34A), t,
                           onTap: goToMyEvents),
                       _VertDivider(t: t),
-                      _statCell('$_upcomingCount', 'Upcoming',
+                      _statCell('${_upcomingRegistrations.length}', 'Upcoming',
                           Icons.event_rounded, const Color(0xFF3B82F6), t,
                           onTap: () => _onNavBarTapped(1)),
                     ],
@@ -1151,7 +1190,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                   ),
                   const Spacer(),
                   Text(
-                    '$pct%  ·  $_attendedCount of $_totalRegistrations attended',
+                    '$pct%  ·  $_finishedAttended of $_finishedCount past events',
                     style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 11,
@@ -1496,6 +1535,91 @@ class _StudentDashboardState extends State<StudentDashboard>
 // ══════════════════════════════════════════════════════════════════════════════
 // Sub-widgets
 // ══════════════════════════════════════════════════════════════════════════════
+
+// Where the student's ticket stands on the main event card, with the action
+// it needs: Show QR → (scanned) Waiting for organizer → Take selfie →
+// Waiting for organizer → Checked in ✓, or Declined. The two actions get a
+// 44 px tap area.
+class _RegistrationAction extends StatelessWidget {
+  final String?      status;
+  final VoidCallback onShowQr;
+  final VoidCallback onTakeSelfie;
+
+  const _RegistrationAction({
+    required this.status,
+    required this.onShowQr,
+    required this.onTakeSelfie,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (status) {
+      'photo_required' => _chip(
+          icon: Icons.photo_camera_rounded,
+          label: 'Take selfie',
+          solid: kCheckInOpenColor,
+          onTap: onTakeSelfie),
+      'qr_scanned' || 'photo_submitted' => _chip(
+          icon: Icons.hourglass_top_rounded, label: 'Waiting for organizer'),
+      'checked_in' => _chip(label: 'Checked in ✓', solid: const Color(0xFF15803D)),
+      'rejected' => _chip(
+          icon: Icons.block_rounded, label: 'Declined', solid: const Color(0xFFB91C1C)),
+      _ => _chip(icon: Icons.qr_code_2_rounded, label: 'Show QR', onTap: onShowQr),
+    };
+  }
+
+  // Solid colours keep white text at 5:1 or better; the rest sit on a dark
+  // glass so they read over any banner image.
+  Widget _chip({IconData? icon, required String label, Color? solid, VoidCallback? onTap}) {
+    final chip = Container(
+      constraints: BoxConstraints(minHeight: onTap != null ? 36 : 0, maxWidth: 190),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: solid ?? Colors.black.withValues(alpha: 0.38),
+        borderRadius: BorderRadius.circular(20),
+        border: solid == null
+            ? Border.all(color: Colors.white.withValues(alpha: 0.45), width: 1.2)
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: Colors.white),
+            const SizedBox(width: 6),
+          ],
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    final padded = Padding(padding: const EdgeInsets.all(4), child: chip);
+    if (onTap == null) return Semantics(label: label, child: padded);
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        behavior: HitTestBehavior.opaque,
+        child: padded,
+      ),
+    );
+  }
+}
 
 class _NavItem extends StatefulWidget {
   final IconData     activeIcon;

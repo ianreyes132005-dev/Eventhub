@@ -26,11 +26,18 @@ serve(async (req) => {
 
   try {
     // ── 1. Parse body ────────────────────────────────────────────────────────
-    const { organizer_id, full_name, organization, password } = await req.json()
+    const { organizer_id, full_name, first_name, last_name, organization, password } =
+      await req.json()
+
+    // Name parts are optional for backward compatibility; when present,
+    // full_name is always rebuilt from them ("First Last").
+    const first = String(first_name ?? '').trim()
+    const last  = String(last_name ?? '').trim()
+    const displayName = first && last ? `${first} ${last}` : String(full_name ?? '').trim()
 
     if (!organizer_id || !/^Org\d{4}$/i.test(organizer_id))
       return errRes(400, 'Organizer ID must be Org followed by 4 digits (e.g. Org0001).')
-    if (!full_name?.trim())
+    if (!displayName)
       return errRes(400, 'Full name is required.')
     if (!password || password.length < 6)
       return errRes(400, 'Password must be at least 6 characters.')
@@ -75,7 +82,9 @@ serve(async (req) => {
     const { error: insertErr } = await supabaseAdmin.from('organizers').insert({
       organizer_id: id,
       user_id:      created.user.id,
-      full_name:    full_name.trim(),
+      full_name:    displayName,
+      first_name:   first || null,
+      last_name:    last || null,
       organization: organization?.trim() || null,
       is_active:    true,
     })

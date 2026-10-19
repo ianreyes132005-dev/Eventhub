@@ -7,6 +7,16 @@ import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../core/app_colors.dart';
 import '../../../../core/services/audit_service.dart';
+import '../../../../core/services/event_cancellation_service.dart';
+import '../../../../core/services/event_change_request_service.dart';
+import '../../../../core/services/student_count_service.dart';
+import '../../../../core/services/supabase_service.dart';
+import '../../../../shared/utils/date_utils.dart' show genUuid;
+import '../../../../shared/utils/event_form_validation.dart';
+import '../../../../shared/widgets/form_errors.dart';
+import '../../../../shared/widgets/web/swal.dart';
+import '../../../../shared/widgets/error_alert.dart';
+import '../../../../core/friendly_error.dart';
 
 // ── Event type data ────────────────────────────────────────────────────────
 const List<(String, IconData, Color)> _kTypeData = [
@@ -19,7 +29,7 @@ const List<(String, IconData, Color)> _kTypeData = [
 
 const _kBlue  = Color(0xFF2563EB);
 const _kGreen = Color(0xFF16A34A);
-const _kRed   = Color(0xFFDC2626);
+const _kEnd   = Color(0xFF4F46E5); // end time — not red: red means an error here
 
 // ── Banner upload constraints ─────────────────────────────────────────────
 const _kAllowedBannerExts = {'jpg', 'jpeg', 'png', 'webp'};
@@ -35,12 +45,21 @@ String _bannerContentType(String ext) {
   }
 }
 
+// Stands in for a newly picked banner while comparing changes — the file is
+// only uploaded once the organizer confirms.
+const _kNewBanner = '\u0000new-banner';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Create an event, or edit [existing] — one form for both, like the web
+/// event dialog. Edits to an approved event go to the admin as a change
+/// request; pending / rejected events are updated directly (saving a rejected
+/// event resubmits it). Pops `true` after a successful save.
 class CreateEventScreen extends StatefulWidget {
-  const CreateEventScreen({super.key});
+  final Map<String, dynamic>? existing;
+  const CreateEventScreen({super.key, this.existing});
   @override
   State<CreateEventScreen> createState() => _CreateEventScreenState();
 }
@@ -50,7 +69,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   final _nameCtrl      = TextEditingController();
   final _venueCtrl     = TextEditingController();
   final _descCtrl      = TextEditingController();
-  final _capacityCtrl  = TextEditingController();
   final _otherTypeCtrl = TextEditingController();
 
   // ── State ────────────────────────────────────────────────────────────────────
@@ -63,6 +81,63 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   bool       _isPublishing  = false;
   bool       _showCalendar  = false;
   bool       _showEndCalendar = false;
+  // Capacity isn't entered — it's every active student.
+  int?       _studentCount = StudentCountService.cached;
+
+  // ── Edit mode ────────────────────────────────────────────────────────────────
+  bool get _isEdit => widget.existing != null;
+  // Approved events are live, so edits need the admin's approval first.
+  bool get _isLive => _isEdit && EventChangeRequestService.needsApproval(widget.existing!);
+  bool get _isRejected => widget.existing?['approval_status'] == 'rejected';
+  String? _existingBannerUrl;            // current banner, or the one already proposed
+  Map<String, dynamic>? _revision;       // latest change request (approved events)
+  bool _loadingRevision = false;
+
+  // Field problems show only after the first Publish attempt, then update
+  // live as the organizer fixes them.
+  bool _submitted = false;
+  final _fieldKeys = {for (final f in EventFormField.values) f: GlobalKey()};
+  final _summaryKey = GlobalKey();
+
+  static const _fieldLabels = {
+    EventFormField.title:     'Event name',
+    EventFormField.otherType: 'Event type',
+    EventFormField.startDate: 'Start date',
+    EventFormField.endDate:   'End date',
+    EventFormField.startTime: 'Start time',
+    EventFormField.endTime:   'End time',
+    EventFormField.location:  'Venue',
+  };
+
+  Map<EventFormField, String> _validate() => validateEventForm(
+        title: _nameCtrl.text, needsOtherType: _selectedEventType == 'Other',
+        otherType: _otherTypeCtrl.text,
+        startDate: _selectedDate, endDate: _selectedEndDate,
+        startTime: _startTime, endTime: _endTime,
+        location: _venueCtrl.text);
+
+  Map<EventFormField, String> get _errors => _submitted ? _validate() : const {};
+
+  // After a failed save: if the first problem is in the top section, show the
+  // summary (it sits right above it); otherwise go straight to the field.
+  void _revealFirstProblem(EventFormField first) {
+    final ctx = first.index <= EventFormField.otherType.index
+        ? _summaryKey.currentContext : null;
+    if (ctx != null) {
+      Scrollable.ensureVisible(ctx,
+          duration: const Duration(milliseconds: 350), curve: Curves.easeOut);
+    } else {
+      _scrollTo(first);
+    }
+  }
+
+  void _scrollTo(EventFormField f) {
+    final ctx = _fieldKeys[f]!.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(ctx, alignment: 0.1,
+          duration: const Duration(milliseconds: 350), curve: Curves.easeOut);
+    }
+  }
 
   double get _formProgress {
     int done = 0;
@@ -78,8 +153,18 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   @override
   void initState() {
     super.initState();
+    if (_isEdit) _prefill(widget.existing!);
+    if (_isLive) {
+      _loadingRevision = true;
+      _loadChangeRequest();
+    }
     _nameCtrl.addListener(() => setState(() {}));
     _venueCtrl.addListener(() => setState(() {}));
+    // Keep field errors live once they're showing.
+    _otherTypeCtrl.addListener(() { if (_submitted) setState(() {}); });
+    StudentCountService.activeStudents().then((n) {
+      if (mounted && n != _studentCount) setState(() => _studentCount = n);
+    });
   }
 
   @override
@@ -87,39 +172,91 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _nameCtrl.dispose();
     _venueCtrl.dispose();
     _descCtrl.dispose();
-    _capacityCtrl.dispose();
     _otherTypeCtrl.dispose();
     super.dispose();
+  }
+
+  // ── Edit mode: fill the form ─────────────────────────────────────────────────
+
+  void _prefill(Map<String, dynamic> e) {
+    _nameCtrl.text  = e['title'] as String? ?? '';
+    _descCtrl.text  = e['description'] as String? ?? '';
+    _venueCtrl.text = e['location'] as String? ?? '';
+    // Custom types (saved via "Other") select Other with the value filled in.
+    final type   = e['event_type'] as String? ?? 'Concert';
+    final preset = type != 'Other' && _kTypeData.any((t) => t.$1 == type);
+    _selectedEventType  = preset ? type : 'Other';
+    _otherTypeCtrl.text = preset ? '' : type;
+    _selectedDate    = _parseDate(e['event_date']);
+    _selectedEndDate = _parseDate(e['end_date']) ?? _selectedDate;
+    _startTime = _parseTime(e['start_time']);
+    _endTime   = _parseTime(e['end_time']);
+    final img = e['event_image_url'] as String?;
+    _existingBannerUrl = img != null && img.isNotEmpty ? img : null;
+  }
+
+  // Changes still waiting for the admin are filled in, so saving again keeps
+  // them (the request is replaced as a whole, so they'd be lost otherwise).
+  Future<void> _loadChangeRequest() async {
+    final id = widget.existing!['event_id'] as String? ?? '';
+    final r  = id.isEmpty ? null : (await EventChangeRequestService.latestFor([id]))[id];
+    if (!mounted) return;
+    if (r != null && r['status'] == 'pending') {
+      _prefill({
+        ...widget.existing!,
+        ...Map<String, dynamic>.from(r['changes'] as Map? ?? const {}),
+      });
+    }
+    setState(() { _revision = r; _loadingRevision = false; });
+  }
+
+  static DateTime? _parseDate(Object? v) {
+    final d = DateTime.tryParse(v as String? ?? '');
+    return d == null ? null : DateUtils.dateOnly(d);
+  }
+
+  static TimeOfDay? _parseTime(Object? v) {
+    final p = (v as String? ?? '').split(':');
+    final h = int.tryParse(p[0]);
+    final m = p.length > 1 ? int.tryParse(p[1]) : null;
+    if (h == null || m == null || h < 0 || h > 23 || m < 0 || m > 59) return null;
+    return TimeOfDay(hour: h, minute: m);
+  }
+
+  static String _isoDate(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  static String? _isoTime(TimeOfDay? t) => t == null
+      ? null
+      : '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:00';
+
+  /// The form in events-table columns (the banner is handled separately).
+  /// No capacity — it's the number of active students.
+  Map<String, dynamic> _formValues() {
+    final start = _selectedDate!;
+    return {
+      'title':            _nameCtrl.text.trim(),
+      'description':      _descCtrl.text.trim(),
+      'event_type':       _selectedEventType == 'Other'
+          ? _otherTypeCtrl.text.trim() : _selectedEventType,
+      'location':         _venueCtrl.text.trim(),
+      'event_date':       _isoDate(start),
+      'end_date':         _isoDate(_selectedEndDate ?? start),
+      'start_time':       _isoTime(_startTime),
+      'end_time':         _isoTime(_endTime),
+    };
   }
 
   // ── Validation ───────────────────────────────────────────────────────────────
 
   bool _validateForm() {
-    if (_nameCtrl.text.trim().isEmpty)  { _snack('Event name is required', isError: true); return false; }
-    if (_selectedDate == null)           { _snack('Start date is required', isError: true); return false; }
-    if (_selectedEndDate == null)        { _snack('End date is required', isError: true); return false; }
-    if (_selectedEndDate!.isBefore(_selectedDate!)) {
-      _snack('End date must be on or after the start date', isError: true);
-      return false;
-    }
-    if (_startTime == null)              { _snack('Start time is required', isError: true); return false; }
-    if (_endTime == null)                { _snack('End time is required',   isError: true); return false; }
-    final startMin = _startTime!.hour * 60 + _startTime!.minute;
-    final endMin   = _endTime!.hour   * 60 + _endTime!.minute;
-    if (_selectedEndDate!.isAtSameMomentAs(_selectedDate!)) {
-      if (endMin <= startMin) { _snack('End time must be after start time', isError: true); return false; }
-    }
-    final now = DateTime.now();
-    if (DateUtils.isSameDay(DateUtils.dateOnly(_selectedDate!), DateUtils.dateOnly(now))) {
-      final nowMin = now.hour * 60 + now.minute;
-      if (startMin < nowMin) { _snack('Start time has already passed for today\'s event', isError: true); return false; }
-      if (endMin   < nowMin) { _snack('End time has already passed for today\'s event',   isError: true); return false; }
-    }
-    if (_venueCtrl.text.trim().isEmpty) { _snack('Venue is required',      isError: true); return false; }
-    if (_selectedEventType == 'Other' && _otherTypeCtrl.text.trim().isEmpty) {
-      _snack('Please specify the event type', isError: true); return false;
-    }
-    return true;
+    final problems = _validate();
+    if (problems.isEmpty) return true;
+    // Mark every problem on the form and jump to the first one.
+    HapticFeedback.mediumImpact();
+    setState(() => _submitted = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _revealFirstProblem(problems.keys.first));
+    return false;
   }
 
   // ── Pickers ──────────────────────────────────────────────────────────────────
@@ -145,14 +282,15 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   Future<void> _pickEndTime() async {
     final now     = DateTime.now();
-    final isToday = _selectedDate != null &&
-        DateUtils.isSameDay(DateUtils.dateOnly(_selectedDate!), DateUtils.dateOnly(now));
+    // Only an event that ENDS today can't end earlier than now.
+    final endDay  = _selectedEndDate ?? _selectedDate;
+    final isToday = endDay != null && DateUtils.isSameDay(endDay, now);
     final t = await showModalBottomSheet<TimeOfDay>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _TimePickerSheet(
-        title: 'End Time', initialTime: _endTime, accentColor: _kRed,
+        title: 'End Time', initialTime: _endTime, accentColor: _kEnd,
         minTime: isToday ? TimeOfDay(hour: now.hour, minute: now.minute) : null,
       ),
     );
@@ -161,7 +299,38 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Banner ───────────────────────────────────────────────────────────────────
 
-  Future<void> _uploadBanner() async {
+  // Uploads the picked banner under a unique name (like the web) → public URL.
+  Future<String> _uploadSelectedBanner(SupabaseClient supabase) async {
+    final ext   = _selectedBanner!.path.split('.').last.toLowerCase();
+    final path  = 'banner_${DateTime.now().millisecondsSinceEpoch}_${genUuid()}.$ext';
+    final bytes = await _selectedBanner!.readAsBytes();
+    await supabase.storage.from('event-banners').uploadBinary(
+      path, bytes,
+      fileOptions: FileOptions(
+        contentType: _bannerContentType(ext),
+        cacheControl: '3600',
+        upsert: false,
+      ),
+    );
+    return supabase.storage.from('event-banners').getPublicUrl(path);
+  }
+
+  // Removes a banner file by its public URL. Best effort — a leftover file
+  // must never fail the save.
+  Future<void> _removeBannerFile(SupabaseClient supabase, String? url) async {
+    if (url == null || url.isEmpty) return;
+    try {
+      final segments = Uri.parse(url).pathSegments;
+      final i = segments.indexOf('event-banners');
+      if (i >= 0 && i < segments.length - 1) {
+        await supabase.storage.from('event-banners').remove([segments.sublist(i + 1).join('/')]);
+      }
+    } catch (e) {
+      debugPrint('Banner cleanup skipped: $e');
+    }
+  }
+
+  Future<void> _pickBanner() async {
     try {
       final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
       if (!mounted || result == null) return;
@@ -181,7 +350,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       setState(() => _selectedBanner = File(picked.path!));
     } catch (e) {
       if (!mounted) return;
-      _snack('Could not select image: $e', isError: true);
+      showErrorAlert(context, e,
+          title: 'Couldn’t open the image',
+          fallback: 'Please choose a different image and try again.');
     }
   }
 
@@ -197,50 +368,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       final orgData = await supabase
           .from('organizers').select('organizer_id').eq('user_id', user.id).single();
       final customOrgId = orgData['organizer_id'];
-      final eventType   = _selectedEventType == 'Other'
-          ? _otherTypeCtrl.text.trim() : _selectedEventType;
-      String? bannerUrl;
-      if (_selectedBanner != null) {
-        final ext      = _selectedBanner!.path.split('.').last.toLowerCase();
-        final fileName = 'banner_${DateTime.now().millisecondsSinceEpoch}_${_selectedBanner!.path.split('/').last}';
-        final bytes    = await _selectedBanner!.readAsBytes();
-        await supabase.storage.from('event-banners').uploadBinary(
-          fileName, bytes,
-          fileOptions: FileOptions(
-            contentType: _bannerContentType(ext),
-            cacheControl: '3600',
-            upsert: false,
-          ),
-        );
-        bannerUrl = supabase.storage.from('event-banners').getPublicUrl(fileName);
-      }
-      final d = _selectedDate!;
-      final endDate = _selectedEndDate ?? _selectedDate!;
+      final bannerUrl = _selectedBanner != null ? await _uploadSelectedBanner(supabase) : null;
       await supabase.from('events').insert({
+        ..._formValues(),
         'organizer_id':         customOrgId,
-        'title':                _nameCtrl.text.trim(),
-        'description':          _descCtrl.text.trim(),
-        'event_type':           eventType,
-        'location':             _venueCtrl.text.trim(),
-        'max_participants':     int.tryParse(_capacityCtrl.text),
         'current_participants': 0,
         'event_status':         'upcoming',
-        'event_date': '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}',
-        'end_date': '${endDate.year}-${endDate.month.toString().padLeft(2,'0')}-${endDate.day.toString().padLeft(2,'0')}',
-        'start_time': _startTime != null
-            ? '${_startTime!.hour.toString().padLeft(2,'0')}:${_startTime!.minute.toString().padLeft(2,'0')}:00' : null,
-        'end_time': _endTime != null
-            ? '${_endTime!.hour.toString().padLeft(2,'0')}:${_endTime!.minute.toString().padLeft(2,'0')}:00' : null,
-        'event_image_url':       bannerUrl,
+        'event_image_url':      bannerUrl,
       });
-      final cap = int.tryParse(_capacityCtrl.text);
       AuditService.logEvent(
         action: 'created',
         eventTitle: _nameCtrl.text.trim(),
         organizerId: customOrgId as String?,
-        details: cap != null && cap > 0
-            ? 'New event created · max $cap participants'
-            : 'New event created',
+        details: 'New event created',
       );
       if (!mounted) return;
       setState(() => _isPublishing = false);
@@ -249,11 +389,158 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         message: 'Your event has been sent to the admin for approval and '
             'will go live once reviewed.',
         buttonText: 'Done',
-        onDismiss: () => Navigator.pop(context),
+        onDismiss: () => Navigator.pop(context, true),
       );
     } catch (e) {
       if (!mounted) return;
-      AppAlert.error(context, title: 'Publish Failed', message: e.toString());
+      showErrorAlert(context, e, title: 'Couldn’t submit the event');
+    } finally {
+      if (mounted) setState(() => _isPublishing = false);
+    }
+  }
+
+  // ── Save (edit mode) ─────────────────────────────────────────────────────────
+
+  Future<void> _saveChanges() async {
+    if (_loadingRevision || !_validateForm()) return;
+    final event    = widget.existing!;
+    final eventId  = event['event_id'] as String? ?? '';
+    final supabase = Supabase.instance.client;
+    setState(() => _isPublishing = true);
+    String? uploaded;   // a banner this save uploaded and hasn't used yet
+    try {
+      final orgId = event['organizer_id'] as String? ??
+          await SupabaseService.getCurrentOrganizerId();
+      if (orgId == null || orgId.isEmpty) {
+        throw Exception('Your organizer profile could not be found.');
+      }
+      final values = _formValues();
+
+      // Approved event → change request. It keeps its current details (and
+      // banner) until an admin approves.
+      if (_isLive) {
+        final changes = EventChangeRequestService.diff(event, {
+          ...values,
+          'event_image_url': _selectedBanner != null ? _kNewBanner : _existingBannerUrl,
+        });
+        if (changes.isEmpty) {
+          setState(() => _isPublishing = false);
+          _snack('Nothing has changed.', isError: true);
+          return;
+        }
+        final count = EventChangeRequestService.touchesSchedule(changes)
+            ? await EventCancellationService.registrationCount(eventId)
+            : 0;
+        if (!mounted) return;
+        setState(() => _isPublishing = false);   // the alert shows its own loader
+
+        // SweetAlert2 confirm: the request is sent behind its loader, and a
+        // failure shows inside the alert so the organizer can simply retry.
+        final r = await Swal.fire(context,
+          icon: SwalIcon.question,
+          title: 'Submit for approval?',
+          text: 'This event is approved, so an admin needs to approve your '
+              'changes. It keeps its current details until then.'
+              '${count > 0 ? '\n\n$count registered student${count == 1 ? '' : 's'} will be '
+                  'notified of the new date, time or venue once it’s approved.' : ''}',
+          showCancelButton: true,
+          confirmButtonText: 'Yes, submit it',
+          cancelButtonText: 'Keep editing',
+          confirmButtonColor: kSwalGold,
+          preConfirm: (_) async {
+            try {
+              if (_selectedBanner != null) {
+                uploaded = await _uploadSelectedBanner(supabase);
+                changes['event_image_url'] = uploaded;
+              }
+              await EventChangeRequestService.submit(
+                eventId: eventId,
+                organizerId: orgId,
+                eventTitle: event['title'] as String? ?? _nameCtrl.text.trim(),
+                changes: changes,
+              );
+              uploaded = null;   // part of the request now
+              return null;
+            } catch (e) {
+              if (uploaded != null) await _removeBannerFile(supabase, uploaded);
+              uploaded = null;
+              return friendlyError(e);
+            }
+          },
+        );
+        if (!r.isConfirmed || !mounted) return;
+        await Swal.fire(context,
+          icon: SwalIcon.success,
+          title: 'Submitted!',
+          text: 'An admin will review your changes. Students keep seeing the '
+              'current details until they’re approved.',
+          confirmButtonColor: kSwalGold,
+          timer: const Duration(seconds: 3),
+          timerProgressBar: true,
+        );
+        if (mounted) Navigator.pop(context, true);
+        return;
+      }
+
+      // Not live yet (pending / rejected) → update directly. Asking for
+      // 'pending' is how a rejected event is resubmitted — without it the
+      // database quietly keeps it Rejected and the admin never sees it again.
+      if (_selectedBanner != null) uploaded = await _uploadSelectedBanner(supabase);
+      final updated = await supabase.from('events').update({
+        ...values,
+        'event_image_url': uploaded ?? _existingBannerUrl,
+        if (_isRejected) 'approval_status': 'pending',
+      }).eq('event_id', eventId).eq('organizer_id', orgId)
+          .select('event_id, approval_status');
+      if ((updated as List).isEmpty) {
+        throw Exception('The event wasn’t updated — it may have been removed, '
+            'or you don’t have permission to change it.');
+      }
+      // The event now points at the new banner — retire the old one.
+      if (uploaded != null) {
+        await _removeBannerFile(supabase, event['event_image_url'] as String?);
+        uploaded = null;
+      }
+      if (_isRejected && (updated.first as Map)['approval_status'] != 'pending') {
+        throw Exception('Your changes were saved, but the event couldn’t be sent '
+            'back for review. Please try again.');
+      }
+      AuditService.logEvent(
+        action: 'updated',
+        eventTitle: _nameCtrl.text.trim(),
+        eventId: eventId,
+        organizerId: orgId,
+        details: _isRejected
+            ? 'Event edited and resubmitted for review'
+            : 'Event details updated',
+      );
+      if (!mounted) return;
+      setState(() => _isPublishing = false);
+      if (_isRejected) {
+        // Back in the admin's queue → SweetAlert2 success, like the web.
+        await Swal.fire(context,
+          icon: SwalIcon.success,
+          title: 'Resubmitted!',
+          text: 'Your changes were saved and the event is back in the admin’s '
+              'review queue. You’ll see it as Pending review until they decide.',
+          confirmButtonColor: kSwalGold,
+          timer: const Duration(seconds: 4),
+          timerProgressBar: true,
+        );
+        if (mounted) Navigator.pop(context, true);
+        return;
+      }
+      await AppAlert.success(context,
+        title: 'Event Updated',
+        message: 'Your changes were saved. The event is still waiting for admin approval.',
+        buttonText: 'Done',
+        onDismiss: () => Navigator.pop(context, true),
+      );
+    } catch (e) {
+      // Don't leave an upload behind that nothing points to.
+      if (uploaded != null) await _removeBannerFile(supabase, uploaded);
+      if (!mounted) return;
+      showErrorAlert(context, e, title: 'Couldn’t save your changes');
     } finally {
       if (mounted) setState(() => _isPublishing = false);
     }
@@ -282,11 +569,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     ));
   }
 
-  void _adjustCapacity(int delta) {
-    final next = ((int.tryParse(_capacityCtrl.text) ?? 0) + delta).clamp(0, 99999);
-    _capacityCtrl.text = next == 0 ? '' : '$next';
-  }
-
   // ══════════════════════════════════════════════════════════════════════════════
   // BUILD
   // ══════════════════════════════════════════════════════════════════════════════
@@ -303,12 +585,21 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             child: Column(
               children: [
                 _buildHeader(t),
-                _buildProgressBar(t),
+                // An edit starts complete — the bar would only ever say 100%.
+                if (!_isEdit) _buildProgressBar(t),
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                     child: Column(
                       children: [
+                        if (_isEdit) ..._buildEditNotices(t),
+                        if (_errors.isNotEmpty) ...[
+                          FormErrorSummary<EventFormField>(
+                            key: _summaryKey,
+                            errors: _errors, labels: _fieldLabels, onTap: _scrollTo,
+                            dark: t.dark, textColor: t.text),
+                          const SizedBox(height: 14),
+                        ],
                         _buildEventDetailsSection(t),
                         const SizedBox(height: 14),
                         _buildScheduleSection(t),
@@ -324,7 +615,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               ],
             ),
           ),
-          if (_isPublishing) const AppOverlayLoader(message: 'Publishing your event…'),
+          if (_loadingRevision) const AppOverlayLoader(message: 'Loading event…'),
+          if (_isPublishing)
+            AppOverlayLoader(message: _isEdit ? 'Saving your changes…' : 'Publishing your event…'),
         ],
       ),
     );
@@ -354,13 +647,114 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Create Event', style: TextStyle(fontFamily: 'Poppins', fontSize: 20, fontWeight: FontWeight.w800, color: t.text, height: 1.1)),
-                Text('Fill in the event details below', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub)),
+                Text(_isEdit ? 'Edit Event' : 'Create Event', style: TextStyle(fontFamily: 'Poppins', fontSize: 20, fontWeight: FontWeight.w800, color: t.text, height: 1.1)),
+                Text(
+                  _isEdit
+                      ? (widget.existing!['title'] as String? ?? 'Update the event details below')
+                      : 'Fill in the event details below',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub),
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
+          if (_isEdit) ...[
+            const SizedBox(width: 10),
+            _buildStatusChip(),
+          ],
         ],
       ),
+    );
+  }
+
+  // Where the event stands now: its review state until approved, then its status.
+  Widget _buildStatusChip() {
+    final e     = widget.existing!;
+    final label = _isLive ? eventStatusLabel(e) : approvalLabelFor(e);
+    final color = _isLive ? eventStatusColor(label) : approvalColorFor(e);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35), width: 1.2),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7, height: 7,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+          ),
+          const SizedBox(width: 5),
+          Text(label, style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+              fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
+    );
+  }
+
+  // ── Edit-mode notices ────────────────────────────────────────────────────────
+
+  List<Widget> _buildEditNotices(AppTk t) {
+    const amber = Color(0xFFF59E0B);
+    final red   = formErrorColor(t.dark);
+    final notices = <Widget>[];
+    final reason  = (widget.existing!['rejection_reason'] as String?)?.trim() ?? '';
+    if (_isRejected) {
+      notices.add(_notice(t, color: red, icon: Icons.block_rounded,
+        title: 'Rejected by admin',
+        message: '${reason.isNotEmpty ? '$reason\n' : ''}'
+            'Saving your changes sends the event back for review.'));
+    }
+    if (_isLive) {
+      final status = _revision?['status'];
+      final revReason = (_revision?['rejection_reason'] as String?)?.trim() ?? '';
+      if (status == 'pending') {
+        notices.add(_notice(t, color: amber, icon: Icons.hourglass_top_rounded,
+          title: 'Changes waiting for approval',
+          message: 'Your earlier changes are filled in below. Saving again updates '
+              'that request — students still see the current details.'));
+      } else {
+        if (status == 'rejected') {
+          notices.add(_notice(t, color: red, icon: Icons.block_rounded,
+            title: 'Your last changes were rejected',
+            message: revReason.isNotEmpty ? revReason : 'No reason was given.'));
+        }
+        notices.add(_notice(t, color: _kBlue, icon: Icons.fact_check_outlined,
+          title: 'Changes need admin approval',
+          message: 'This event is approved, so what you save here goes to the admin '
+              'first. Students keep seeing the current details until then.'));
+      }
+    }
+    return [
+      for (final n in notices) ...[n, const SizedBox(height: 14)],
+    ];
+  }
+
+  Widget _notice(AppTk t, {
+    required Color color, required IconData icon,
+    required String title, required String message,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.30)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
+              fontWeight: FontWeight.w700, color: t.text)),
+          const SizedBox(height: 3),
+          Text(message, style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+              color: t.sub, height: 1.45)),
+        ])),
+      ]),
     );
   }
 
@@ -407,23 +801,27 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   // ── Event Details section ────────────────────────────────────────────────────
 
   Widget _buildEventDetailsSection(AppTk t) {
+    final errs = _errors;
     return _sectionCard(
       icon: Icons.event_note_rounded, iconBg: kGoldLight, iconColor: kGold,
       title: 'Event Details',
+      errorCount: [EventFormField.title, EventFormField.otherType].where(errs.containsKey).length,
       t: t,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _inputField(label: 'Event Name', required: true, controller: _nameCtrl,
-              hint: 'e.g. Annual Science Fair 2026', icon: Icons.title_rounded, t: t),
+              hint: 'e.g. Annual Science Fair 2026', icon: Icons.title_rounded, t: t,
+              fieldKey: _fieldKeys[EventFormField.title], error: errs[EventFormField.title]),
           const SizedBox(height: 18),
           _fieldLabel('Event Type', required: true, t: t),
           const SizedBox(height: 10),
           _buildTypeChips(t),
           if (_selectedEventType == 'Other') ...[
             const SizedBox(height: 12),
-            _inputField(label: 'Specify type', controller: _otherTypeCtrl,
-                hint: 'e.g. Academic Quiz, Cultural Night…', icon: Icons.edit_note_rounded, t: t),
+            _inputField(label: 'Specify type', required: true, controller: _otherTypeCtrl,
+                hint: 'e.g. Academic Quiz, Cultural Night…', icon: Icons.edit_note_rounded, t: t,
+                fieldKey: _fieldKeys[EventFormField.otherType], error: errs[EventFormField.otherType]),
           ],
           const SizedBox(height: 18),
           _inputField(label: 'Description', controller: _descCtrl,
@@ -476,18 +874,25 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   // ── Schedule section — redesigned ─────────────────────────────────────────────
 
   Widget _buildScheduleSection(AppTk t) {
+    final errs = _errors;
     return _sectionCard(
       icon: Icons.schedule_rounded,
       iconBg: const Color(0x1A2563EB),
       iconColor: _kBlue,
       title: 'Schedule',
+      errorCount: [EventFormField.startDate, EventFormField.endDate,
+          EventFormField.startTime, EventFormField.endTime].where(errs.containsKey).length,
       t: t,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildDateField(t, label: 'Start Date', required: true, selectedDate: _selectedDate, showCalendar: _showCalendar, onTap: _toggleCalendar, onDateSelected: (date) { setState(() { _selectedDate = date; _showCalendar = false; if (_selectedEndDate == null || _selectedEndDate!.isBefore(date)) _selectedEndDate = date; }); }),
+          _buildDateField(t, label: 'Start Date', required: true,
+              fieldKey: _fieldKeys[EventFormField.startDate], error: errs[EventFormField.startDate],
+              selectedDate: _selectedDate, showCalendar: _showCalendar, onTap: _toggleCalendar, onDateSelected: (date) { setState(() { _selectedDate = date; _showCalendar = false; if (_selectedEndDate == null || _selectedEndDate!.isBefore(date)) _selectedEndDate = date; }); }),
           const SizedBox(height: 16),
-          _buildDateField(t, label: 'End Date', required: true, selectedDate: _selectedEndDate, showCalendar: _showEndCalendar, onTap: _toggleEndCalendar, onDateSelected: (date) => setState(() { _selectedEndDate = date; _showEndCalendar = false; })),
+          _buildDateField(t, label: 'End Date', required: true,
+              fieldKey: _fieldKeys[EventFormField.endDate], error: errs[EventFormField.endDate],
+              selectedDate: _selectedEndDate, showCalendar: _showEndCalendar, onTap: _toggleEndCalendar, onDateSelected: (date) => setState(() { _selectedEndDate = date; _showEndCalendar = false; })),
           const SizedBox(height: 16),
           _buildTimeRow(t),
         ],
@@ -505,9 +910,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     required bool showCalendar,
     required VoidCallback onTap,
     required ValueChanged<DateTime> onDateSelected,
+    Key? fieldKey,
+    String? error,
   }) {
     final filled = selectedDate != null;
     return Column(
+      key: fieldKey,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _fieldLabel(label, required: required, t: t),
@@ -526,7 +934,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 bottomRight: Radius.circular(showCalendar ? 0 : 14),
               ),
               border: Border.all(
-                color: showCalendar
+                color: error != null
+                    ? formErrorColor(t.dark)
+                    : showCalendar
                     ? _kBlue.withValues(alpha: 0.5)
                     : filled
                     ? _kBlue.withValues(alpha: 0.3)
@@ -634,6 +1044,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 )
               : const SizedBox.shrink(),
         ),
+        if (error != null) FormFieldError(error, dark: t.dark),
       ],
     );
   }
@@ -641,17 +1052,21 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   // ── Time row ─────────────────────────────────────────────────────────────────
 
   Widget _buildTimeRow(AppTk t) {
-    // Duration chip
+    final errs = _errors;
+    // Duration chip — across dates, so multi-day events aren't flagged.
     String? durationLabel;
     bool badDuration = false;
-    if (_startTime != null && _endTime != null) {
-      final diff = (_endTime!.hour * 60 + _endTime!.minute) -
-                   (_startTime!.hour * 60 + _startTime!.minute);
+    if (_selectedDate != null && _startTime != null && _endTime != null) {
+      final s = _selectedDate!, e = _selectedEndDate ?? _selectedDate!;
+      final diff = DateTime(e.year, e.month, e.day, _endTime!.hour, _endTime!.minute)
+          .difference(DateTime(s.year, s.month, s.day, _startTime!.hour, _startTime!.minute))
+          .inMinutes;
       if (diff <= 0) {
-        badDuration = true;
+        // Once errors show, the message under the time says it.
+        badDuration = !errs.containsKey(EventFormField.endTime);
       } else {
-        final h = diff ~/ 60, m = diff % 60;
-        durationLabel = h > 0 ? (m > 0 ? '${h}h ${m}m' : '${h}h') : '${m}m';
+        final d = diff ~/ 1440, h = (diff % 1440) ~/ 60, m = diff % 60;
+        durationLabel = [if (d > 0) '${d}d', if (h > 0) '${h}h', if (m > 0) '${m}m'].join(' ');
       }
     }
 
@@ -659,24 +1074,29 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: _buildTimeCard(
+            Expanded(key: _fieldKeys[EventFormField.startTime], child: _buildTimeCard(
               label: 'Start Time', required: true,
               time: _startTime, accentColor: _kGreen,
               icon: Icons.play_circle_outline_rounded,
               onTap: _pickStartTime,
+              hasError: errs.containsKey(EventFormField.startTime),
               t: t,
             )),
             const SizedBox(width: 10),
-            Expanded(child: _buildTimeCard(
+            Expanded(key: _fieldKeys[EventFormField.endTime], child: _buildTimeCard(
               label: 'End Time', required: true,
-              time: _endTime, accentColor: _kRed,
+              time: _endTime, accentColor: _kEnd,
               icon: Icons.stop_circle_outlined,
               onTap: _pickEndTime,
+              hasError: errs.containsKey(EventFormField.endTime),
               t: t,
             )),
           ],
         ),
+        for (final f in const [EventFormField.startTime, EventFormField.endTime])
+          if (errs[f] != null) FormFieldError(errs[f]!, dark: t.dark),
         if (durationLabel != null || badDuration) ...[
           const SizedBox(height: 8),
           Container(
@@ -692,14 +1112,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                 Icon(
                   badDuration ? Icons.warning_amber_rounded : Icons.timer_outlined,
                   size: 14,
-                  color: badDuration ? Colors.orange.shade700 : _kGreen,
+                  color: badDuration ? Colors.orange.shade800 : _kGreen,
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  badDuration ? 'End time must be after start time' : 'Duration: $durationLabel',
+                  badDuration ? 'The end must be after the start' : 'Duration: $durationLabel',
                   style: TextStyle(
                     fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w600,
-                    color: badDuration ? Colors.orange.shade700 : _kGreen,
+                    color: badDuration ? Colors.orange.shade800 : _kGreen,
                   ),
                 ),
               ],
@@ -718,6 +1138,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     required IconData  icon,
     required VoidCallback onTap,
     required AppTk t,
+    bool hasError = false,
   }) {
     final filled = time != null;
     String fmt12(TimeOfDay tod) {
@@ -734,7 +1155,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           color: filled ? accentColor.withValues(alpha: 0.05) : t.card,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: filled ? accentColor.withValues(alpha: 0.35) : t.border,
+            color: hasError
+                ? formErrorColor(t.dark)
+                : filled ? accentColor.withValues(alpha: 0.35) : t.border,
             width: 1.5,
           ),
         ),
@@ -792,72 +1215,91 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Venue & Capacity section ─────────────────────────────────────────────────
 
+  // Registration closes when the event starts — tell organizers up front.
+  Widget _buildRegistrationNote(AppTk t) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(Icons.info_outline_rounded, size: 15, color: t.muted),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text('Registration closes when the event starts.',
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted, height: 1.4)),
+      ),
+    ],
+  );
+
   Widget _buildVenueSection(AppTk t) {
+    final errs = _errors;
     return _sectionCard(
       icon: Icons.place_rounded, iconBg: const Color(0x1A16A34A), iconColor: const Color(0xFF16A34A),
       title: 'Venue & Capacity',
+      errorCount: errs.containsKey(EventFormField.location) ? 1 : 0,
       t: t,
       child: Column(
         children: [
           _inputField(label: 'Venue / Location', required: true, controller: _venueCtrl,
-              hint: 'e.g. School Gymnasium', icon: Icons.location_on_outlined, t: t),
+              hint: 'e.g. School Gymnasium', icon: Icons.location_on_outlined, t: t,
+              fieldKey: _fieldKeys[EventFormField.location], error: errs[EventFormField.location]),
           const SizedBox(height: 18),
-          _buildCapacityField(t),
+          _buildCapacityInfo(t),
+          const SizedBox(height: 12),
+          _buildRegistrationNote(t),
         ],
       ),
     );
   }
 
-  Widget _buildCapacityField(AppTk t) {
+  // Capacity is fixed to the student body: every active student can register,
+  // and it grows as students are added — so it's shown, not entered.
+  Widget _buildCapacityInfo(AppTk t) {
+    final n = _studentCount;
+    final registered = (widget.existing?['current_participants'] as num?)?.toInt() ?? 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _fieldLabel('Max Participants', optional: true, t: t),
+        _fieldLabel('Capacity', t: t),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            _stepBtn(Icons.remove_rounded, () => _adjustCapacity(-10)),
-            const SizedBox(width: 10),
-            Expanded(
-              child: TextFormField(
-                controller: _capacityCtrl,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700, color: t.text),
-                decoration: InputDecoration(
-                  hintText: '—',
-                  hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 16, color: t.muted),
-                  filled: true, fillColor: t.inputBg,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                  border:        OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.border)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.border)),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: kGold, width: 2)),
-                ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: t.inputBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: t.border, width: 1.2),
+          ),
+          child: Row(children: [
+            Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(
+                color: kGold.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
               ),
+              child: const Icon(Icons.groups_rounded, color: kGold, size: 18),
             ),
-            const SizedBox(width: 10),
-            _stepBtn(Icons.add_rounded, () => _adjustCapacity(10)),
-          ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(n != null ? '$n students' : 'All students',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
+                      fontWeight: FontWeight.w700, color: t.text)),
+                const SizedBox(height: 2),
+                Text(
+                  registered > 0
+                      ? 'Every student can register · $registered registered so far'
+                      : 'Every student can register',
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.sub)),
+              ]),
+            ),
+            const SizedBox(width: 8),
+            Icon(Icons.lock_outline_rounded, size: 14, color: t.muted),
+          ]),
         ),
         const SizedBox(height: 6),
-        Text('Leave blank for unlimited participants',
+        Text('Set automatically — it grows as students are added.',
           style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
       ],
     );
   }
-
-  Widget _stepBtn(IconData icon, VoidCallback onTap) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: 44, height: 48,
-      decoration: BoxDecoration(
-        color: kGoldLight, borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: kGold.withValues(alpha: 0.3), width: 1.5),
-      ),
-      child: Icon(icon, color: kGold, size: 20),
-    ),
-  );
 
   // ── Banner section ────────────────────────────────────────────────────────────
 
@@ -866,13 +1308,15 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       icon: Icons.image_rounded, iconBg: const Color(0x1A7C3AED), iconColor: const Color(0xFF7C3AED),
       title: 'Event Banner',
       t: t,
-      child: _selectedBanner != null ? _buildBannerPreview(t) : _buildBannerDropZone(t),
+      child: _selectedBanner != null || _existingBannerUrl != null
+          ? _buildBannerPreview(t)
+          : _buildBannerDropZone(t),
     );
   }
 
   Widget _buildBannerDropZone(AppTk t) {
     return GestureDetector(
-      onTap: _uploadBanner,
+      onTap: _pickBanner,
       child: Container(
         width: double.infinity, height: 160,
         decoration: BoxDecoration(
@@ -898,12 +1342,23 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
+  // A newly picked file, else (editing) the event's current banner.
   Widget _buildBannerPreview(AppTk t) {
+    final picked = _selectedBanner != null;
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: Stack(
         children: [
-          SizedBox(width: double.infinity, height: 180, child: Image.file(_selectedBanner!, fit: BoxFit.cover)),
+          SizedBox(
+            width: double.infinity, height: 180,
+            child: picked
+                ? Image.file(_selectedBanner!, fit: BoxFit.cover)
+                : Image.network(_existingBannerUrl!, fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(
+                      color: t.inputBg,
+                      child: Icon(Icons.broken_image_outlined, size: 32, color: t.muted),
+                    )),
+          ),
           Positioned(bottom: 0, left: 0, right: 0,
             child: Container(height: 60, decoration: BoxDecoration(gradient: LinearGradient(
               begin: Alignment.topCenter, end: Alignment.bottomCenter,
@@ -911,26 +1366,29 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             )))),
           Positioned(bottom: 12, left: 12,
             child: GestureDetector(
-              onTap: _uploadBanner,
+              onTap: _pickBanner,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.9), borderRadius: BorderRadius.circular(10)),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.swap_horiz_rounded, size: 14, color: t.text),
-                  const SizedBox(width: 5),
-                  Text('Change', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w600, color: t.text)),
+                // Dark text in both themes — the chip is always white.
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.swap_horiz_rounded, size: 14, color: kText),
+                  SizedBox(width: 5),
+                  Text('Change', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w600, color: kText)),
                 ]),
               ),
             )),
-          Positioned(top: 10, right: 10,
-            child: GestureDetector(
-              onTap: () => setState(() => _selectedBanner = null),
-              child: Container(
-                width: 32, height: 32,
-                decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.55), shape: BoxShape.circle),
-                child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
-              ),
-            )),
+          // Undo a new pick (editing: back to the current banner).
+          if (picked)
+            Positioned(top: 10, right: 10,
+              child: GestureDetector(
+                onTap: () => setState(() => _selectedBanner = null),
+                child: Container(
+                  width: 32, height: 32,
+                  decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.55), shape: BoxShape.circle),
+                  child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                ),
+              )),
         ],
       ),
     );
@@ -939,6 +1397,17 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   // ── Bottom bar ────────────────────────────────────────────────────────────────
 
   Widget _buildBottomBar(AppTk t) {
+    final busy = _isPublishing || _loadingRevision;
+    // Says what saving will do: publish, ask the admin, resubmit, or just save.
+    final label = _isPublishing
+        ? (_isEdit ? 'Saving…' : 'Publishing…')
+        : !_isEdit ? 'Publish Event'
+        : _isLive ? 'Submit for Approval'
+        : _isRejected ? 'Save & Resubmit'
+        : 'Save Changes';
+    final icon = !_isEdit
+        ? Icons.publish_rounded
+        : _isLive ? Icons.fact_check_outlined : Icons.save_rounded;
     return SafeArea(
       top: false,
       child: Container(
@@ -949,17 +1418,17 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            gradient: _isPublishing ? null : kGoldGradient,
-            color:    _isPublishing ? t.border : null,
+            gradient: busy ? null : kGoldGradient,
+            color:    busy ? t.border : null,
             borderRadius: BorderRadius.circular(14),
-            boxShadow: _isPublishing ? null : [BoxShadow(color: kGold.withValues(alpha: 0.40), blurRadius: 16, offset: const Offset(0, 6))],
+            boxShadow: busy ? null : [BoxShadow(color: kGold.withValues(alpha: 0.40), blurRadius: 16, offset: const Offset(0, 6))],
           ),
           child: ElevatedButton.icon(
-            onPressed: _isPublishing ? null : _publishEvent,
+            onPressed: busy ? null : (_isEdit ? _saveChanges : _publishEvent),
             icon: _isPublishing
                 ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                : const Icon(Icons.publish_rounded, size: 18),
-            label: Text(_isPublishing ? 'Publishing…' : 'Publish Event',
+                : Icon(icon, size: 18),
+            label: Text(label,
               style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700)),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.transparent, foregroundColor: Colors.white,
@@ -979,6 +1448,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   Widget _sectionCard({
     required IconData icon, required Color iconBg, required Color iconColor,
     required String title, required Widget child, required AppTk t,
+    int errorCount = 0,   // > 0 shows a "N to fix" tag in the header
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -997,6 +1467,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
                   child: Icon(icon, color: iconColor, size: 16)),
                 const SizedBox(width: 10),
                 Text(title, style: TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: t.text)),
+                if (errorCount > 0) ...[
+                  const Spacer(),
+                  FormSectionErrorPill(count: errorCount, dark: t.dark),
+                ],
               ],
             ),
           ),
@@ -1013,8 +1487,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     required AppTk t,
     String? hint, IconData? icon, int maxLines = 1,
     bool required = false, TextInputType? keyboard,
+    Key? fieldKey, String? error,
   }) {
+    final errSide = BorderSide(color: formErrorColor(t.dark), width: 1.5);
     return Column(
+      key: fieldKey,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _fieldLabel(label, required: required, t: t),
@@ -1029,10 +1506,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             filled: true, fillColor: t.inputBg,
             contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
             border:        OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.border)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.border)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: kGold, width: 2)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+                borderSide: error != null ? errSide : BorderSide(color: t.border)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+                borderSide: error != null ? errSide.copyWith(width: 2) : const BorderSide(color: kGold, width: 2)),
           ),
         ),
+        if (error != null) FormFieldError(error, dark: t.dark),
       ],
     );
   }

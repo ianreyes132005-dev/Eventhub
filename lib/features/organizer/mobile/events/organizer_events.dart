@@ -3,12 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'create_event_screen.dart';
-import 'manage_event_screen.dart';
+import 'event_actions.dart';
 import 'event_details.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
+import '../../../../shared/widgets/error_alert.dart';
 import '../../../../core/app_colors.dart';
 import '../../../../core/services/audit_service.dart';
+import '../../../../core/services/event_cancellation_service.dart';
+import '../../../../core/services/student_count_service.dart';
+import '../../../../shared/utils/event_labels.dart';
+import '../../../../shared/utils/realtime_utils.dart';
 
 class OrganizerEventsScreen extends StatefulWidget {
   final bool showAsEmbedded;
@@ -33,13 +38,29 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   final Map<String, int> _registrationCountMap = {};
   // event_id → checked-in count (loaded alongside events)
   final Map<String, int> _checkedInMap = {};
+  // Every event's capacity = active students (StudentCountService).
+  int? _studentCount = StudentCountService.cached;
 
-  static const _filterOptions = ['All', 'Upcoming', 'Ongoing', 'Ended'];
+  static const _filterOptions = [
+    'All',
+    'Upcoming',
+    'Ongoing',
+    'Ended',
+    'Cancelled',
+    'Archived',
+  ];
+
+  // Live updates — same tables as the web Events page.
+  RealtimeChannel? _channel;
+  Timer? _debounce;
+  bool _fetching = false; // a load is running…
+  bool _refetch = false; // …and another change arrived meanwhile
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    _subscribeRealtime();
     _statusTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) _applyFilter();
     });
@@ -48,34 +69,94 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   @override
   void dispose() {
     _statusTimer?.cancel();
+    _debounce?.cancel();
+    if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
     _searchCtrl.dispose();
     super.dispose();
   }
 
+  // ── Live updates ────────────────────────────────────────────────────────────
+  // New registrations, check-ins, admin approvals / rejections and edits made
+  // on the web show up without pulling to refresh.
+
+  void _subscribeRealtime() {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    final channel = Supabase.instance.client.channel('org-mobile-events-$uid');
+    for (final table in const ['events', 'registrations']) {
+      channel.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (payload, [ref]) {
+          if (_concernsMyEvents(table, payload)) _scheduleRefresh();
+        },
+      );
+    }
+    _channel = channel..subscribe();
+  }
+
+  // Other organizers' activity arrives on the same tables — skip it.
+  bool _concernsMyEvents(String table, Object? payload) {
+    if (_organizerId == null) return true; // not loaded yet
+    final row = realtimeRow(payload);
+    if (row == null) return true;
+    bool mine(Object? eventId) => _events.any((e) => e['event_id'] == eventId);
+    if (table == 'events') {
+      final org = row['organizer_id'];
+      return org != null ? org == _organizerId : mine(row['event_id']);
+    }
+    final eventId = row['event_id'];
+    // A deleted registration only carries its id — refresh to be safe.
+    return eventId == null || mine(eventId);
+  }
+
+  void _scheduleRefresh() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 600), () {
+      if (mounted && !_loading) _loadData(silent: true);
+    });
+  }
+
   // ── Data loading ────────────────────────────────────────────────────────────
 
-  Future<void> _loadData() async {
-    setState(() {
-      _loading = true;
-      _loadError = false;
-    });
+  /// [silent]: refresh in place (live updates, pull-to-refresh, coming back
+  /// from another screen) — no shimmer, the scroll position and filter stay,
+  /// and a failure keeps the list that's on screen.
+  Future<void> _loadData({bool silent = false}) async {
+    if (_fetching) {
+      _refetch = true;
+      return;
+    }
+    _fetching = true;
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _loadError = false;
+      });
+    }
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
-      if (user == null) return;
-
-      final orgRow = await client
-          .from('organizers')
-          .select('organizer_id')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-      if (orgRow == null) {
+      if (user == null) {
         if (mounted) setState(() => _loading = false);
         return;
       }
-      _organizerId = orgRow['organizer_id'] as String;
 
+      if (_organizerId == null) {
+        final orgRow = await client
+            .from('organizers')
+            .select('organizer_id')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (orgRow == null) {
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+        _organizerId = orgRow['organizer_id'] as String;
+      }
+
+      final studentCount = StudentCountService.activeStudents(); // in parallel
       final rows = await client
           .from('events')
           .select()
@@ -101,10 +182,12 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
           }
         }
       }
+      final students = await studentCount;
 
       if (mounted) {
         setState(() {
           _events = events;
+          _studentCount = students;
           _registrationCountMap
             ..clear()
             ..addAll(registrationCounts);
@@ -117,11 +200,17 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
       }
     } catch (e) {
       debugPrint('OrganizerEventsScreen load error: $e');
-      if (mounted) {
+      if (mounted && !silent) {
         setState(() {
           _loading = false;
           _loadError = true;
         });
+      }
+    } finally {
+      _fetching = false;
+      if (_refetch && mounted) {
+        _refetch = false;
+        _loadData(silent: true);
       }
     }
   }
@@ -130,10 +219,10 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     final q = _searchCtrl.text.toLowerCase();
     _filtered = _events.where((e) {
       final label = _statusLabel(e);
-      final matchFilter =
-          _filter == 'All' ||
-          label == _filter ||
-          (_filter == 'Ended' && label == 'Cancelled');
+      // Archived events (admin) only show under the Archived filter.
+      final matchFilter = eventIsArchived(e)
+          ? _filter == 'Archived'
+          : _filter == 'All' || label == _filter;
       final title = (e['title'] as String? ?? '').toLowerCase();
       final location = (e['location'] as String? ?? '').toLowerCase();
       final type = (e['event_type'] as String? ?? '').toLowerCase();
@@ -152,6 +241,13 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
       return 3; // Cancelled
     }
 
+    // Cancelled tab: most recently cancelled first.
+    if (_filter == 'Cancelled') {
+      _filtered.sort((a, b) => _cancelledAt(b).compareTo(_cancelledAt(a)));
+      setState(() {});
+      return;
+    }
+
     _filtered.sort((a, b) {
       final po = statusOrder(
         _statusLabel(a),
@@ -166,12 +262,18 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   }
 
   int _countFor(String filter) {
-    if (filter == 'All') return _events.length;
-    return _events.where((e) {
-      final label = _statusLabel(e);
-      return label == filter || (filter == 'Ended' && label == 'Cancelled');
-    }).length;
+    if (filter == 'Archived') return _events.where(eventIsArchived).length;
+    final active = _events.where((e) => !eventIsArchived(e));
+    if (filter == 'All') return active.length;
+    return active.where((e) => _statusLabel(e) == filter).length;
   }
+
+  // When the event was cancelled (rows cancelled before the cancellation
+  // migration have no cancelled_at — fall back to updated_at).
+  DateTime _cancelledAt(Map<String, dynamic> e) =>
+      DateTime.tryParse(e['cancelled_at'] as String? ?? '')?.toLocal() ??
+      DateTime.tryParse(e['updated_at'] as String? ?? '')?.toLocal() ??
+      DateTime(2000);
 
   // ── Status helpers ─────────────────────────────────────────────────────────
 
@@ -181,152 +283,112 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   // its own badge in _buildEventCard, not folded into this lifecycle label.
   String _statusLabel(Map<String, dynamic> e) => eventStatusLabel(e);
 
-  Color _statusColor(String label) {
-    switch (label) {
-      case 'Ongoing':
-        return const Color(0xFF16A34A);
-      case 'Ended':
-        return const Color(0xFF6B7280);
-      case 'Cancelled':
-        return const Color(0xFFEF4444);
-      default:
-        return const Color(0xFFE87A00); // Upcoming
-    }
-  }
-
-  String _formatDate(Map<String, dynamic> e) {
-    final d = e['event_date'] as String?;
-    if (d == null) return '—';
-    try {
-      final dt = DateTime.parse(d);
-      const m = [
-        'JAN',
-        'FEB',
-        'MAR',
-        'APR',
-        'MAY',
-        'JUN',
-        'JUL',
-        'AUG',
-        'SEP',
-        'OCT',
-        'NOV',
-        'DEC',
-      ];
-      return '${m[dt.month - 1]} ${dt.day}';
-    } catch (_) {
-      return d;
-    }
-  }
-
-  String _formatTime(Map<String, dynamic> e) {
-    final s = e['start_time'] as String?;
-    final en = e['end_time'] as String?;
-    if (s == null) return '—';
-    String fmt(String t) {
-      final p = t.split(':');
-      if (p.length < 2) return t;
-      final h = int.tryParse(p[0]) ?? 0;
-      return '${h % 12 == 0 ? 12 : h % 12}:${p[1]} ${h >= 12 ? 'PM' : 'AM'}';
-    }
-
-    return en != null ? '${fmt(s)} — ${fmt(en)}' : fmt(s);
+  // Same compact labels as the web Events table, no year: "Oct 25",
+  // "Oct 25–27", "Oct 30 – Nov 2".
+  String _dateLabel(Map<String, dynamic> e) {
+    final start = DateTime.tryParse(e['event_date'] as String? ?? '');
+    if (start == null) return '—';
+    return dateRangeLabel(
+      start,
+      DateTime.tryParse(e['end_date'] as String? ?? ''),
+    );
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
 
+  // Coming back refreshes in place — no shimmer, the scroll position stays.
   void _openCreate() {
     HapticFeedback.lightImpact();
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const CreateEventScreen()),
-    ).then((_) => _loadData());
+    ).then((_) => _loadData(silent: true));
   }
 
   void _openDetails(Map<String, dynamic> e) {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => EventDetailsScreen(eventData: e)),
-    ).then((_) => _loadData());
+    ).then((_) => _loadData(silent: true));
   }
 
+  // Full edit form — schedule and banner included, like the web.
   void _openManage(Map<String, dynamic> e) {
-    if (!_canEditEvent(e)) return;
+    if (!organizerCanEditEvent(e)) return;
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => ManageEventScreen(eventData: e)),
-    ).then((_) => _loadData());
+      MaterialPageRoute(builder: (_) => CreateEventScreen(existing: e)),
+    ).then((_) => _loadData(silent: true));
   }
 
-  bool _canEditEvent(Map<String, dynamic> event) {
-    final status = _statusLabel(event);
-    return status != 'Ongoing' && status != 'Ended';
-  }
-
+  // Events with registrations are never deleted — that would erase students'
+  // registrations and attendance. Offer to cancel instead (server enforces too).
   Future<void> _confirmDeleteEvent(Map<String, dynamic> event) async {
     final eventId = event['event_id'] as String?;
-    if (eventId == null || _organizerId == null) return;
+    // The list may be stale — an event that has since ended can't be deleted.
+    if (eventId == null ||
+        _organizerId == null ||
+        _statusLabel(event) == 'Ended' ||
+        eventIsArchived(event)) {
+      return;
+    }
+    final title = event['title'] as String? ?? 'this event';
+
+    final count = await EventCancellationService.registrationCount(eventId);
+    if (!mounted) return;
+    if (count > 0) {
+      final cancellable = organizerCanCancelEvent(event);
+      var cancelInstead = false;
+      await AppAlert.confirm(
+        context,
+        title: 'This event can’t be deleted',
+        message:
+            '"$title" has $count registration${count == 1 ? '' : 's'}. Deleting it '
+            'would erase their registrations and attendance records.'
+            '${cancellable ? ' Cancel it instead — students are notified and records are kept.' : ''}',
+        confirmText: cancellable ? 'Cancel Event Instead' : 'OK',
+        cancelText: 'Close',
+        onConfirm: () => cancelInstead = true,
+      );
+      if (cancelInstead &&
+          cancellable &&
+          mounted &&
+          await cancelEventFlow(context, event, registrationCount: count)) {
+        _loadData(silent: true);
+      }
+      return;
+    }
 
     var confirmed = false;
     await AppAlert.confirm(
       context,
       title: 'Delete Event?',
       message:
-          'Are you sure you want to delete "${event['title'] ?? 'this event'}"? '
-          'All registrations for this event will also be permanently removed. '
-          'This cannot be undone.',
+          'Delete "$title"? Nobody has registered yet. This cannot be undone.',
       confirmText: 'Delete',
-      cancelText: 'Cancel',
+      cancelText: 'Keep',
       onConfirm: () => confirmed = true,
     );
     if (!confirmed || !mounted) return;
 
     setState(() => _deletingEventId = eventId);
     try {
-      final client = Supabase.instance.client;
-      final registrations = await client
-          .from('registrations')
-          .select()
-          .eq('event_id', eventId);
-      final savedRegistrations = List<Map<String, dynamic>>.from(
-        registrations as List,
-      );
-
-      await client.from('registrations').delete().eq('event_id', eventId);
-
-      try {
-        final deleted = await client
-            .from('events')
-            .delete()
-            .eq('event_id', eventId)
-            .eq('organizer_id', _organizerId!)
-            .select('event_id');
-        if ((deleted as List).isEmpty) {
-          throw Exception('The event could not be deleted.');
-        }
-      } catch (deleteError) {
-        if (savedRegistrations.isNotEmpty) {
-          try {
-            await client.from('registrations').insert(savedRegistrations);
-          } catch (restoreError) {
-            throw StateError(
-              'Event deletion failed and its registrations could not be '
-              'restored: $restoreError',
-            );
-          }
-        }
-        rethrow;
+      final deleted = await Supabase.instance.client
+          .from('events')
+          .delete()
+          .eq('event_id', eventId)
+          .eq('organizer_id', _organizerId!)
+          .select('event_id');
+      if ((deleted as List).isEmpty) {
+        throw Exception('The event could not be deleted.');
       }
 
       AuditService.logEvent(
         action: 'deleted',
-        eventTitle: event['title'] as String? ?? 'Unknown event',
+        eventTitle: title,
         eventId: eventId,
         organizerId: _organizerId,
-        details: savedRegistrations.isEmpty
-            ? 'Event deleted (no registrations)'
-            : 'Event deleted · ${savedRegistrations.length} registration'
-                  '${savedRegistrations.length == 1 ? '' : 's'} removed',
+        details: 'Event deleted (no registrations)',
       );
 
       if (!mounted) return;
@@ -338,20 +400,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _deletingEventId = null);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Failed to delete event: '
-            '${error.toString().replaceFirst('Exception: ', '')}',
-            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-          ),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-      );
+      showErrorAlert(context, error, title: 'Couldn’t delete the event');
     }
   }
 
@@ -376,7 +425,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                   : RefreshIndicator(
                       color: kGold,
                       backgroundColor: t.card,
-                      onRefresh: _loadData,
+                      onRefresh: () => _loadData(silent: true),
                       child: CustomScrollView(
                         physics: const AlwaysScrollableScrollPhysics(),
                         slivers: [
@@ -836,15 +885,19 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     final registered =
         _registrationCountMap[eventId] ??
         (e['current_participants'] as int? ?? 0);
-    final capacity = e['max_participants'] as int?;
+    // Capacity = every active student (null until the count loads).
+    final capacity = _studentCount;
     final checkedIn = _checkedInMap[eventId] ?? 0;
     final statusLabel = _statusLabel(e);
-    final canEdit = _canEditEvent(e);
-    final statusColor = _statusColor(statusLabel);
-    final approval = e['approval_status'] as String? ?? 'approved';
-    final needsAttention = approval != 'approved';
-    final maxSet = capacity != null && capacity > 0;
-    final isFull = maxSet && registered >= capacity;
+    final canEdit = organizerCanEditEvent(e);
+    final archived = eventIsArchived(e);
+    // One status, nothing under it — the same words and colours as the web
+    // Events table (reasons and deadlines are in the event's details).
+    final status = organizerEventStatus(e);
+    final time = timeRangeLabel(
+      e['start_time'] as String?,
+      e['end_time'] as String?,
+    );
     final attendancePct = registered > 0
         ? ((checkedIn / registered) * 100).round()
         : 0;
@@ -870,7 +923,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Image header: date pill + status chip ────────────────────────
+          // ── Image header: status chip + delete ───────────────────────────
           GestureDetector(
             onTap: () => _openDetails(e),
             child: Stack(
@@ -889,113 +942,47 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                 Positioned(
                   top: 10,
                   left: 10,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.15),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Text(
-                      statusLabel,
-                      style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
+                  child: _StatusChip(
+                    label: status.label,
+                    color: status.color,
+                    t: t,
                   ),
                 ),
-                Positioned(
-                  top: 6,
-                  right: 6,
-                  child: IconButton(
-                    tooltip: 'Delete event',
-                    onPressed: _deletingEventId == eventId
-                        ? null
-                        : () => _confirmDeleteEvent(e),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.black.withValues(alpha: 0.55),
-                      foregroundColor: const Color(0xFFEF4444),
-                      disabledBackgroundColor: Colors.black.withValues(
-                        alpha: 0.55,
-                      ),
-                      disabledForegroundColor: const Color(0xFFEF4444),
-                      minimumSize: const Size(40, 40),
-                      maximumSize: const Size(40, 40),
-                      padding: EdgeInsets.zero,
-                    ),
-                    icon: _deletingEventId == eventId
-                        ? const SizedBox(
-                            width: 17,
-                            height: 17,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(
-                            Icons.delete_outline_rounded,
-                            color: Color(0xFFEF4444),
-                            size: 20,
-                          ),
-                  ),
-                ),
-                // Only shown while it needs the organizer's attention —
-                // "Approved" is the normal, expected state and would just
-                // be noise on every card.
-                if (needsAttention)
+                // Ended events are part of the record — no delete.
+                if (statusLabel != 'Ended' && !archived)
                   Positioned(
-                    top: 46,
-                    left: 10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
+                    top: 6,
+                    right: 6,
+                    child: IconButton(
+                      tooltip: 'Delete event',
+                      onPressed: _deletingEventId == eventId
+                          ? null
+                          : () => _confirmDeleteEvent(e),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.black.withValues(alpha: 0.55),
+                        foregroundColor: const Color(0xFFEF4444),
+                        disabledBackgroundColor: Colors.black.withValues(
+                          alpha: 0.55,
+                        ),
+                        disabledForegroundColor: const Color(0xFFEF4444),
+                        minimumSize: const Size(40, 40),
+                        maximumSize: const Size(40, 40),
+                        padding: EdgeInsets.zero,
                       ),
-                      decoration: BoxDecoration(
-                        color: approvalStatusColor(approval),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.15),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            approval == 'rejected'
-                                ? Icons.block_rounded
-                                : Icons.pending_actions_rounded,
-                            size: 11,
-                            color: Colors.white,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            approvalStatusLabel(approval),
-                            style: const TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
+                      icon: _deletingEventId == eventId
+                          ? const SizedBox(
+                              width: 17,
+                              height: 17,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.delete_outline_rounded,
+                              color: Color(0xFFEF4444),
+                              size: 20,
                             ),
-                          ),
-                        ],
-                      ),
                     ),
                   ),
               ],
@@ -1085,7 +1072,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            _formatDate(e),
+                            _dateLabel(e),
                             style: TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 12.5,
@@ -1093,28 +1080,30 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                               color: t.sub,
                             ),
                           ),
-                          Text(
-                            '  ·  ',
-                            style: TextStyle(fontSize: 12.5, color: t.muted),
-                          ),
-                          Icon(
-                            Icons.access_time_rounded,
-                            size: 13,
-                            color: t.sub,
-                          ),
-                          const SizedBox(width: 5),
-                          Flexible(
-                            child: Text(
-                              _formatTime(e),
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 12.5,
-                                color: t.sub,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                          if (time.isNotEmpty) ...[
+                            Text(
+                              '  ·  ',
+                              style: TextStyle(fontSize: 12.5, color: t.muted),
                             ),
-                          ),
+                            Icon(
+                              Icons.access_time_rounded,
+                              size: 13,
+                              color: t.sub,
+                            ),
+                            const SizedBox(width: 5),
+                            Flexible(
+                              child: Text(
+                                time,
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 12.5,
+                                  color: t.sub,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -1144,19 +1133,21 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                       const SizedBox(height: 5),
                       Row(
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.people_alt_outlined,
                             size: 13,
-                            color: isFull ? const Color(0xFFEF4444) : kGold,
+                            color: kGold,
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            '$registered / ${maxSet ? capacity : '∞'}',
+                            capacity != null
+                                ? '$registered / $capacity students'
+                                : '$registered registered',
                             style: TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 12.5,
                               fontWeight: FontWeight.w600,
-                              color: isFull ? const Color(0xFFEF4444) : t.sub,
+                              color: t.sub,
                             ),
                           ),
                         ],
@@ -1322,6 +1313,9 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
 
   Widget _buildEmptyState(AppTk t) {
     final isFiltered = _filter != 'All' || _searchCtrl.text.isNotEmpty;
+    // An empty Cancelled tab (no search) is good news, not a failed filter.
+    final noneCancelled = _filter == 'Cancelled' && _searchCtrl.text.isEmpty;
+    final noneArchived = _filter == 'Archived' && _searchCtrl.text.isEmpty;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 32),
@@ -1337,14 +1331,26 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
               border: Border.all(color: kGold.withValues(alpha: 0.18)),
             ),
             child: Icon(
-              isFiltered ? Icons.search_off_rounded : Icons.event_busy_rounded,
+              noneArchived
+                  ? Icons.inventory_2_outlined
+                  : noneCancelled
+                  ? Icons.event_available_rounded
+                  : isFiltered
+                  ? Icons.search_off_rounded
+                  : Icons.event_busy_rounded,
               size: 32,
               color: kGold.withValues(alpha: 0.55),
             ),
           ),
           const SizedBox(height: 20),
           Text(
-            isFiltered ? 'No results found' : 'No events yet',
+            noneArchived
+                ? 'No archived events'
+                : noneCancelled
+                ? 'No cancelled events'
+                : isFiltered
+                ? 'No results found'
+                : 'No events yet',
             style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 16,
@@ -1354,7 +1360,11 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            isFiltered
+            noneArchived
+                ? 'The administrator archives finished events. They show here, read-only.'
+                : noneCancelled
+                ? 'Events you cancel appear here with the reason students were given.'
+                : isFiltered
                 ? 'Try a different search or filter.'
                 : 'Create your first event to get started.',
             textAlign: TextAlign.center,
@@ -1384,8 +1394,8 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                   vertical: 12,
                 ),
               ),
-              child: const Text(
-                'Clear filters',
+              child: Text(
+                noneCancelled ? 'Show all events' : 'Clear filters',
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 13,
@@ -1420,6 +1430,64 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Status chip ─────────────────────────────────────────────────────────────
+// The event's one status, nothing under it: the same words, colours and dot
+// as the web Events table's pill (organizerEventStatus), on a solid card so
+// it reads over any banner image.
+
+class _StatusChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  final AppTk t;
+  const _StatusChip({
+    required this.label,
+    required this.color,
+    required this.t,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Status: $label',
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(9, 5, 11, 5),
+        decoration: BoxDecoration(
+          color: t.card,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.18),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                height: 1.2,
+                color: readableStatusColor(color, t.dark),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

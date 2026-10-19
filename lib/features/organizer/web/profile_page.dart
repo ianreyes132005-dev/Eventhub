@@ -1,11 +1,14 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/services/org_notif_prefs.dart';
 import '../../../core/services/app_lang_prefs.dart';
+import '../../../core/services/organizer_photo.dart';
+import '../../../core/services/organizer_session_guard.dart';
 import '../../../core/theme_store.dart';
 import 'web_shared.dart';
 
@@ -32,19 +35,34 @@ class WebProfilePage extends StatefulWidget {
 }
 
 class _WebProfilePageState extends State<WebProfilePage> {
+  bool _loading = true;
+  Object? _loadError;
   bool _uploadingPhoto = false;
 
   String? _photoUrl;
-  bool    _isActive    = true;
+  bool    _isActive    = false;
+  String  _organizerId = '—';
+  String  _name        = 'Organizer';
+  String  _organization = 'Not set';
   String  _memberSince = '—';
+  String  _appVersion  = '—';
+  int     _totalEvents = 0;
+  int     _activeEvents = 0;
+  int     _registeredParticipants = 0;
 
   String _langCode = AppLangPrefs.english;
 
   @override
   void initState() {
     super.initState();
-    _loadExtras();
+    _loadProfile();
     _loadLangPref();
+  }
+
+  @override
+  void didUpdateWidget(WebProfilePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.orgId != widget.orgId) _loadProfile();
   }
 
   Future<void> _loadLangPref() async {
@@ -56,28 +74,68 @@ class _WebProfilePageState extends State<WebProfilePage> {
 
   // ── Actions ───────────────────────────────────────────────────────────────────
 
-  Future<void> _loadExtras() async {
-    if (widget.orgId == null) return;
+  Future<void> _loadProfile() async {
+    if (mounted) setState(() { _loading = true; _loadError = null; });
     try {
+      final user = SupabaseService.currentUser;
+      if (user == null) throw StateError('Your session has expired. Please sign in again.');
       final row = await SupabaseService.client
           .from('organizers')
-          .select('profile_image_url, is_active, created_at')
-          .eq('organizer_id', widget.orgId!)
+          .select('organizer_id, full_name, organization, profile_image_url, is_active, created_at')
+          .eq('user_id', user.id)
           .maybeSingle();
-      if (!mounted || row == null) return;
+      if (row == null) throw StateError('Could not find your organizer profile.');
+      if (!await OrganizerSessionGuard.ensureActive(
+        context,
+        isActive: row['is_active'] == true,
+      )) return;
 
+      final organizerId = row['organizer_id'] as String;
+      final events = await SupabaseService.client
+          .from('events')
+          .select(
+            'event_id, approval_status, archived_at, event_date, end_date, '
+            'start_time, end_time, current_participants',
+          )
+          .eq('organizer_id', organizerId);
+      final eventList = List<Map<String, dynamic>>.from(events as List);
+      final version = await PackageInfo.fromPlatform();
+      final created = row['created_at'] as String?;
+      final createdAt = created == null ? null : DateTime.tryParse(created);
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+      if (!mounted) return;
       setState(() {
+        _organizerId = organizerId;
+        _name = (row['full_name'] as String?)?.trim().isNotEmpty == true
+            ? (row['full_name'] as String).trim()
+            : 'Organizer';
+        _organization = (row['organization'] as String?)?.trim().isNotEmpty == true
+            ? (row['organization'] as String).trim()
+            : 'Not set';
         _photoUrl = row['profile_image_url'] as String?;
         _isActive = row['is_active'] == true;
-        final created = row['created_at'] as String?;
-        final dt = created != null ? DateTime.tryParse(created) : null;
-        if (dt != null) {
-          const mos = ['Jan','Feb','Mar','Apr','May','Jun',
-                       'Jul','Aug','Sep','Oct','Nov','Dec'];
-          _memberSince = '${mos[dt.month - 1]} ${dt.year}';
-        }
+        _memberSince = createdAt == null
+            ? '—'
+            : '${months[createdAt.month - 1]} ${createdAt.year}';
+        _totalEvents = totalApprovedEventCount(eventList);
+        _activeEvents = activeApprovedEventCount(eventList);
+        _registeredParticipants = eventList.fold<int>(
+          0,
+          (sum, event) => sum + (
+            eventIsApproved(event) && !eventIsArchived(event)
+                ? (event['current_participants'] as int? ?? 0)
+                : 0
+          ),
+        );
+        _appVersion = version.version;
+        _loading = false;
+        _loadError = null;
       });
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Organizer profile load error: $e');
+      if (mounted) setState(() { _loading = false; _loadError = e; });
+    }
   }
 
   Future<void> _pickAndUploadPhoto() async {
@@ -108,56 +166,88 @@ class _WebProfilePageState extends State<WebProfilePage> {
     }
 
     setState(() => _uploadingPhoto = true);
+    String? uploadedPath;
+    var uploaded = false;
+    var saved = false;
     try {
       final user = SupabaseService.currentUser!;
-      final path = '${user.id}/profile.$ext';
-
-      // Delete old file if the extension changed — upsert only matches the same path
+      final optimizedBytes = OrganizerPhoto.resizeToAvatar(bytes);
+      final path = '${user.id}/profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      uploadedPath = path;
       final oldUrl = _photoUrl;
-      if (oldUrl != null && oldUrl.isNotEmpty) {
-        const marker = '/profile-photos/';
-        final idx    = oldUrl.indexOf(marker);
-        if (idx >= 0) {
-          final oldPath = oldUrl.substring(idx + marker.length).split('?').first;
-          if (oldPath != path) {
-            try {
-              await SupabaseService.client.storage
-                  .from('profile-photos')
-                  .remove([oldPath]);
-            } catch (_) {} // non-critical
-          }
-        }
-      }
 
       await SupabaseService.client.storage
           .from('profile-photos')
-          .uploadBinary(path, bytes,
-              fileOptions: const FileOptions(upsert: true, cacheControl: '3600'));
+          .uploadBinary(
+            path,
+            optimizedBytes,
+            fileOptions: const FileOptions(
+              contentType: 'image/jpeg',
+              cacheControl: '3600',
+            ),
+          );
+      uploaded = true;
 
-      // Cache-buster: re-uploading to the same path keeps the same URL, so
-      // image caches would keep showing the old photo until app restart.
       final url =
           '${SupabaseService.client.storage.from('profile-photos').getPublicUrl(path)}'
           '?v=${DateTime.now().millisecondsSinceEpoch}';
 
-      await SupabaseService.client
+      final updated = await SupabaseService.client
           .from('organizers')
           .update({'profile_image_url': url})
-          .eq('user_id', user.id);
+          .eq('user_id', user.id)
+          .select('profile_image_url')
+          .maybeSingle();
+      if (updated == null || updated['profile_image_url'] != url) {
+        throw StateError('The new photo could not be saved to your profile.');
+      }
+      saved = true;
 
       if (mounted) {
         setState(() { _photoUrl = url; _uploadingPhoto = false; });
         widget.onPhotoUpdated?.call(url);
       }
+
+      final oldPath = _profilePhotoStoragePath(oldUrl);
+      if (oldPath != null && oldPath != path) {
+        try {
+          await SupabaseService.client.storage
+              .from('profile-photos')
+              .remove([oldPath]);
+        } catch (e) {
+          debugPrint('Previous organizer photo cleanup failed: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Photo updated, but the previous image could not be removed.'),
+              ),
+            );
+          }
+        }
+      }
     } catch (e) {
+      if (uploaded && !saved && uploadedPath != null) {
+        try {
+          await SupabaseService.client.storage
+              .from('profile-photos')
+              .remove([uploadedPath]);
+        } catch (cleanupError) {
+          debugPrint('Uncommitted organizer photo cleanup failed: $cleanupError');
+        }
+      }
       if (mounted) {
         setState(() => _uploadingPhoto = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed: $e'),
-              backgroundColor: const Color(0xFFEF4444)),
-        );
+        showErrorAlert(context, e, title: 'Couldn’t update your photo');
       }
     }
+  }
+
+  String? _profilePhotoStoragePath(String? url) {
+    if (url == null || url.isEmpty) return null;
+    const marker = '/profile-photos/';
+    final index = url.indexOf(marker);
+    if (index < 0) return null;
+    return Uri.decodeComponent(url.substring(index + marker.length).split('?').first);
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────────
@@ -165,6 +255,34 @@ class _WebProfilePageState extends State<WebProfilePage> {
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    if (_loading) {
+      return Center(
+        child: CircularProgressIndicator(color: kGold),
+      );
+    }
+    if (_loadError != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_rounded, size: 42, color: t.muted),
+            const SizedBox(height: 16),
+            Text('Could not load your profile',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 16,
+                    fontWeight: FontWeight.w800, color: t.text)),
+            const SizedBox(height: 8),
+            Text('Check your connection and try again.',
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub)),
+            const SizedBox(height: 20),
+            WebBtn(
+              label: 'Retry',
+              icon: Icons.refresh_rounded,
+              onTap: _loadProfile,
+            ),
+          ],
+        ),
+      );
+    }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(kWebPad),
       child: Column(
@@ -178,12 +296,10 @@ class _WebProfilePageState extends State<WebProfilePage> {
               color: t.text,
               height: 1.1,
             )),
-          const SizedBox(height: 3),
-          Text('Manage your account, preferences, and activity',
-            style: TextStyle(
-              fontFamily: 'Poppins', fontSize: 12, color: t.sub)),
           const SizedBox(height: 20),
           _buildBanner(t),
+          const SizedBox(height: 16),
+          _buildStatsCard(t),
           const SizedBox(height: 24),
           _buildSettingsGrid(t),
         ],
@@ -198,8 +314,8 @@ class _WebProfilePageState extends State<WebProfilePage> {
       context: context,
       builder: (_) => _AccountInfoDialog(
         email:        widget.email ?? '—',
-        organization: widget.organization,
-        orgId:        widget.orgId ?? '—',
+        organization: _organization,
+        orgId:        _organizerId,
         memberSince:  _memberSince,
         isActive:     _isActive,
       ),
@@ -226,7 +342,10 @@ class _WebProfilePageState extends State<WebProfilePage> {
   }
 
   void _openAbout() {
-    showDialog(context: context, builder: (_) => const _AboutDialog());
+    showDialog(
+      context: context,
+      builder: (_) => _AboutDialog(version: _appVersion),
+    );
   }
 
   Widget _sectionLabel(String text, WebTk t) => Padding(
@@ -244,7 +363,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
         _SettingTile(
           t: t, icon: Icons.badge_outlined, color: kGold,
           title: 'Account Information',
-          subtitle: 'Email, organization, and status',
+          subtitle: 'Organization, ID, and status',
           onTap: _openAccountInfo,
         ),
         const SizedBox(height: 12),
@@ -277,7 +396,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
           t: t, icon: Icons.info_outline_rounded, color: const Color(0xFF10B981),
           title: 'About EventHub',
           subtitle: 'Version, build, and support info',
-          trailing: 'v1.0.0',
+          trailing: 'v$_appVersion',
           onTap: _openAbout,
         ),
       ],
@@ -299,13 +418,52 @@ class _WebProfilePageState extends State<WebProfilePage> {
     });
   }
 
+  Widget _buildStatsCard(WebTk t) => WebCard(
+    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+    child: Row(children: [
+      _profileStat(t, Icons.event_rounded, '$_totalEvents', 'Total Events', kGold),
+      Container(width: 1, height: 58, color: t.border),
+      _profileStat(t, Icons.bolt_rounded, '$_activeEvents', 'Active', const Color(0xFF10B981)),
+      Container(width: 1, height: 58, color: t.border),
+      _profileStat(
+        t,
+        Icons.people_rounded,
+        '$_registeredParticipants',
+        'Registered',
+        const Color(0xFF3B82F6),
+      ),
+    ]),
+  );
+
+  Widget _profileStat(
+    WebTk t,
+    IconData icon,
+    String value,
+    String label,
+    Color color,
+  ) => Expanded(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 17, color: color),
+        const SizedBox(height: 7),
+        Text(value,
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 19,
+                fontWeight: FontWeight.w800, color: t.text)),
+        const SizedBox(height: 2),
+        Text(label, textAlign: TextAlign.center,
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
+                fontWeight: FontWeight.w600, color: t.sub)),
+      ],
+    ),
+  );
+
   // ── Profile identity card ──────────────────────────────────────────────────────
 
   Widget _buildBanner(WebTk t) {
-    final name = widget.name ?? 'Organizer';
-    final email = widget.email ?? '—';
-    final org  = widget.organization;
-    final orgId = widget.orgId ?? '—';
+    final name = _name;
+    final org  = _organization;
+    final orgId = _organizerId;
     final initials = name
         .split(' ')
         .where((w) => w.isNotEmpty)
@@ -431,21 +589,12 @@ class _WebProfilePageState extends State<WebProfilePage> {
               ],
             ),
             const SizedBox(height: 10),
-            if (org != null && org.isNotEmpty) ...[
-              Row(children: [
-                Icon(Icons.business_rounded, size: 13, color: t.muted),
-                const SizedBox(width: 6),
-                Text(org,
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
-                      fontWeight: FontWeight.w600, color: t.sub)),
-              ]),
-              const SizedBox(height: 6),
-            ],
             Row(children: [
-              Icon(Icons.mail_outline_rounded, size: 13, color: t.muted),
+              Icon(Icons.business_rounded, size: 13, color: t.muted),
               const SizedBox(width: 6),
-              Text(email,
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.sub)),
+              Text(org,
+                style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
+                    fontWeight: FontWeight.w600, color: t.sub)),
             ]),
             const SizedBox(height: 12),
             Wrap(spacing: 8, runSpacing: 6, children: [
@@ -757,6 +906,7 @@ class _NotifPrefsDialog extends StatefulWidget {
 class _NotifPrefsDialogState extends State<_NotifPrefsDialog> {
   Map<String, bool> _enabled = {};
   bool _loading = true;
+  Object? _loadError;
 
   @override
   void initState() {
@@ -765,17 +915,22 @@ class _NotifPrefsDialogState extends State<_NotifPrefsDialog> {
   }
 
   Future<void> _load() async {
-    final disabled = await OrgNotifPrefs.disabled(widget.userId);
-    if (!mounted) return;
-    setState(() {
-      _enabled = {
-        OrgNotifPrefs.signups:  !disabled.contains(OrgNotifPrefs.signups),
-        OrgNotifPrefs.live:     !disabled.contains(OrgNotifPrefs.live),
-        OrgNotifPrefs.today:    !disabled.contains(OrgNotifPrefs.today),
-        OrgNotifPrefs.tomorrow: !disabled.contains(OrgNotifPrefs.tomorrow),
-      };
-      _loading = false;
-    });
+    setState(() { _loading = true; _loadError = null; });
+    try {
+      final disabled = await OrgNotifPrefs.disabled(widget.userId);
+      if (!mounted) return;
+      setState(() {
+        _enabled = {
+          OrgNotifPrefs.signups:  !disabled.contains(OrgNotifPrefs.signups),
+          OrgNotifPrefs.live:     !disabled.contains(OrgNotifPrefs.live),
+          OrgNotifPrefs.today:    !disabled.contains(OrgNotifPrefs.today),
+          OrgNotifPrefs.tomorrow: !disabled.contains(OrgNotifPrefs.tomorrow),
+        };
+        _loading = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
+    }
   }
 
   @override
@@ -794,6 +949,19 @@ class _NotifPrefsDialogState extends State<_NotifPrefsDialog> {
                     child: CircularProgressIndicator(color: kGold, strokeWidth: 2.4)),
               ),
             )
+          : _loadError != null
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Could not load notification preferences.',
+                        style: TextStyle(fontFamily: 'Poppins', color: t.sub)),
+                    TextButton.icon(
+                      onPressed: _load,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -814,7 +982,8 @@ class _NotifPrefsDialogState extends State<_NotifPrefsDialog> {
                     'A heads-up one day before'),
                 const SizedBox(height: 18),
                 _prefNote(t,
-                    'Applies to the notification bell on your dashboard.'),
+                    'Saved to your organizer account and shared across devices. '
+                    'Admin approvals and rejections always appear.'),
               ],
             ),
     );
@@ -848,9 +1017,21 @@ class _NotifPrefsDialogState extends State<_NotifPrefsDialog> {
         value: _enabled[cat] ?? true,
         activeThumbColor: kGold,
         activeTrackColor: kGold.withValues(alpha: 0.35),
-        onChanged: (v) {
+        onChanged: (v) async {
+          final previous = _enabled[cat] ?? true;
           setState(() => _enabled[cat] = v);
-          OrgNotifPrefs.setEnabled(widget.userId, cat, v);
+          try {
+            await OrgNotifPrefs.setEnabled(widget.userId, cat, v);
+          } catch (e) {
+            if (mounted) {
+              setState(() => _enabled[cat] = previous);
+              showErrorAlert(
+                context,
+                e,
+                title: 'Couldn’t save notification preferences',
+              );
+            }
+          }
         },
       ),
     ]);
@@ -992,6 +1173,14 @@ class _ThemeInlineCard extends StatelessWidget {
   final WebTk t;
   const _ThemeInlineCard({required this.t});
 
+  Future<void> _setTheme(BuildContext context, ThemeMode mode) async {
+    try {
+      await ThemeStore.set(mode);
+    } catch (e) {
+      showErrorAlert(context, e, title: 'Couldn’t save theme preference');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ThemeMode>(
@@ -1031,9 +1220,9 @@ class _ThemeInlineCard extends StatelessWidget {
                         style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5,
                             fontWeight: FontWeight.w700, color: t.text)),
                       const SizedBox(height: 2),
-                      Text('Choose your preferred theme.',
+                      Text('Saved to your organizer account across devices.',
                         style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                            color: t.muted)),
+                            color: t.sub)),
                     ],
                   ),
                 ),
@@ -1042,12 +1231,12 @@ class _ThemeInlineCard extends StatelessWidget {
               Row(children: [
                 Expanded(
                   child: _pill(label: 'Light', icon: Icons.wb_sunny_rounded,
-                      selected: !isDark, onTap: () => ThemeStore.set(ThemeMode.light)),
+                      selected: !isDark, onTap: () => _setTheme(context, ThemeMode.light)),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: _pill(label: 'Dark', icon: Icons.nightlight_round,
-                      selected: isDark, onTap: () => ThemeStore.set(ThemeMode.dark)),
+                      selected: isDark, onTap: () => _setTheme(context, ThemeMode.dark)),
                 ),
               ]),
             ],
@@ -1118,8 +1307,6 @@ class _AccountInfoDialog extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _row(t, Icons.mail_outline_rounded, 'Email Address', email),
-          _divider(t),
           _row(t, Icons.business_rounded, 'Organization',
               (organization != null && organization!.isNotEmpty) ? organization! : '—'),
           _divider(t),
@@ -1192,7 +1379,8 @@ class _AccountInfoDialog extends StatelessWidget {
 // ── About dialog ───────────────────────────────────────────────────────────────
 
 class _AboutDialog extends StatelessWidget {
-  const _AboutDialog();
+  final String version;
+  const _AboutDialog({required this.version});
 
   @override
   Widget build(BuildContext context) {
@@ -1201,7 +1389,7 @@ class _AboutDialog extends StatelessWidget {
       icon:     Icons.celebration_rounded,
       iconColor: kGold,
       title:    'About EventHub',
-      subtitle: 'Version 1.0.0',
+      subtitle: 'Version $version',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1248,4 +1436,3 @@ class _AboutDialog extends StatelessWidget {
     ]);
   }
 }
-

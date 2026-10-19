@@ -1,4 +1,6 @@
-enum EventPhase { upcoming, ongoing, completed, cancelled }
+/// [checkInOpen]: the event has ended but late check-in is still allowed
+/// (kCheckInClosesAfter in app_colors.dart).
+enum EventPhase { upcoming, ongoing, checkInOpen, completed, cancelled }
 
 /// Derives the event phase from start and optional end times.
 EventPhase resolveEventPhase(DateTime start, DateTime? end) {
