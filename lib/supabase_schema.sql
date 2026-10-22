@@ -347,7 +347,7 @@ ALTER TABLE public.announcements
 
 -- 12. STUDENT YEAR-LEVEL CHECK RANGE FIX
 -- ============================================================
--- The original table definition (supabase_students_table.sql) capped
+-- The original table definition (an early setup script, since removed) capped
 -- year_level at 1-6 — leftover from an earlier draft, never updated. The
 -- admin "Add Student" dialog has only ever offered Junior High (7-10) and
 -- Senior High (11-12) grade buttons, so every attempt to create a student

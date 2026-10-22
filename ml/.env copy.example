@@ -1,4 +1,0 @@
-# Copy this file to ".env" (same folder) and fill in your real password.
-# ".env" itself is git-ignored -- never commit real credentials.
-
-DATABASE_URL=postgresql://postgres:YOUR-PASSWORD-HERE@db.sgbireampkzicbhaizhb.supabase.co:5432/postgres
