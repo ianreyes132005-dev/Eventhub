@@ -76,6 +76,77 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           _SuggestionItem(Icons.history_rounded,             'Can I see my past registrations?'),
         ];
 
+  List<String> _followUpQuestions(String question) {
+    final q = question.toLowerCase();
+    final isOrganizer = widget.userRole == 'organizer';
+
+    if (isOrganizer) {
+      if (q.contains('qr') || q.contains('check in') || q.contains('check-in')) {
+        return _withFollowUpFallback(q, const [
+          'What happens after a QR code is scanned?',
+          'Why can’t I check in a student?',
+        ]);
+      }
+      if (q.contains('pending') || q.contains('approv')) {
+        return _withFollowUpFallback(q, const [
+          'Can I edit an approved event?',
+          'How do I cancel an event?',
+        ]);
+      }
+      if (q.contains('creat') || q.contains('new event')) {
+        return _withFollowUpFallback(q, const [
+          'Why is my event still pending?',
+          'Can I edit an approved event?',
+        ]);
+      }
+      if (q.contains('announcement')) {
+        return _withFollowUpFallback(q, const [
+          'How do I create an event?',
+          'Why is my event still pending?',
+        ]);
+      }
+    } else {
+      if (q.contains('register') || q.contains('registration')) {
+        return _withFollowUpFallback(q, const [
+          'Where is my QR code?',
+          'What is the check-in process?',
+        ]);
+      }
+      if (q.contains('qr') || q.contains('check in') || q.contains('check-in')) {
+        return _withFollowUpFallback(q, const [
+          'Why is my status "Awaiting Selfie"?',
+          'Can I see my past registrations?',
+        ]);
+      }
+      if (q.contains('selfie') || q.contains('status')) {
+        return _withFollowUpFallback(q, const [
+          'What is the check-in process?',
+          'Where is my QR code?',
+        ]);
+      }
+      if (q.contains('password') || q.contains('forgot') || q.contains('login')) {
+        return _withFollowUpFallback(q, const [
+          'How do I register for an event?',
+          'Can I see my past registrations?',
+        ]);
+      }
+    }
+
+    return _withFollowUpFallback(q, const []);
+  }
+
+  List<String> _withFollowUpFallback(String question, List<String> preferred) {
+    final selected = <String>[];
+    for (final suggestion in [...preferred, ..._suggestions.map((item) => item.text)]) {
+      if (suggestion.toLowerCase() == question || selected.contains(suggestion)) {
+        continue;
+      }
+      selected.add(suggestion);
+      if (selected.length == 2) break;
+    }
+    return selected;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -637,6 +708,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       itemBuilder: (_, i) {
         final msg  = _messages[i];
         final prev = i > 0 ? _messages[i - 1] : null;
+        final isLatestAnswer = i == _messages.length - 1 &&
+            msg.role == 'assistant' &&
+            !msg.isError &&
+            !_sending;
+        final previousQuestion = isLatestAnswer ? _questionBefore(i) : null;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -645,9 +721,82 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             msg.role == 'user'
                 ? _buildUserBubble(msg, t)
                 : _buildAssistantBubble(msg, t),
+            if (isLatestAnswer && previousQuestion != null)
+              _buildFollowUpQuestions(_followUpQuestions(previousQuestion), t),
           ],
         );
       },
+    );
+  }
+
+  String? _questionBefore(int messageIndex) {
+    for (var i = messageIndex - 1; i >= 0; i--) {
+      if (_messages[i].role == 'user') return _messages[i].content;
+    }
+    return null;
+  }
+
+  Widget _buildFollowUpQuestions(List<String> questions, AppTk t) {
+    if (questions.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(left: 39, right: 54, bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.auto_awesome_rounded, color: kGold, size: 12),
+              const SizedBox(width: 5),
+              Text(
+                'You can also ask',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: t.muted,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: questions.map((question) => Material(
+              color: t.card,
+              borderRadius: BorderRadius.circular(16),
+              child: InkWell(
+                onTap: _sending ? null : () => _send(question),
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: kGold.withValues(alpha: 0.32)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.035),
+                        blurRadius: 7,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    question,
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                      color: t.text,
+                    ),
+                  ),
+                ),
+              ),
+            )).toList(),
+          ),
+        ],
+      ),
     );
   }
 

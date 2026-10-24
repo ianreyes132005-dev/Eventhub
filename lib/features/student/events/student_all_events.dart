@@ -13,37 +13,38 @@ import '../../../core/services/registration_service.dart';
 import '../../../core/services/student_count_service.dart';
 import '../../../core/app_colors.dart';
 import '../../../shared/widgets/error_alert.dart';
-
+import '../../../shared/widgets/compact_filter_menu.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Page
 // ══════════════════════════════════════════════════════════════════════════════
 
 class StudentAllEventsPage extends StatefulWidget {
-  final bool showAsEmbedded;
-  const StudentAllEventsPage({this.showAsEmbedded = false, super.key});
+  const StudentAllEventsPage({super.key});
 
   @override
   State<StudentAllEventsPage> createState() => _StudentAllEventsPageState();
 }
 
 class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
-  String _filter      = 'All';
+  String _filter = 'All';
   String _searchQuery = '';
-  bool   _loading     = true;
-  bool   _hasError    = false;
+  bool _loading = true;
+  bool _hasError = false;
 
-  final TextEditingController _searchCtrl     = TextEditingController();
-  final List<String>          _filterOptions  = ['All', 'Upcoming', 'Ongoing', 'Ended'];
+  final TextEditingController _searchCtrl = TextEditingController();
+  final List<String> _filterOptions = ['All', 'Upcoming', 'Ongoing', 'Ended'];
 
-  List<Map<String, dynamic>>          _events       = [];
+  List<Map<String, dynamic>> _events = [];
   final Map<String, Map<String, dynamic>> _regByEventId = {};
   String? _registeringId;
   // Every event's capacity = active students (StudentCountService).
-  int?    _studentCount = StudentCountService.cached;
+  int? _studentCount = StudentCountService.cached;
 
   RealtimeChannel? _channel;
-  Timer?           _debounce;
+  Timer? _debounce;
+  // Upcoming → Ongoing → Ended and Register → Closed follow the clock.
+  Timer? _clock;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -52,10 +53,14 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     super.initState();
     _loadData();
     _subscribeRealtime();
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _clock?.cancel();
     _debounce?.cancel();
     if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
     _searchCtrl.dispose();
@@ -82,16 +87,21 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   // ── Data ──────────────────────────────────────────────────────────────────
 
   Future<void> _loadData({bool silent = false}) async {
-    if (mounted) setState(() { if (!silent) _loading = true; _hasError = false; });
+    if (mounted) {
+      setState(() {
+        if (!silent) _loading = true;
+        _hasError = false;
+      });
+    }
     try {
-      final studentCount = StudentCountService.activeStudents();   // in parallel
+      final studentCount = StudentCountService.activeStudents(); // in parallel
       final results = await Future.wait([
         SupabaseService.getEvents(),
         RegistrationService.getMyRegistrations(),
       ]);
 
-      final events   = results[0];
-      final regs     = results[1];
+      final events = results[0];
+      final regs = results[1];
       final students = await studentCount;
 
       final regMap = <String, Map<String, dynamic>>{};
@@ -112,22 +122,31 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
       }
     } catch (e) {
       debugPrint('StudentAllEventsPage load error: $e');
-      if (mounted) setState(() { _loading = false; _hasError = true; });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _hasError = true;
+        });
+      }
     }
   }
 
   Future<void> _handleRegister(Map<String, dynamic> event) async {
-    final eventId    = event['event_id'] as String;
-    final eventTitle = event['title']    as String? ?? '';
+    final eventId = event['event_id'] as String;
+    final eventTitle = event['title'] as String? ?? '';
 
     setState(() => _registeringId = eventId);
     try {
       final row = await RegistrationService.register(
-        eventId: eventId, eventTitle: eventTitle,
+        eventId: eventId,
+        eventTitle: eventTitle,
       );
       if (!mounted) return;
       HapticFeedback.mediumImpact();
-      setState(() { _regByEventId[eventId] = row; _registeringId = null; });
+      setState(() {
+        _regByEventId[eventId] = row;
+        _registeringId = null;
+      });
       RegistrationSuccessPopup.show(
         context,
         eventTitle: eventTitle,
@@ -144,30 +163,38 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
 
   void _showQR(Map<String, dynamic> event) {
     final eventId = event['event_id'] as String;
-    final reg     = _regByEventId[eventId];
+    final reg = _regByEventId[eventId];
     if (reg == null) return;
-    QRCodeDialog.show(context, EventRegistration(
-      registrationId:   reg['id']                as String,
-      eventId:          eventId,
-      eventTitle:       reg['event_title']        as String? ?? event['title'] ?? '',
-      studentId:        reg['student_school_id']  as String? ?? '',
-      studentName:      reg['student_name']       as String? ?? '',
-      registrationDate: DateTime.tryParse(reg['registered_at'] as String? ?? '') ?? DateTime.now(),
-      qrCodeData:       reg['qr_code']            as String,
-    ));
+    QRCodeDialog.show(
+      context,
+      EventRegistration(
+        registrationId: reg['id'] as String,
+        // The event's current name — the registration keeps the one from sign-up.
+        eventTitle:
+            event['title'] as String? ?? reg['event_title'] as String? ?? '',
+        studentId: reg['student_school_id'] as String? ?? '',
+        studentName: reg['student_name'] as String? ?? '',
+        registrationDate:
+            DateTime.tryParse(reg['registered_at'] as String? ?? '') ??
+            DateTime.now(),
+        qrCodeData: reg['qr_code'] as String,
+        ticketCode: reg['ticket_code'] as String? ?? '—',
+      ),
+    );
   }
 
   void _confirmRegister(Map<String, dynamic> event) {
     AppAlert.confirm(
       context,
-      title:        'Confirm Registration',
-      message:      'Register for "${event['title']}"?\nYour QR ticket will be generated immediately.',
-      confirmText:  'Register',
-      cancelText:   'Cancel',
+      title: 'Confirm Registration',
+      message:
+          'Register for "${event['title']}"?\nYour QR ticket will be generated immediately.',
+      confirmText: 'Register',
+      cancelText: 'Cancel',
       confirmColor: kGold,
-      icon:         Icons.how_to_reg_rounded,
-      iconColor:    kGold,
-      onConfirm:    () => _handleRegister(event),
+      icon: Icons.how_to_reg_rounded,
+      iconColor: kGold,
+      onConfirm: () => _handleRegister(event),
     );
   }
 
@@ -176,26 +203,29 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   List<Map<String, dynamic>> get _filtered {
     final list = _events.where((e) {
       final label = eventStatusLabel(e);
-      final matchesFilter = _filter == 'All' ||
+      final matchesFilter =
+          _filter == 'All' ||
           label == _filter ||
           (_filter == 'Ended' && label == 'Cancelled');
-      final q     = _searchQuery.toLowerCase();
-      final matchesSearch = q.isEmpty ||
-          (e['title']      as String? ?? '').toLowerCase().contains(q) ||
-          (e['location']   as String? ?? '').toLowerCase().contains(q) ||
+      final q = _searchQuery.toLowerCase();
+      final matchesSearch =
+          q.isEmpty ||
+          (e['title'] as String? ?? '').toLowerCase().contains(q) ||
+          (e['location'] as String? ?? '').toLowerCase().contains(q) ||
           (e['event_type'] as String? ?? '').toLowerCase().contains(q);
       return matchesFilter && matchesSearch;
     }).toList();
 
     int statusOrder(String label) {
       if (label == 'Upcoming') return 0;
-      if (label == 'Ongoing')  return 1;
+      if (label == 'Ongoing') return 1;
       return 2; // Past, Cancelled
     }
 
     list.sort((a, b) {
-      final po = statusOrder(eventStatusLabel(a))
-          .compareTo(statusOrder(eventStatusLabel(b)));
+      final po = statusOrder(
+        eventStatusLabel(a),
+      ).compareTo(statusOrder(eventStatusLabel(b)));
       if (po != 0) return po;
       final da = a['event_date'] as String? ?? '';
       final db = b['event_date'] as String? ?? '';
@@ -207,6 +237,12 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
 
   int _countFor(String filter) {
     if (filter == 'All') return _events.length;
+    if (filter == 'Ended') {
+      return _events.where((e) {
+        final status = eventStatusLabel(e);
+        return status == 'Ended' || status == 'Cancelled';
+      }).length;
+    }
     return _events.where((e) => eventStatusLabel(e) == filter).length;
   }
 
@@ -214,7 +250,8 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
 
   // Capacity = every active student. Each student registers once, so one who
   // hasn't registered always has a spot — an event is never "full" for them.
-  int _registered(Map<String, dynamic> e) => e['current_participants'] as int? ?? 0;
+  int _registered(Map<String, dynamic> e) =>
+      e['current_participants'] as int? ?? 0;
 
   String _capacityText(Map<String, dynamic> e) {
     final cap = _studentCount;
@@ -228,14 +265,29 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     if (d == null) return '—';
     try {
       final dt = DateTime.parse(d);
-      const m  = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+      const m = [
+        'JAN',
+        'FEB',
+        'MAR',
+        'APR',
+        'MAY',
+        'JUN',
+        'JUL',
+        'AUG',
+        'SEP',
+        'OCT',
+        'NOV',
+        'DEC',
+      ];
       return '${m[dt.month - 1]} ${dt.day}';
-    } catch (_) { return d; }
+    } catch (_) {
+      return d;
+    }
   }
 
   String _fmtTime(Map<String, dynamic> e) {
-    final s  = e['start_time'] as String?;
-    final en = e['end_time']   as String?;
+    final s = e['start_time'] as String?;
+    final en = e['end_time'] as String?;
     if (s == null) return '—';
     String fmt(String t) {
       final p = t.split(':');
@@ -243,6 +295,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
       final h = int.tryParse(p[0]) ?? 0;
       return '${h % 12 == 0 ? 12 : h % 12}:${p[1]} ${h >= 12 ? 'PM' : 'AM'}';
     }
+
     return en != null ? '${fmt(s)} — ${fmt(en)}' : fmt(s);
   }
 
@@ -252,7 +305,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final t      = AppTk(Theme.of(context).brightness == Brightness.dark);
+    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
     final events = _filtered;
 
     return Scaffold(
@@ -261,35 +314,35 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
         child: _loading
             ? _buildLoading(t)
             : _hasError
-                ? _buildError(t)
-                : RefreshIndicator(
-                    color: kGold,
-                    backgroundColor: t.card,
-                    onRefresh: _loadData,
-                    child: CustomScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      slivers: [
-                        SliverToBoxAdapter(child: _buildHeader(t)),
-                        SliverToBoxAdapter(child: _buildSearchBar(t)),
-                        SliverToBoxAdapter(child: _buildRegisteredShortcut(t)),
-                        SliverToBoxAdapter(child: _buildFilterRow(t)),
-                        events.isEmpty
-                            ? SliverFillRemaining(
-                                hasScrollBody: false,
-                                child: _buildEmpty(t),
-                              )
-                            : SliverPadding(
-                                padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
-                                sliver: SliverList(
-                                  delegate: SliverChildBuilderDelegate(
-                                    (_, i) => _buildCard(events[i], t),
-                                    childCount: events.length,
-                                  ),
-                                ),
+            ? _buildError(t)
+            : RefreshIndicator(
+                color: kGold,
+                backgroundColor: t.card,
+                onRefresh: _loadData,
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(child: _buildHeader(t)),
+                    SliverToBoxAdapter(child: _buildSearchBar(t)),
+                    SliverToBoxAdapter(child: _buildRegisteredShortcut(t)),
+                    SliverToBoxAdapter(child: _buildFilterRow(t)),
+                    events.isEmpty
+                        ? SliverFillRemaining(
+                            hasScrollBody: false,
+                            child: _buildEmpty(t),
+                          )
+                        : SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
+                            sliver: SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (_, i) => _buildCard(events[i], t),
+                                childCount: events.length,
                               ),
-                      ],
-                    ),
-                  ),
+                            ),
+                          ),
+                  ],
+                ),
+              ),
       ),
     );
   }
@@ -320,33 +373,63 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 68, height: 68,
+              width: 68,
+              height: 68,
               decoration: BoxDecoration(
                 color: const Color(0xFFEF4444).withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.22)),
+                border: Border.all(
+                  color: const Color(0xFFEF4444).withValues(alpha: 0.22),
+                ),
               ),
-              child: const Icon(Icons.wifi_off_rounded, size: 32, color: Color(0xFFEF4444)),
+              child: const Icon(
+                Icons.wifi_off_rounded,
+                size: 32,
+                color: Color(0xFFEF4444),
+              ),
             ),
             const SizedBox(height: 20),
-            Text('Could not load events',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700, color: t.text)),
+            Text(
+              'Could not load events',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: t.text,
+              ),
+            ),
             const SizedBox(height: 8),
-            Text('Check your connection and try again.',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.muted),
-              textAlign: TextAlign.center),
+            Text(
+              'Check your connection and try again.',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 13,
+                color: t.muted,
+              ),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: _loadData,
               icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: const Text('Retry',
-                style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+              label: const Text(
+                'Retry',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: kGold,
                 foregroundColor: Colors.white,
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 13),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 13,
+                ),
               ),
             ),
           ],
@@ -364,7 +447,8 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
-            width: 3, height: 36,
+            width: 3,
+            height: 36,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [Color(0xFFC49230), kGold, Color(0xFFEAB866)],
@@ -375,8 +459,16 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
             ),
           ),
           const SizedBox(width: 14),
-          Text('Events',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 26, fontWeight: FontWeight.w800, color: t.text, height: 1.15)),
+          Text(
+            'Events',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+              color: t.text,
+              height: 1.15,
+            ),
+          ),
         ],
       ),
     );
@@ -392,7 +484,13 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
           color: t.inputBg,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: t.border),
-          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 12, offset: const Offset(0, 3))],
+          boxShadow: [
+            BoxShadow(
+              color: t.shadow,
+              blurRadius: 12,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: TextField(
           controller: _searchCtrl,
@@ -400,19 +498,39 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
           style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: t.text),
           decoration: InputDecoration(
             hintText: 'Search events, venues, type…',
-            hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.muted),
-            prefixIcon: const Icon(Icons.search_rounded, color: kGold, size: 22),
+            hintStyle: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 13,
+              color: t.muted,
+            ),
+            prefixIcon: const Icon(
+              Icons.search_rounded,
+              color: kGold,
+              size: 22,
+            ),
             suffixIcon: _searchQuery.isNotEmpty
                 ? IconButton(
                     icon: Icon(Icons.cancel_rounded, color: t.muted, size: 20),
-                    onPressed: () { _searchCtrl.clear(); setState(() => _searchQuery = ''); },
+                    onPressed: () {
+                      _searchCtrl.clear();
+                      setState(() => _searchQuery = '');
+                    },
                   )
                 : null,
             filled: false,
             contentPadding: const EdgeInsets.symmetric(vertical: 16),
-            border:        OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: kGold, width: 1.8)),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: kGold, width: 1.8),
+            ),
           ),
         ),
       ),
@@ -428,7 +546,8 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
       child: GestureDetector(
         onTap: () {
           HapticFeedback.lightImpact();
-          Navigator.push(context,
+          Navigator.push(
+            context,
             MaterialPageRoute(builder: (_) => const MyRegisteredEventsPage()),
           ).then((_) => _loadData());
         },
@@ -442,18 +561,27 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
             ),
             borderRadius: BorderRadius.circular(18),
             boxShadow: [
-              BoxShadow(color: kGold.withValues(alpha: 0.35), blurRadius: 18, offset: const Offset(0, 6)),
+              BoxShadow(
+                color: kGold.withValues(alpha: 0.35),
+                blurRadius: 18,
+                offset: const Offset(0, 6),
+              ),
             ],
           ),
           child: Row(
             children: [
               Container(
-                width: 44, height: 44,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.confirmation_num_rounded, color: Colors.white, size: 22),
+                child: const Icon(
+                  Icons.confirmation_num_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -461,25 +589,41 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('My Registered Events',
-                      style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5, fontWeight: FontWeight.w700, color: Colors.white)),
+                    const Text(
+                      'My Registered Events',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       count == 0
                           ? 'No registrations yet'
                           : '$count event${count == 1 ? '' : 's'} registered',
-                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: Colors.white.withValues(alpha: 0.82)),
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 11.5,
+                        color: Colors.white.withValues(alpha: 0.82),
+                      ),
                     ),
                   ],
                 ),
               ),
               Container(
-                width: 32, height: 32,
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(9),
                 ),
-                child: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 13),
+                child: const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: Colors.white,
+                  size: 13,
+                ),
               ),
             ],
           ),
@@ -492,75 +636,31 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
 
   Widget _buildFilterRow(AppTk t) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: SizedBox(
-        height: 38,
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          itemCount: _filterOptions.length,
-          itemBuilder: (_, i) {
-            final f        = _filterOptions[i];
-            final selected = _filter == f;
-            final count    = _countFor(f);
-
-            return GestureDetector(
-              onTap: () {
-                HapticFeedback.selectionClick();
-                setState(() => _filter = f);
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      child: CompactFilterMenu<String>(
+        label: 'Status',
+        icon: Icons.filter_list_rounded,
+        options: [
+          for (final status in _filterOptions)
+            CompactFilterOption(
+              value: status,
+              label: status,
+              count: _countFor(status),
+              color: switch (status) {
+                'Upcoming' => eventStatusColor('Upcoming'),
+                'Ongoing' => eventStatusColor('Ongoing'),
+                'Ended' => eventStatusColor('Ended'),
+                _ => null,
               },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                margin: const EdgeInsets.only(right: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  gradient: selected ? kGoldGradient : null,
-                  color:    selected ? null : t.card,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: selected ? const Color(0xFFC49230) : t.border,
-                    width: 1.5,
-                  ),
-                  boxShadow: selected
-                      ? [BoxShadow(color: kGold.withValues(alpha: 0.28), blurRadius: 8, offset: const Offset(0, 3))]
-                      : null,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(f,
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: selected ? Colors.white : t.sub,
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? Colors.white.withValues(alpha: 0.25)
-                            : t.divider,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text('$count',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: selected ? Colors.white : t.muted,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
+            ),
+        ],
+        selected: _filter,
+        onSelect: (status) {
+          HapticFeedback.selectionClick();
+          setState(() => _filter = status);
+        },
+        accent: kGold,
+        t: t,
       ),
     );
   }
@@ -575,7 +675,8 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 70, height: 70,
+            width: 70,
+            height: 70,
             decoration: BoxDecoration(
               color: kGold.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(20),
@@ -583,13 +684,19 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
             ),
             child: Icon(
               isFiltered ? Icons.search_off_rounded : Icons.event_busy_rounded,
-              size: 32, color: kGold.withValues(alpha: 0.55),
+              size: 32,
+              color: kGold.withValues(alpha: 0.55),
             ),
           ),
           const SizedBox(height: 20),
           Text(
             isFiltered ? 'No results found' : 'No events yet',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 16, fontWeight: FontWeight.w700, color: t.text),
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: t.text,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
@@ -597,23 +704,43 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                 ? 'Try a different search or filter.'
                 : 'Check back soon — events will appear here.',
             textAlign: TextAlign.center,
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.muted, height: 1.6),
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 12.5,
+              color: t.muted,
+              height: 1.6,
+            ),
           ),
           if (isFiltered) ...[
             const SizedBox(height: 24),
             OutlinedButton(
               onPressed: () {
                 _searchCtrl.clear();
-                setState(() { _searchQuery = ''; _filter = 'All'; });
+                setState(() {
+                  _searchQuery = '';
+                  _filter = 'All';
+                });
               },
               style: OutlinedButton.styleFrom(
                 foregroundColor: kGold,
                 side: const BorderSide(color: kGold, width: 1.5),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
-              child: const Text('Clear filters',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w700, color: kGold)),
+              child: const Text(
+                'Clear filters',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: kGold,
+                ),
+              ),
             ),
           ],
         ],
@@ -624,18 +751,18 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   // ── Event card ────────────────────────────────────────────────────────────
 
   Widget _buildCard(Map<String, dynamic> event, AppTk t) {
-    final eventId      = event['event_id'] as String;
-    final statusLabel  = eventStatusLabel(event);
+    final eventId = event['event_id'] as String;
+    final statusLabel = eventStatusLabel(event);
     final isRegistered = _regByEventId.containsKey(eventId);
     final isRegistering = _registeringId == eventId;
-    final imageUrl     = event['event_image_url'] as String?;
-    final hasImage     = imageUrl != null && imageUrl.isNotEmpty;
-    final eventType    = event['event_type'] as String?;
-    final sc           = eventStatusColor(statusLabel);
-    final isPast       = statusLabel == 'Ended' || statusLabel == 'Cancelled';
+    final imageUrl = event['event_image_url'] as String?;
+    final hasImage = imageUrl != null && imageUrl.isNotEmpty;
+    final eventType = event['event_type'] as String?;
+    final sc = eventStatusColor(statusLabel);
+    final isPast = statusLabel == 'Ended' || statusLabel == 'Cancelled';
     // Same rule the server enforces: closes at the deadline, else at the
     // event start, never after the end.
-    final regState     = registrationState(event);
+    final regState = registrationState(event);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -643,7 +770,13 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
         color: t.card,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: t.border),
-        boxShadow: [BoxShadow(color: t.shadow, blurRadius: 14, offset: const Offset(0, 5))],
+        boxShadow: [
+          BoxShadow(
+            color: t.shadow,
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
       child: IntrinsicHeight(
@@ -678,20 +811,37 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                           ],
                           Text(
                             event['title'] as String? ?? '—',
-                            style: TextStyle(fontFamily: 'Poppins', fontSize: 15.5, fontWeight: FontWeight.w700, color: t.text, height: 1.25),
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w700,
+                              color: t.text,
+                              height: 1.25,
+                            ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 10),
-                          _MetaRow(icon: Icons.access_time_rounded, text: _fmtTime(event), t: t),
+                          _MetaRow(
+                            icon: Icons.access_time_rounded,
+                            text: _fmtTime(event),
+                            t: t,
+                          ),
                           const SizedBox(height: 4),
-                          _MetaRow(icon: Icons.location_on_rounded,  text: event['location'] as String? ?? '—', t: t),
+                          _MetaRow(
+                            icon: Icons.location_on_rounded,
+                            text: event['location'] as String? ?? '—',
+                            t: t,
+                          ),
                           const SizedBox(height: 12),
                           _CapacityBar(
-                            fill:    capacityFill(_registered(event), _studentCount),
-                            label:   _capacityText(event),
+                            fill: capacityFill(
+                              _registered(event),
+                              _studentCount,
+                            ),
+                            label: _capacityText(event),
                             showBar: _studentCount != null,
-                            t:       t,
+                            t: t,
                           ),
                         ],
                       ),
@@ -707,8 +857,14 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                           onTap: () => _openDetails(event, eventId),
                           child: Text(
                             'View Details',
-                            style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, fontWeight: FontWeight.w700, color: t.muted,
-                                decoration: TextDecoration.underline, decorationColor: t.muted),
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: t.muted,
+                              decoration: TextDecoration.underline,
+                              decorationColor: t.muted,
+                            ),
                           ),
                         ),
                         const Spacer(),
@@ -718,7 +874,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                         else if (isRegistered)
                           _PrimaryBtn(
                             label: 'My QR',
-                            icon:  Icons.qr_code_2_rounded,
+                            icon: Icons.qr_code_2_rounded,
                             color: const Color(0xFF16A34A),
                             onTap: () => _showQR(event),
                             gradient: const LinearGradient(
@@ -732,7 +888,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                             message: registrationClosedReason(regState) ?? '',
                             child: _PrimaryBtn(
                               label: 'Closed',
-                              icon:  Icons.lock_clock_rounded,
+                              icon: Icons.lock_clock_rounded,
                               color: t.muted,
                               onTap: null,
                               ghost: true,
@@ -740,10 +896,14 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                           )
                         else
                           _PrimaryBtn(
-                            label:   isRegistering ? 'Registering…' : 'Register',
-                            icon:    isRegistering ? null : Icons.how_to_reg_rounded,
-                            color:   kGold,
-                            onTap:   isRegistering ? null : () => _confirmRegister(event),
+                            label: isRegistering ? 'Registering…' : 'Register',
+                            icon: isRegistering
+                                ? null
+                                : Icons.how_to_reg_rounded,
+                            color: kGold,
+                            onTap: isRegistering
+                                ? null
+                                : () => _confirmRegister(event),
                             loading: isRegistering,
                           ),
                       ],
@@ -759,7 +919,8 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   }
 
   void _openDetails(Map<String, dynamic> event, String eventId) {
-    Navigator.push(context,
+    Navigator.push(
+      context,
       MaterialPageRoute(
         builder: (_) => EventDetailsPage(
           event: event,
@@ -777,12 +938,12 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
 // ── Card image with overlays ──────────────────────────────────────────────────
 
 class _CardImage extends StatelessWidget {
-  final String?    imageUrl;
-  final String     statusLabel;
-  final Color      sc;
-  final bool       isRegistered;
-  final String     dateLabel;
-  final AppTk        t;
+  final String? imageUrl;
+  final String statusLabel;
+  final Color sc;
+  final bool isRegistered;
+  final String dateLabel;
+  final AppTk t;
   final VoidCallback onTap;
 
   const _CardImage({
@@ -806,8 +967,11 @@ class _CardImage extends StatelessWidget {
           children: [
             // Background
             imageUrl != null
-                ? Image.network(imageUrl!, fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => _placeholder())
+                ? Image.network(
+                    imageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => _placeholder(),
+                  )
                 : _placeholder(),
             // Bottom scrim
             const DecoratedBox(
@@ -822,43 +986,73 @@ class _CardImage extends StatelessWidget {
             ),
             // Status chip — top left
             Positioned(
-              top: 12, left: 12,
+              top: 12,
+              left: 12,
               child: _StatusChip(label: statusLabel, color: sc),
             ),
             // Registered badge — top right
             if (isRegistered)
               Positioned(
-                top: 12, right: 12,
+                top: 12,
+                right: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF16A34A),
                     borderRadius: BorderRadius.circular(20),
-                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.22), blurRadius: 6)],
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.22),
+                        blurRadius: 6,
+                      ),
+                    ],
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.check_rounded, size: 10, color: Colors.white),
                       SizedBox(width: 4),
-                      Text('Registered',
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5, fontWeight: FontWeight.w700, color: Colors.white)),
+                      Text(
+                        'Registered',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ),
             // Date pill — bottom right
             Positioned(
-              bottom: 10, right: 12,
+              bottom: 10,
+              right: 12,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 decoration: BoxDecoration(
                   color: kGold,
                   borderRadius: BorderRadius.circular(10),
-                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.22), blurRadius: 6)],
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.22),
+                      blurRadius: 6,
+                    ),
+                  ],
                 ),
-                child: Text(dateLabel,
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
+                child: Text(
+                  dateLabel,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ),
           ],
@@ -874,7 +1068,14 @@ class _CardImage extends StatelessWidget {
         children: [
           Icon(Icons.image_outlined, size: 32, color: t.muted),
           const SizedBox(height: 4),
-          Text('No image', style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
+          Text(
+            'No image',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 10,
+              color: t.muted,
+            ),
+          ),
         ],
       ),
     );
@@ -885,7 +1086,7 @@ class _CardImage extends StatelessWidget {
 
 class _StatusChip extends StatefulWidget {
   final String label;
-  final Color  color;
+  final Color color;
   const _StatusChip({required this.label, required this.color});
 
   @override
@@ -895,22 +1096,28 @@ class _StatusChip extends StatefulWidget {
 class _StatusChipState extends State<_StatusChip>
     with SingleTickerProviderStateMixin {
   AnimationController? _ctrl;
-  Animation<double>?   _fade;
+  Animation<double>? _fade;
 
   @override
   void initState() {
     super.initState();
     if (widget.label == 'Ongoing') {
       _ctrl = AnimationController(
-          vsync: this, duration: const Duration(milliseconds: 900))
-        ..repeat(reverse: true);
-      _fade = Tween<double>(begin: 0.25, end: 1.0)
-          .animate(CurvedAnimation(parent: _ctrl!, curve: Curves.easeInOut));
+        vsync: this,
+        duration: const Duration(milliseconds: 900),
+      )..repeat(reverse: true);
+      _fade = Tween<double>(
+        begin: 0.25,
+        end: 1.0,
+      ).animate(CurvedAnimation(parent: _ctrl!, curve: Curves.easeInOut));
     }
   }
 
   @override
-  void dispose() { _ctrl?.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -919,7 +1126,13 @@ class _StatusChipState extends State<_StatusChip>
       decoration: BoxDecoration(
         color: widget.color,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: widget.color.withValues(alpha: 0.42), blurRadius: 6, offset: const Offset(0, 2))],
+        boxShadow: [
+          BoxShadow(
+            color: widget.color.withValues(alpha: 0.42),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -928,14 +1141,25 @@ class _StatusChipState extends State<_StatusChip>
             FadeTransition(
               opacity: _fade!,
               child: Container(
-                width: 6, height: 6,
-                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
               ),
             ),
             const SizedBox(width: 5),
           ],
-          Text(widget.label,
-            style: const TextStyle(fontFamily: 'Poppins', fontSize: 9.5, fontWeight: FontWeight.w700, color: Colors.white)),
+          Text(
+            widget.label,
+            style: const TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 9.5,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
         ],
       ),
     );
@@ -957,8 +1181,15 @@ class _TypeChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: kGold.withValues(alpha: 0.25)),
       ),
-      child: Text(label,
-        style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700, color: kGold)),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontFamily: 'Poppins',
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: kGold,
+        ),
+      ),
     );
   }
 }
@@ -967,8 +1198,8 @@ class _TypeChip extends StatelessWidget {
 
 class _MetaRow extends StatelessWidget {
   final IconData icon;
-  final String   text;
-  final AppTk      t;
+  final String text;
+  final AppTk t;
   const _MetaRow({required this.icon, required this.text, required this.t});
 
   @override
@@ -978,9 +1209,16 @@ class _MetaRow extends StatelessWidget {
         Icon(icon, size: 13, color: t.muted),
         const SizedBox(width: 6),
         Expanded(
-          child: Text(text,
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.sub),
-            maxLines: 1, overflow: TextOverflow.ellipsis),
+          child: Text(
+            text,
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 11.5,
+              color: t.sub,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
       ],
     );
@@ -990,10 +1228,10 @@ class _MetaRow extends StatelessWidget {
 // ── Capacity progress bar ─────────────────────────────────────────────────────
 
 class _CapacityBar extends StatelessWidget {
-  final double fill;      // share of all students registered
+  final double fill; // share of all students registered
   final String label;
-  final bool   showBar;   // false until the student count is known
-  final AppTk    t;
+  final bool showBar; // false until the student count is known
+  final AppTk t;
 
   const _CapacityBar({
     required this.fill,
@@ -1016,13 +1254,25 @@ class _CapacityBar extends StatelessWidget {
             Icon(Icons.people_rounded, size: 13, color: t.muted),
             const SizedBox(width: 5),
             Expanded(
-              child: Text(label,
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.sub)),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 11.5,
+                  color: t.sub,
+                ),
+              ),
             ),
             if (showBar)
-              Text('${(fill * 100).round()}%',
-                style: const TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                    fontWeight: FontWeight.w700, color: _barColor)),
+              Text(
+                '${(fill * 100).round()}%',
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: _barColor,
+                ),
+              ),
           ],
         ),
         if (showBar) ...[
@@ -1045,28 +1295,28 @@ class _CapacityBar extends StatelessWidget {
 // ── Primary action button ─────────────────────────────────────────────────────
 
 class _PrimaryBtn extends StatelessWidget {
-  final String        label;
-  final IconData?     icon;
-  final Color         color;
+  final String label;
+  final IconData? icon;
+  final Color color;
   final VoidCallback? onTap;
-  final bool          ghost;
-  final bool          loading;
-  final Gradient?     gradient;
+  final bool ghost;
+  final bool loading;
+  final Gradient? gradient;
 
   const _PrimaryBtn({
     required this.label,
     required this.icon,
     required this.color,
     required this.onTap,
-    this.ghost    = false,
-    this.loading  = false,
+    this.ghost = false,
+    this.loading = false,
     this.gradient,
   });
 
   @override
   Widget build(BuildContext context) {
-    final disabled     = onTap == null && !loading;
-    final useGradient  = gradient != null && !ghost && !disabled;
+    final disabled = onTap == null && !loading;
+    final useGradient = gradient != null && !ghost && !disabled;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -1077,20 +1327,30 @@ class _PrimaryBtn extends StatelessWidget {
           color: useGradient
               ? null
               : ghost
-                  ? Colors.transparent
-                  : disabled
-                      ? color.withValues(alpha: 0.45)
-                      : color,
+              ? Colors.transparent
+              : disabled
+              ? color.withValues(alpha: 0.45)
+              : color,
           borderRadius: BorderRadius.circular(12),
           border: ghost ? Border.all(color: color, width: 1.5) : null,
           boxShadow: ghost || disabled
               ? null
-              : [BoxShadow(color: color.withValues(alpha: 0.30), blurRadius: 8, offset: const Offset(0, 3))],
+              : [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.30),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
         ),
         child: loading
             ? SizedBox(
-                width: 15, height: 15,
-                child: CircularProgressIndicator(color: ghost ? color : Colors.white, strokeWidth: 2),
+                width: 15,
+                height: 15,
+                child: CircularProgressIndicator(
+                  color: ghost ? color : Colors.white,
+                  strokeWidth: 2,
+                ),
               )
             : Row(
                 mainAxisSize: MainAxisSize.min,
@@ -1099,9 +1359,15 @@ class _PrimaryBtn extends StatelessWidget {
                     Icon(icon, size: 14, color: ghost ? color : Colors.white),
                     const SizedBox(width: 6),
                   ],
-                  Text(label,
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, fontWeight: FontWeight.w700,
-                        color: ghost ? color : Colors.white)),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: ghost ? color : Colors.white,
+                    ),
+                  ),
                 ],
               ),
       ),

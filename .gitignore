@@ -47,3 +47,6 @@ app.*.map.json
 # Secret keys — never commit
 lib/services/app_secrets.dart
 
+
+# Test logins for end-to-end testing — never commit
+/test_accounts.local.json

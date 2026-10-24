@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/event_registration.dart';
+import '../check_in/selfie_screen.dart';
 import '../../../shared/widgets/qr_code_dialog.dart';
 import '../../../core/services/registration_service.dart';
 import '../../../core/services/student_count_service.dart';
@@ -24,22 +27,105 @@ class EventDetailsPage extends StatefulWidget {
 }
 
 class _EventDetailsPageState extends State<EventDetailsPage> {
+  // Live copies: refreshed whenever the event or the student's registration
+  // changes in the database, so a cancellation, a new time or venue, the
+  // registered count and the check-in status show up while the page is open.
+  late Map<String, dynamic> _event = widget.event;
   Map<String, dynamic>? _reg;
   bool _registering = false;
   int? _studentCount = StudentCountService.cached;   // = capacity
+
+  RealtimeChannel? _channel;
+  Timer? _debounce;
+  // Upcoming → Ongoing → Ended and Register → Closed follow the clock.
+  Timer? _clock;
 
   @override
   void initState() {
     super.initState();
     _reg = widget.registration;
-    StudentCountService.activeStudents().then((n) {
-      if (mounted && n != _studentCount) setState(() => _studentCount = n);
+    _subscribe();
+    _refresh();
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
     });
+  }
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    _debounce?.cancel();
+    if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
+    super.dispose();
+  }
+
+  String get _eventId => widget.event['event_id'] as String;
+
+  void _subscribe() {
+    void soon() {
+      _debounce?.cancel();
+      _debounce = Timer(const Duration(milliseconds: 400), () {
+        if (mounted) _refresh();
+      });
+    }
+
+    // The registrations channel isn't filtered: RLS already limits it to the
+    // student's own rows, and a filtered channel never hears deletes.
+    _channel = Supabase.instance.client.channel('student-event-$_eventId')
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: '*',
+          schema: 'public',
+          table: 'events',
+          filter: 'event_id=eq.$_eventId',
+        ),
+        (_, [_]) => soon(),
+      )
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: 'registrations'),
+        (_, [_]) => soon(),
+      )
+      ..subscribe();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final client = Supabase.instance.client;
+      final uid = client.auth.currentUser?.id;
+      final eventFuture =
+          client.from('events').select().eq('event_id', _eventId).maybeSingle();
+      if (uid == null) return;
+      final regFuture = client
+          .from('registrations')
+          .select()
+          .eq('event_id', _eventId)
+          .eq('student_user_id', uid)
+          .maybeSingle();
+      final countFuture = StudentCountService.activeStudents();
+      final ev = await eventFuture;
+      final Map? reg = await regFuture;
+      final count = await countFuture;
+      if (!mounted) return;
+      setState(() {
+        if (ev != null) _event = Map<String, dynamic>.from(ev);
+        _reg = reg == null ? null : Map<String, dynamic>.from(reg);
+        _studentCount = count ?? _studentCount;
+      });
+    } catch (e) {
+      // Offline for a moment: keep what's on screen.
+      debugPrint('EventDetailsPage refresh failed: $e');
+    }
   }
 
   // ── Data helpers ───────────────────────────────────────────────────────────
 
-  Map<String, dynamic> get _e => widget.event;
+  Map<String, dynamic> get _e => _event;
+
+  // Theme colours — this page used fixed light-mode colours, which made
+  // headings and the Date / Time / Venue values unreadable in dark mode.
+  AppTk get _t => AppTk(Theme.of(context).brightness == Brightness.dark);
 
   String get _title => _e['title'] as String? ?? '—';
   String get _location => _e['location'] as String? ?? '—';
@@ -94,14 +180,15 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     return e == '—' ? s : '$s — $e';
   }
 
-  String get _deadlineText {
-    final iso = _e['registration_deadline'] as String?;
-    if (iso == null) return 'None';
-    try {
-      final dt = DateTime.parse(iso).toLocal();
-      const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      return '${m[dt.month - 1]} ${dt.day}, ${dt.year}';
-    } catch (_) { return iso; }
+  // The deadline when one is set, otherwise 2 hours after the start
+  // (registrationClosesAt — the same rule the database enforces).
+  String get _closesText {
+    final dt = registrationClosesAt(_e);
+    if (dt == null) return '—';
+    const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '${m[dt.month - 1]} ${dt.day}, $h:$mm ${dt.hour < 12 ? 'AM' : 'PM'}';
   }
 
   String get _createdText {
@@ -117,7 +204,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   bool get _isRegistered => _reg != null;
 
   // Shared rule (also enforced by the server): registration closes at the
-  // deadline, else when the event starts.
+  // deadline, else 2 hours after the event starts.
   RegistrationState get _regState => registrationState(_e);
 
   // Not cancelled / not ended.
@@ -125,7 +212,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
       _regState != RegistrationState.ended &&
       _regState != RegistrationState.notApproved;
 
-  // Registration window closed: deadline passed, or the event has started.
+  // Registration window closed: deadline passed, or 2 hours into the event.
   bool get _isDeadlinePassed => _regState == RegistrationState.deadlinePassed ||
       _regState == RegistrationState.started;
 
@@ -161,14 +248,14 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
       context,
       EventRegistration(
         registrationId: _reg!['id'] as String,
-        eventId: _reg!['event_id'] as String,
-        eventTitle: _reg!['event_title'] as String? ?? _title,
+        eventTitle: _title,   // current name, not the copy from sign-up
         studentId: _reg!['student_school_id'] as String? ?? '',
         studentName: _reg!['student_name'] as String? ?? '',
         registrationDate:
             DateTime.tryParse(_reg!['registered_at'] as String? ?? '') ??
                 DateTime.now(),
         qrCodeData: _reg!['qr_code'] as String,
+        ticketCode: _reg!['ticket_code'] as String? ?? '—',
       ),
     );
   }
@@ -213,7 +300,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
       expandedHeight: 280,
       pinned: true,
       stretch: true,
-      backgroundColor: kText,
+      backgroundColor: _t.dark ? _t.navBg : kText,
       leading: Padding(
         padding: const EdgeInsets.all(8),
         child: CircleAvatar(
@@ -296,7 +383,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   }
 
   Widget _heroBg() => Container(
-        color: kText,
+        color: _t.dark ? _t.navBg : kText,
         child: Center(
           child: Icon(Icons.event, size: 72, color: kGold.withValues(alpha: 0.4)),
         ),
@@ -339,7 +426,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey[300],
+                color: _t.divider,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -456,21 +543,21 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             children: [
               Text(
                 label,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 11,
-                  color: kSubText,
+                  color: _t.sub,
                   fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
                 value,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: kText,
+                  color: _t.text,
                 ),
               ),
             ],
@@ -497,7 +584,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             style: TextStyle(
               fontFamily: 'Poppins',
               fontSize: 14,
-              color: _description.isNotEmpty ? kSubText : Colors.grey[400],
+              color: _description.isNotEmpty ? _t.sub : _t.muted,
               height: 1.65,
             ),
           ),
@@ -559,7 +646,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               child: LinearProgressIndicator(
                 value: _fillRatio,
                 minHeight: 10,
-                backgroundColor: Colors.grey[200],
+                backgroundColor: _t.shimmer1,
                 valueColor: AlwaysStoppedAnimation<Color>(barColor),
               ),
             ),
@@ -569,10 +656,10 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               children: [
                 Text(
                   '$_registered registered',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 11,
-                    color: kSubText,
+                    color: _t.sub,
                   ),
                 ),
                 Text(
@@ -591,7 +678,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.info_outline_rounded, size: 14, color: kSubText),
+              Icon(Icons.info_outline_rounded, size: 14, color: _t.sub),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -599,8 +686,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                       ? 'Every student can register — the $_capacity spots are '
                         'the school’s total number of students.'
                       : 'Every student can register.',
-                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                      color: kSubText, height: 1.45),
+                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
+                      color: _t.sub, height: 1.45),
                 ),
               ),
             ],
@@ -648,10 +735,10 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             const SizedBox(height: 2),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 10,
-                color: kSubText,
+                color: _t.sub,
               ),
             ),
           ],
@@ -686,22 +773,22 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
           _timelineItem(
             icon: Icons.lock_clock,
             color: kGold,
-            label: 'Registration Deadline',
-            value: _deadlineText,
+            label: 'Registration closes',
+            value: _closesText,
             isLast: true,
           ),
           const SizedBox(height: 12),
           // Created at footer
           Row(
             children: [
-              Icon(Icons.info_outline, size: 13, color: Colors.grey[400]),
+              Icon(Icons.info_outline, size: 13, color: _t.muted),
               const SizedBox(width: 6),
               Text(
                 'Published on $_createdText',
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 11,
-                  color: Colors.grey[400],
+                  color: _t.muted,
                 ),
               ),
             ],
@@ -735,7 +822,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                     child: Center(
                       child: Container(
                         width: 2,
-                        color: Colors.grey[200],
+                        color: _t.border,
                       ),
                     ),
                   )
@@ -760,7 +847,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                     child: Center(
                       child: Container(
                         width: 2,
-                        color: Colors.grey[200],
+                        color: _t.border,
                       ),
                     ),
                   )
@@ -781,21 +868,21 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                 children: [
                   Text(
                     label,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 11,
-                      color: kSubText,
+                      color: _t.sub,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     value,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: kText,
+                      color: _t.text,
                     ),
                   ),
                 ],
@@ -829,7 +916,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         MediaQuery.of(context).padding.bottom + 16,
       ),
       child: _isRegistered
-          ? _qrButton()
+          ? _registeredAction()
           : !_canRegister
               ? _closedButton()
               : _isDeadlinePassed
@@ -865,6 +952,85 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         style: ElevatedButton.styleFrom(
           backgroundColor: kGold,
           foregroundColor: Colors.white,
+          elevation: 0,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      ),
+    );
+  }
+
+  // The registered student's next step, following their ticket live: show
+  // the QR → take the check-in photo → wait for the organizer → checked in.
+  Widget _registeredAction() {
+    return switch (_reg?['status'] as String? ?? 'pending') {
+      'photo_required' => _actionButton(
+          icon: Icons.photo_camera_rounded,
+          label: 'Take Check-in Photo',
+          color: kCheckInOpenColor,
+          onPressed: _openSelfie,
+        ),
+      'photo_submitted' => _actionButton(
+          icon: Icons.hourglass_top_rounded,
+          label: 'Photo sent — waiting for the organizer',
+        ),
+      'checked_in' => _actionButton(
+          icon: Icons.check_circle_rounded,
+          label: 'Checked In',
+          color: const Color(0xFF15803D),
+          solidWhenDisabled: true,
+        ),
+      'rejected' => _actionButton(
+          icon: Icons.block_rounded,
+          label: 'Registration Declined',
+          color: const Color(0xFFB91C1C),
+          solidWhenDisabled: true,
+        ),
+      _ => _qrButton(),
+    };
+  }
+
+  void _openSelfie() {
+    final id = _reg?['id'] as String?;
+    if (id == null) return;
+    HapticFeedback.lightImpact();
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => SelfieScreen(registrationId: id),
+      fullscreenDialog: true,
+    ));
+  }
+
+  Widget _actionButton({
+    required IconData icon,
+    required String label,
+    Color? color,
+    VoidCallback? onPressed,
+    bool solidWhenDisabled = false,
+  }) {
+    final solid = color ?? _t.sub;
+    return SizedBox(
+      width: double.infinity,
+      height: 54,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 20),
+        label: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 14.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: solid,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor:
+              solidWhenDisabled ? solid : _t.shimmer2,
+          disabledForegroundColor:
+              solidWhenDisabled ? Colors.white : _t.sub,
           elevation: 0,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -967,8 +1133,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
           ),
         ),
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.grey[300],
-          foregroundColor: kSubText,
+          backgroundColor: _t.shimmer2,
+          foregroundColor: _t.sub,
           elevation: 0,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -986,7 +1152,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         icon: const Icon(Icons.timer_off_rounded, size: 20),
         label: Text(
           _regState == RegistrationState.started
-              ? 'Registration Closed — Event Started'
+              ? 'Registration Closed'
               : 'Registration Deadline Passed',
           style: const TextStyle(
             fontFamily: 'Poppins',
@@ -995,8 +1161,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
           ),
         ),
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.grey[300],
-          foregroundColor: kSubText,
+          backgroundColor: _t.shimmer2,
+          foregroundColor: _t.sub,
           elevation: 0,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -1010,11 +1176,11 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   Widget _sectionTitle(String text) {
     return Text(
       text,
-      style: const TextStyle(
+      style: TextStyle(
         fontFamily: 'Poppins',
         fontSize: 16,
         fontWeight: FontWeight.w700,
-        color: kText,
+        color: _t.text,
       ),
     );
   }
@@ -1023,7 +1189,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
     return Divider(
       height: 1,
       thickness: 1,
-      color: Colors.grey[100],
+      color: _t.divider,
       indent: 20,
       endIndent: 20,
     );

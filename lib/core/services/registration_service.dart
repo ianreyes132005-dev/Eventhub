@@ -6,6 +6,8 @@ import 'supabase_service.dart';
 import 'audit_service.dart';
 import '../friendly_error.dart';
 import '../app_colors.dart';
+import '../ticket_code.dart';
+import '../../shared/utils/realtime_utils.dart';
 
 // Generates a RFC-4122 v4 UUID using dart:math — no external package needed.
 String _newUuid() {
@@ -135,16 +137,16 @@ class RegistrationService {
     return List<Map<String, dynamic>>.from(rows as List);
   }
 
-  /// Returns registrations joined with their event details (event_date,
-  /// start_time, end_time, location, event_status, event_image_url).
-  /// Each row has a nested 'events' map with those fields.
+  /// Returns registrations joined with their whole event under 'events' —
+  /// all columns, so the end date (multi-day events), the current title and
+  /// the cancellation come along.
   static Future<List<Map<String, dynamic>>> getMyRegistrationsWithEvents() async {
     final user = SupabaseService.currentUser;
     if (user == null) return [];
     final rows = await _db
         .from('registrations')
         .select(
-          '*, events(event_date, start_time, end_time, location, event_status, event_image_url)',
+          '*, events(*)',
         )
         .eq('student_user_id', user.id)
         .order('registered_at', ascending: false);
@@ -180,33 +182,73 @@ class RegistrationService {
   // Organizer operations
   // ──────────────────────────────────────────────────────────
 
-  /// Deletes a registration. current_participants is decremented automatically
-  /// by trg_maintain_participant_count.
+  /// Deletes a registration of one of the organizer's events. Checked-in ones
+  /// are kept ([registrationDeletable]; the database refuses them too).
+  /// current_participants is decremented automatically by
+  /// trg_maintain_participant_count. Throws when nothing was deleted, so the
+  /// row isn't hidden while it still exists.
   static Future<void> deleteRegistration(String registrationId) async {
-    await _db.from('registrations').delete().eq('id', registrationId);
+    final rows = await _db
+        .from('registrations')
+        .delete()
+        .eq('id', registrationId)
+        .select('id');
+    if ((rows as List).isEmpty) {
+      throw const FriendlyException(
+        'Nothing was deleted. The student may have just checked in '
+        '(checked-in registrations are kept as the attendance record), '
+        'or the registration is already gone.',
+      );
+    }
   }
 
-  /// Returns all registrations scoped to [organizerId]'s events.
+  /// Every event of [organizerId] — including ones nobody has registered
+  /// for yet, so their first sign-ups can be told apart from other
+  /// organizers' (see [subscribeToAllRegistrations]).
+  static Future<List<String>> organizerEventIds(String organizerId) async {
+    final rows = await _db
+        .from('events')
+        .select('event_id')
+        .eq('organizer_id', organizerId);
+    return (rows as List).map((e) => e['event_id'] as String).toList();
+  }
+
+  /// [organizerId]'s events: every id (as [organizerEventIds]) and the ones
+  /// the admin archived — their registrations are read-only.
+  static Future<({
+    List<String> ids,
+    Set<String> archived,
+    List<Map<String, dynamic>> events,
+  })> organizerEventsWithArchive(String organizerId) async {
+    final rows = await _db
+        .from('events')
+        .select('event_id, title, event_date, archived_at')
+        .eq('organizer_id', organizerId);
+    final events = List<Map<String, dynamic>>.from(rows as List);
+    return (
+      ids: [for (final e in events) e['event_id'] as String],
+      archived: {for (final e in events) if (eventIsArchived(e)) e['event_id'] as String},
+      events: events,
+    );
+  }
+
+  /// Returns all registrations scoped to [organizerId]'s events, or to
+  /// [eventIds] when the caller already has them.
   /// Optionally further filtered by a single [eventId].
-  /// Passing neither fetches all registrations in the system (use only when
-  /// RLS policies enforce row-level isolation).
+  /// Passing none of them fetches all registrations in the system (use only
+  /// when RLS policies enforce row-level isolation).
   static Future<List<Map<String, dynamic>>> getAllRegistrations({
     String? eventId,
     String? organizerId,
+    List<String>? eventIds,
   }) async {
     // When an organizerId is provided, resolve the set of event IDs that
     // belong to that organizer and restrict the query to those rows only.
-    List<String>? orgEventIds;
-    if (organizerId != null) {
-      final evRows = await _db
-          .from('events')
-          .select('event_id')
-          .eq('organizer_id', organizerId);
-      orgEventIds = (evRows as List)
-          .map((e) => e['event_id'] as String)
-          .toList();
-      if (orgEventIds.isEmpty) return [];
+    List<String>? orgEventIds = eventIds;
+    if (orgEventIds == null && organizerId != null) {
+      orgEventIds = await organizerEventIds(organizerId);
     }
+    if (orgEventIds != null && orgEventIds.isEmpty) return [];
 
     dynamic query = _db
         .from('registrations')
@@ -224,13 +266,20 @@ class RegistrationService {
   }
 
   /// Why check-in isn't possible for [eventId] right now (cancelled, or
-  /// outside 1 h before start … 2 h after end), or null when it is.
-  /// Same window the server enforces in enforce_registration_update_rules.
-  static Future<String?> checkInProblem(String? eventId) async {
-    if (eventId == null) return null;
+  /// outside 1 h before start … 2 h after end), or null when it is — plus,
+  /// when it just hasn't opened yet, the time it opens (the scanner counts
+  /// down to it). Same window the server enforces in
+  /// enforce_registration_update_rules.
+  static Future<({String? problem, DateTime? opensAt})> checkInWindow(String? eventId) async {
+    if (eventId == null) return (problem: null, opensAt: null);
     final ev = await _db.from('events').select().eq('event_id', eventId).maybeSingle();
-    if (ev == null) return null;
-    return checkInBlockedReason(Map<String, dynamic>.from(ev));
+    if (ev == null) return (problem: null, opensAt: null);
+    final event = Map<String, dynamic>.from(ev);
+    final now = DateTime.now();
+    return (
+      problem: checkInBlockedReason(event, now: now),
+      opensAt: checkInOpensAt(event, now: now),
+    );
   }
 
   /// Look up a registration by its QR code value (= the registration UUID).
@@ -241,6 +290,52 @@ class RegistrationService {
         .eq('qr_code', qrCode)
         .maybeSingle();
     return row != null ? Map<String, dynamic>.from(row) : null;
+  }
+
+  /// The signed-in organizer's tickets whose Ticket ID is [code] (the short
+  /// code under the QR — see core/ticket_code.dart), each with its event.
+  /// Usually one; more when the same code is in several of their events,
+  /// since codes are unique per event. Archived events are left out. Soonest
+  /// event first.
+  static Future<List<TicketMatch>> findByTicketCode(String code) async {
+    final user = SupabaseService.currentUser;
+    if (user == null) return [];
+    return _plainErrors(() async {
+      final org = await _db
+          .from('organizers')
+          .select('organizer_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+      final organizerId = org?['organizer_id'] as String?;
+      if (organizerId == null) return <TicketMatch>[];
+
+      final regRows = await _db
+          .from('registrations')
+          .select()
+          .eq('ticket_code', code);
+      final regs = List<Map<String, dynamic>>.from(regRows as List);
+      if (regs.isEmpty) return <TicketMatch>[];
+
+      // Only this organizer's events, whatever the registrations policy lets
+      // them read.
+      final evRows = await _db
+          .from('events')
+          .select()
+          .eq('organizer_id', organizerId)
+          .in_('event_id', regs.map((r) => r['event_id'] as String).toSet().toList());
+      final events = <String, Map<String, dynamic>>{
+        for (final e in List<Map<String, dynamic>>.from(evRows as List))
+          if (!eventIsArchived(e)) e['event_id'] as String: e,
+      };
+
+      DateTime startOf(Map<String, dynamic> e) =>
+          eventWindow(e)?.start ?? DateTime(9999);
+      return [
+        for (final r in regs)
+          if (events[r['event_id']] case final event?)
+            (registration: r, event: event),
+      ]..sort((a, b) => startOf(a.event).compareTo(startOf(b.event)));
+    });
   }
 
   /// Update the status of a registration.
@@ -298,9 +393,16 @@ class RegistrationService {
     }
   }
 
-  /// Generate a 1-hour signed URL so the organizer can view a private selfie.
+  /// How long a selfie link works. Screens that stay open longer renew their
+  /// links before then — see SelfieLinks (core/services/selfie_links.dart).
+  static const selfieLinkLifetime = Duration(hours: 1);
+
+  /// A signed URL ([selfieLinkLifetime]) so the organizer can view a private
+  /// selfie.
   static Future<String> getSelfieSignedUrl(String storagePath) async {
-    return _db.storage.from('selfies').createSignedUrl(storagePath, 3600);
+    return _db.storage
+        .from('selfies')
+        .createSignedUrl(storagePath, selfieLinkLifetime.inSeconds);
   }
 
   // ──────────────────────────────────────────────────────────
@@ -337,21 +439,59 @@ class RegistrationService {
     return channel;
   }
 
+  /// Whether a live registration change belongs to the organizer whose
+  /// events are [allowedEventIds] (null = no filter). A delete carries only
+  /// the row id (RLS), so it can't be checked here: it always passes, and the
+  /// screen removes the row if it has it.
+  static bool registrationChangeAllowed(
+    String eventType,
+    Map<String, dynamic> record,
+    Set<String>? allowedEventIds,
+  ) {
+    if (eventType == 'DELETE' || allowedEventIds == null) return true;
+    final evId = record['event_id'] as String?;
+    return evId != null && allowedEventIds.contains(evId);
+  }
+
   /// Listens for INSERT, UPDATE, and DELETE events on registrations.
   ///
   /// [channelSuffix] scopes the channel per organizer to prevent cross-client
-  /// collisions (pass the organizer_id). [allowedEventIds] provides a
-  /// client-side filter so only events owned by the subscribing organizer are
-  /// surfaced — events for other organizers are silently dropped.
+  /// collisions (pass the organizer_id). [allowedEventIds] keeps it to that
+  /// organizer's events: it's read on every change, so it can be filled
+  /// after subscribing, and with [organizerId] the organizer's events that
+  /// are created or updated meanwhile join it — a new event's first sign-ups
+  /// come through. Deletes always come through (see
+  /// [registrationChangeAllowed]).
   ///
   /// Call [Supabase.instance.client.removeChannel] on the returned channel
   /// when the listener is no longer needed.
   static RealtimeChannel subscribeToAllRegistrations(
     void Function(String eventType, Map<String, dynamic> record) onEvent, {
-    String?       channelSuffix,
-    List<String>? allowedEventIds,
+    String?      channelSuffix,
+    Set<String>? allowedEventIds,
+    String?      organizerId,
+    void Function(Map<String, dynamic> event)? onEventRow,
   }) {
     final channel = _db.channel('organizer-reg-${channelSuffix ?? 'all'}');
+
+    if (organizerId != null && allowedEventIds != null) {
+      channel.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: '*',
+          schema: 'public',
+          table: 'events',
+          filter: 'organizer_id=eq.$organizerId',
+        ),
+        (payload, [ref]) {
+          final row = realtimeRow(payload);
+          final id = row?['event_id'];
+          if (id is String) allowedEventIds.add(id);
+          // e.g. the admin archiving or restoring one of these events.
+          if (row != null) onEventRow?.call(row);
+        },
+      );
+    }
 
     for (final evt in ['INSERT', 'UPDATE', 'DELETE']) {
       channel.on(
@@ -362,13 +502,7 @@ class RegistrationService {
               ? (payload['old'] as Map?) ?? {}
               : (payload['new'] as Map?) ?? {};
           final rec = Map<String, dynamic>.from(raw);
-
-          // Drop events that don't belong to this organizer's events.
-          if (allowedEventIds != null && allowedEventIds.isNotEmpty) {
-            final evId = rec['event_id'] as String?;
-            if (evId == null || !allowedEventIds.contains(evId)) return;
-          }
-
+          if (!registrationChangeAllowed(evt, rec, allowedEventIds)) return;
           onEvent(evt, rec);
         },
       );

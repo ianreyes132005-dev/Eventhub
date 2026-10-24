@@ -9,10 +9,14 @@ class AccountSessionGuard {
 
   static bool _handlingDeactivation = false;
 
+  /// Signs the user out the moment their account is deactivated. Any other
+  /// change to their row (an admin editing the name, organization or photo)
+  /// goes to [onUpdate], so headers can follow it.
   static RealtimeChannel? watch(
     BuildContext context, {
     required String table,
     required String userId,
+    void Function(Map<String, dynamic> row)? onUpdate,
   }) {
     final client = Supabase.instance.client;
     return client.channel('account-status-$table-$userId').on(
@@ -29,6 +33,8 @@ class AccountSessionGuard {
         );
         if (newRecord['is_active'] == false) {
           ensureActive(context, isActive: false);
+        } else if (newRecord.isNotEmpty) {
+          onUpdate?.call(newRecord);
         }
       },
     )..subscribe();

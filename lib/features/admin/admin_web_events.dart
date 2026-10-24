@@ -57,8 +57,7 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
       final id = e['organizer_id'] as String?;
       if (id == null) continue;
       final org = e['organizers'] as Map<String, dynamic>?;
-      final inTab = _tab == 'all' ||
-          (e['approval_status'] as String? ?? 'approved') == _tab;
+      final inTab = _tab == 'all' || approvalStatusOf(e) == _tab;
       final prev = byId[id];
       byId[id] = _OrgOption(
         id:           id,
@@ -112,7 +111,8 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
       final changeRequests = await EventChangeRequestService.pendingForAdmin();
       final pendingIds = [
         for (final e in rows as List)
-          if ((e as Map)['approval_status'] == 'pending') e['event_id'] as String,
+          if (approvalStatusOf(Map<String, dynamic>.from(e as Map)) == 'pending')
+            e['event_id'] as String,
       ];
       final lastRejection = await _loadLastRejections(pendingIds);
       if (!mounted) return;
@@ -172,7 +172,7 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
     if (resetPage) _page = 0;
     final q = _search.toLowerCase();
     var list = _all.where((e) {
-      final approval = (e['approval_status'] as String? ?? 'approved');
+      final approval = approvalStatusOf(e);
       if (_tab != 'all' && approval != _tab) return false;
       if (_orgFilter != null && e['organizer_id'] != _orgFilter) return false;
       if (q.isNotEmpty) {
@@ -364,12 +364,16 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
 
-    int countFor(String status) => _all.where((e) =>
-        (e['approval_status'] as String? ?? 'approved') == status).length;
+    int countFor(String status) =>
+        _all.where((e) => approvalStatusOf(e) == status).length;
     final pendingCount  = countFor('pending');
     final approvedCount = countFor('approved');
     final rejectedCount = countFor('rejected');
-    final tabTotal      = _tab == 'all' ? _all.length : countFor(_tab);
+    final tabTotal      = switch (_tab) {
+      'all' => _all.length,
+      'changes' => _changeRequests.length,
+      _ => countFor(_tab),
+    };
 
     final hasFilter = _search.isNotEmpty || _orgFilter != null;
     final orgOpts   = _orgOptions;
@@ -381,7 +385,7 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
     // Review column: always on Pending; on All only when a pending row is
     // on this page. Every row reserves it so STATUS lines up in a mixed list.
     final showAction = _tab == 'pending' || (_tab == 'all' &&
-        pageRows.any((e) => (e['approval_status'] as String? ?? 'approved') == 'pending'));
+        pageRows.any((e) => approvalStatusOf(e) == 'pending'));
     final tabLabel = switch (_tab) {
       'pending'  => 'events pending review',
       'approved' => 'approved events',
@@ -413,9 +417,6 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
               Text('Events',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
                     fontWeight: FontWeight.w800, color: t.text)),
-              const SizedBox(height: 2),
-              Text('Archived events are in Archives.',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted)),
             ])),
           ]),
           const SizedBox(height: 8),
@@ -440,29 +441,47 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
                   controller: _searchCtrl, hint: 'Search title, organizer, or type…',
                   onChanged: (v) { _search = v; _applyFilter(resetPage: true); }, width: 200),
                 _barDivider(t),
-                // "All" first and selected by default: every event regardless
-                // of approval state (pending rows still show Review).
-                WebFilterChip(
-                  label: 'All', selected: _tab == 'all',
-                  onTap: () { _tab = 'all'; _applyFilter(resetPage: true); },
-                  count: _all.length, selectedColor: kAdminAccent),
-                WebFilterChip(
-                  label: 'Pending Review', selected: _tab == 'pending',
-                  onTap: () { _tab = 'pending'; _applyFilter(resetPage: true); },
-                  count: pendingCount, selectedColor: const Color(0xFFF59E0B)),
-                // Edits to live events waiting for review.
-                WebFilterChip(
-                  label: 'Change requests', selected: _tab == 'changes',
-                  onTap: () { _tab = 'changes'; _applyFilter(resetPage: true); },
-                  count: _changeRequests.length, selectedColor: const Color(0xFF3B82F6)),
-                WebFilterChip(
-                  label: 'Approved', selected: _tab == 'approved',
-                  onTap: () { _tab = 'approved'; _applyFilter(resetPage: true); },
-                  count: approvedCount, selectedColor: const Color(0xFF10B981)),
-                WebFilterChip(
-                  label: 'Rejected', selected: _tab == 'rejected',
-                  onTap: () { _tab = 'rejected'; _applyFilter(resetPage: true); },
-                  count: rejectedCount, selectedColor: const Color(0xFFEF4444)),
+                WebFilterMenu<String>(
+                  icon: Icons.filter_list_rounded,
+                  label: 'Status',
+                  menuWidth: 260,
+                  selected: _tab,
+                  options: [
+                    WebFilterOption(
+                      value: 'all',
+                      label: 'All',
+                      count: _all.length,
+                    ),
+                    WebFilterOption(
+                      value: 'pending',
+                      label: 'Pending Review',
+                      count: pendingCount,
+                      color: const Color(0xFFF59E0B),
+                    ),
+                    WebFilterOption(
+                      value: 'changes',
+                      label: 'Change requests',
+                      count: _changeRequests.length,
+                      color: const Color(0xFF3B82F6),
+                    ),
+                    WebFilterOption(
+                      value: 'approved',
+                      label: 'Approved',
+                      count: approvedCount,
+                      color: const Color(0xFF10B981),
+                    ),
+                    WebFilterOption(
+                      value: 'rejected',
+                      label: 'Rejected',
+                      count: rejectedCount,
+                      color: const Color(0xFFEF4444),
+                    ),
+                  ],
+                  onSelect: (status) {
+                    _tab = status;
+                    _applyFilter(resetPage: true);
+                  },
+                ),
                 _barDivider(t),
                 _OrganizerFilterMenu(
                   options:    orgOpts,
@@ -533,7 +552,7 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
                   separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
                   itemBuilder: (_, i) {
                     final e = pageRows[i];
-                    final isPending = (e['approval_status'] as String? ?? 'approved') == 'pending';
+                    final isPending = approvalStatusOf(e) == 'pending';
                     return _EventRow(
                       event: e,
                       onReview: isPending ? () => _openReview(e) : null,
@@ -655,7 +674,7 @@ class _EventRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final e            = event;
-    final approval     = e['approval_status'] as String? ?? 'approved';
+    final approval     = approvalStatusOf(e);
     final isRejected   = approval == 'rejected';
     final type         = e['event_type']   as String? ?? '';
     final orgMap       = e['organizers']   as Map<String, dynamic>?;
@@ -966,9 +985,9 @@ class _EventReviewDialogState extends State<_EventReviewDialog>
                         ),
                         const SizedBox(height: 14),
                       ],
-                      // Expired: the event started before it was reviewed —
-                      // approving now would open registration mid-event.
-                      if (approvalExpired(e)) ...[
+                      // It started while this was open: approving now would
+                      // open registration mid-event, so it counts as rejected.
+                      if (pendingPastStart(e)) ...[
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
@@ -980,9 +999,9 @@ class _EventReviewDialogState extends State<_EventReviewDialog>
                             Icon(Icons.history_toggle_off_rounded, size: 18, color: t.sub),
                             const SizedBox(width: 10),
                             Expanded(child: Text(
-                              'This event’s start time has already passed, so it can no longer '
-                              'be approved. Reject it with a note asking the organizer to '
-                              'reschedule and resubmit.',
+                              'This event’s start time has passed, so it can no longer be '
+                              'approved. It’s rejected automatically: not reviewed by the '
+                              'admin before the event started.',
                               style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
                                   color: t.sub, height: 1.5))),
                           ]),
@@ -1155,7 +1174,7 @@ class _EventReviewDialogState extends State<_EventReviewDialog>
                           Expanded(
                             child: ElevatedButton.icon(
                               // Disabled once the start time has passed (server rejects it too).
-                              onPressed: approvalExpired(e)
+                              onPressed: pendingPastStart(e)
                                   ? null
                                   : () => Navigator.of(context).pop({'action': 'approve'}),
                               icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
@@ -1671,8 +1690,12 @@ class _ChangeReviewDialogState extends State<_ChangeReviewDialog> {
     if (id == null) return;
     try {
       final rows = await SupabaseService.client.from('registrations')
-          .select('event_id').eq('event_id', id);
-      if (mounted) setState(() => _registered = (rows as List).length);
+          .select('status').eq('event_id', id);
+      // Declined students aren't registered and aren't notified.
+      if (mounted) {
+        setState(() => _registered = List<Map<String, dynamic>>.from(rows as List)
+            .where(countsAsRegistered).length);
+      }
     } catch (_) {}
   }
 

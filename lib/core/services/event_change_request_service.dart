@@ -18,12 +18,25 @@ class EventChangeRequestService {
   /// Columns a change request may change. (Not capacity — that's the number
   /// of active students, see StudentCountService.)
   static const editableFields = [
-    'title', 'description', 'event_type', 'location', 'event_date', 'end_date',
-    'start_time', 'end_time', 'event_image_url',
+    'title',
+    'description',
+    'event_type',
+    'location',
+    'event_date',
+    'end_date',
+    'start_time',
+    'end_time',
+    'event_image_url',
   ];
 
   /// Fields that make registered students get an "Event updated" notice.
-  static const scheduleFields = ['event_date', 'end_date', 'start_time', 'end_time', 'location'];
+  static const scheduleFields = [
+    'event_date',
+    'end_date',
+    'start_time',
+    'end_time',
+    'location',
+  ];
 
   /// True when [event] is live, so edits need admin approval.
   static bool needsApproval(Map<String, dynamic> event) =>
@@ -31,16 +44,20 @@ class EventChangeRequestService {
 
   /// Only the fields in [proposed] whose value differs from [current].
   static Map<String, dynamic> diff(
-      Map<String, dynamic> current, Map<String, dynamic> proposed) {
+    Map<String, dynamic> current,
+    Map<String, dynamic> proposed,
+  ) {
     String norm(Object? v) {
       final s = (v ?? '').toString().trim();
       // "09:00:00" vs "09:00" — compare times by hh:mm.
       final t = RegExp(r'^(\d{2}:\d{2})(:\d{2})?$').firstMatch(s);
       return t != null ? t.group(1)! : s;
     }
+
     return {
       for (final k in editableFields)
-        if (proposed.containsKey(k) && norm(proposed[k]) != norm(current[k])) k: proposed[k],
+        if (proposed.containsKey(k) && norm(proposed[k]) != norm(current[k]))
+          k: proposed[k],
     };
   }
 
@@ -49,17 +66,22 @@ class EventChangeRequestService {
 
   /// Pending / latest change requests for the given events, keyed by event_id.
   /// Returns {} if the change-request table isn't installed yet.
-  static Future<Map<String, Map<String, dynamic>>> latestFor(Iterable<String> eventIds) async {
+  static Future<Map<String, Map<String, dynamic>>> latestFor(
+    Iterable<String> eventIds,
+  ) async {
     final ids = eventIds.toSet().toList();
     if (ids.isEmpty) return {};
     try {
-      final rows = await _db.from('event_revisions').select()
-          .in_('event_id', ids).order('created_at', ascending: false);
+      final rows = await _db
+          .from('event_revisions')
+          .select()
+          .in_('event_id', ids)
+          .order('created_at', ascending: false);
       final out = <String, Map<String, dynamic>>{};
       for (final r in rows as List) {
         final m = Map<String, dynamic>.from(r as Map);
         if (m['status'] == 'withdrawn') continue;
-        out.putIfAbsent(m['event_id'] as String, () => m);   // newest first
+        out.putIfAbsent(m['event_id'] as String, () => m); // newest first
       }
       return out;
     } catch (_) {
@@ -75,17 +97,32 @@ class EventChangeRequestService {
     required Map<String, dynamic> changes,
   }) async {
     try {
-      final open = await _db.from('event_revisions').select('id')
-          .eq('event_id', eventId).eq('status', 'pending').maybeSingle();
-      if (open != null) {
-        await _db.from('event_revisions')
-            .update({'changes': changes}).eq('id', open['id'] as String);
+      final open = await _pendingRevisions(eventId);
+      if (open.length > 1) {
+        throw const FriendlyException(
+          'This event has more than one pending change request. Please contact the administrator.',
+        );
+      }
+      if (open.isNotEmpty) {
+        await _updatePending(open.single['id'] as String, changes);
       } else {
-        await _db.from('event_revisions').insert({
-          'event_id':     eventId,
-          'organizer_id': organizerId,
-          'changes':      changes,
-        });
+        try {
+          await _db.from('event_revisions').insert({
+            'event_id': eventId,
+            'organizer_id': organizerId,
+            'changes': changes,
+          });
+        } on PostgrestException catch (e) {
+          // Another device may have created the pending request after the
+          // lookup. Reuse it rather than making the organizer start over.
+          if (e.code != '23505' ||
+              !e.message.contains('event_revisions_one_pending')) {
+            rethrow;
+          }
+          final raced = await _pendingRevisions(eventId);
+          if (raced.length != 1) rethrow;
+          await _updatePending(raced.single['id'] as String, changes);
+        }
       }
     } on PostgrestException catch (e) {
       throw FriendlyException(friendlyError(e));
@@ -99,11 +136,40 @@ class EventChangeRequestService {
     );
   }
 
+  static Future<List<Map<String, dynamic>>> _pendingRevisions(
+    String eventId,
+  ) async {
+    final rows = await _db
+        .from('event_revisions')
+        .select('id')
+        .eq('event_id', eventId)
+        .eq('status', 'pending');
+    return List<Map<String, dynamic>>.from(rows as List);
+  }
+
+  static Future<void> _updatePending(
+    String revisionId,
+    Map<String, dynamic> changes,
+  ) async {
+    final rows = await _db
+        .from('event_revisions')
+        .update({'changes': changes})
+        .eq('id', revisionId)
+        .select('id');
+    if ((rows as List).isEmpty) {
+      throw const FriendlyException(
+        'Your pending change request changed while you were editing. Refresh the event and submit again.',
+      );
+    }
+  }
+
   /// Organizer takes back their open request.
   static Future<void> withdraw(String revisionId) async {
     try {
-      await _db.from('event_revisions')
-          .update({'status': 'withdrawn'}).eq('id', revisionId);
+      await _db
+          .from('event_revisions')
+          .update({'status': 'withdrawn'})
+          .eq('id', revisionId);
     } on PostgrestException catch (e) {
       throw FriendlyException(friendlyError(e));
     }
@@ -113,7 +179,8 @@ class EventChangeRequestService {
 
   static Future<List<Map<String, dynamic>>> pendingForAdmin() async {
     try {
-      final rows = await _db.from('event_revisions')
+      final rows = await _db
+          .from('event_revisions')
           .select('*, events(*, organizers(full_name, organization))')
           .eq('status', 'pending')
           .order('created_at', ascending: true);
@@ -125,7 +192,10 @@ class EventChangeRequestService {
 
   static Future<void> approve(String revisionId) async {
     try {
-      await _db.rpc('approve_event_revision', params: {'p_revision_id': revisionId});
+      await _db.rpc(
+        'approve_event_revision',
+        params: {'p_revision_id': revisionId},
+      );
     } on PostgrestException catch (e) {
       throw FriendlyException(friendlyError(e));
     }
@@ -133,8 +203,10 @@ class EventChangeRequestService {
 
   static Future<void> reject(String revisionId, String reason) async {
     try {
-      await _db.rpc('reject_event_revision',
-          params: {'p_revision_id': revisionId, 'p_reason': reason});
+      await _db.rpc(
+        'reject_event_revision',
+        params: {'p_revision_id': revisionId, 'p_reason': reason},
+      );
     } on PostgrestException catch (e) {
       throw FriendlyException(friendlyError(e));
     }

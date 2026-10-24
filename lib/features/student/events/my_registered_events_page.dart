@@ -34,6 +34,8 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
 
   RealtimeChannel? _channel;
   Timer?           _debounce;
+  // Upcoming → Ongoing → Ended follow the clock.
+  Timer?           _clock;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -42,10 +44,14 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     super.initState();
     _load();
     _subscribeRealtime();
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _clock?.cancel();
     _debounce?.cancel();
     if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
     _searchCtrl.dispose();
@@ -83,6 +89,14 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+
+  // The event's current name — the registration keeps the one from sign-up,
+  // which goes stale when an organizer renames the event.
+  String _titleOf(Map<String, dynamic> reg) {
+    final current = ((reg['events'] as Map?)?['title'] as String?)?.trim();
+    if (current != null && current.isNotEmpty) return current;
+    return reg['event_title'] as String? ?? '—';
+  }
 
   bool _isCheckedIn(Map<String, dynamic> reg) =>
       (reg['status'] as String? ?? '') == 'checked_in';
@@ -129,7 +143,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
       final label = eventStatusLabel(reg['events'] as Map<String, dynamic>? ?? {});
       final matchesFilter = _filter == 'All' || label == _filter;
       final q     = _searchQuery.toLowerCase();
-      final title = (reg['event_title']             as String? ?? '').toLowerCase();
+      final title = _titleOf(reg).toLowerCase();
       final ev    = reg['events'] as Map?;
       final loc   = (ev?['location'] as String? ?? '').toLowerCase();
       final matchesSearch = q.isEmpty || title.contains(q) || loc.contains(q);
@@ -494,7 +508,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
 
   Widget _buildTicket(Map<String, dynamic> reg, AppTk t) {
     final ev          = reg['events'] as Map?;
-    final title       = reg['event_title'] as String? ?? '—';
+    final title       = _titleOf(reg);
     final imageUrl    = ev?['event_image_url'] as String?;
     final hasImage    = imageUrl != null && imageUrl.isNotEmpty;
     final statusLabel = eventStatusLabel(reg['events'] as Map<String, dynamic>? ?? {});
@@ -798,12 +812,12 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
   void _showQR(Map<String, dynamic> reg) {
     QRCodeDialog.show(context, EventRegistration(
       registrationId:   reg['id']                as String,
-      eventId:          reg['event_id']           as String,
-      eventTitle:       reg['event_title']        as String? ?? '',
+      eventTitle:       _titleOf(reg),
       studentId:        reg['student_school_id']  as String? ?? '',
       studentName:      reg['student_name']       as String? ?? '',
       registrationDate: DateTime.tryParse(reg['registered_at'] as String? ?? '') ?? DateTime.now(),
       qrCodeData:       reg['qr_code']            as String,
+      ticketCode:       reg['ticket_code']        as String? ?? '—',
     ));
   }
 }

@@ -13,12 +13,14 @@ import '../../core/services/notif_read_store.dart';
 import '../../shared/widgets/gradient_button.dart';
 import '../../shared/widgets/app_alert.dart';
 import '../../shared/widgets/error_alert.dart';
+import '../../shared/widgets/web/swal.dart';
 import '../../core/friendly_error.dart';
 import '../organizer/mobile/dashboard/organizer_dashboard.dart';
 import '../student/dashboard/student_dashboard.dart';
 import '../../core/app_colors.dart';
 import '../../core/theme_store.dart';
 import 'terms_content.dart';
+import 'privacy_content.dart';
 import '../../shared/utils/lrn_input_formatter.dart' show lrnDigits;
 
 // ── Enums ──────────────────────────────────────────────────────────────────────
@@ -988,6 +990,20 @@ class _AuthScreenState extends State<AuthScreen> {
 
       // ── Route correctly ─────────────────────────────────────────────────────
       if (mounted) {
+        await Swal.fire(
+          context,
+          icon: SwalIcon.success,
+          title: 'Welcome back!',
+          text: isOrganizer
+              ? 'You’re signed in to your organizer account.'
+              : 'You’re signed in to your student account.',
+          showConfirmButton: false,
+          timer: const Duration(milliseconds: 1200),
+          timerProgressBar: true,
+          allowOutsideClick: false,
+        );
+      }
+      if (mounted) {
         Navigator.of(context).pushReplacement(
           _dashRoute(
             isOrganizer
@@ -1294,68 +1310,15 @@ class _LegalSheet extends StatelessWidget {
       ),
   ];
 
+  // The shared, accurate policy — privacy_content.dart (app and web).
   List<Widget> _privacyContent() => [
-    _section(
-      Icons.info_outline_rounded,
-      'Information We Collect',
-      'We collect the following personal data to operate EventHub:\n\n'
-          '• Identity: full name, email address\n'
-          '• Student: Learner Reference Number (LRN), grade level\n'
-          '• Events: registrations, attendance records, timestamps\n'
-          '• Media: selfie photos submitted during event check-in\n'
-          '• Usage: AI chat session activity logs',
-    ),
-    _section(
-      Icons.settings_suggest_outlined,
-      'How We Use Your Information',
-      'Your information is used to:\n\n'
-          '• Authenticate your identity and grant app access\n'
-          '• Process event registrations and generate QR tickets\n'
-          '• Facilitate the selfie check-in verification process\n'
-          '• Deliver school announcements and event updates\n'
-          '• Power personalized AI assistant responses\n'
-          '• Generate attendance analytics for organizers',
-    ),
-    _section(
-      Icons.cloud_outlined,
-      'Data Storage & Security',
-      'All data is stored on secure cloud infrastructure provided by Supabase. We implement industry-standard security measures including encrypted connections (TLS) and role-based access controls to protect your personal information.',
-    ),
-    _section(
-      Icons.face_outlined,
-      'Selfie and Photo Data',
-      'Selfie photos captured during event check-in are stored in a private, access-controlled storage bucket. These images are:\n\n'
-          '• Used exclusively for attendance verification\n'
-          '• Visible only to authorized event organizers\n'
-          '• Never shared with third parties\n'
-          '• Retained only as long as operationally necessary',
-    ),
-    _section(
-      Icons.people_outline_rounded,
-      'Information Sharing',
-      'We do not sell, trade, or transfer your personal information to third parties. Your data may be shared with school administrators and authorized organizers only as needed to operate school events.',
-    ),
-    _section(
-      Icons.access_time_outlined,
-      'Data Retention',
-      'Personal data is retained for the duration of your enrollment and a reasonable period thereafter, as required by school policy. You may request deletion of your data by contacting your school administrator.',
-    ),
-    _section(
-      Icons.verified_user_outlined,
-      'Your Rights',
-      'You have the right to:\n\n'
-          '• Access the personal information we hold about you\n'
-          '• Request correction of inaccurate data\n'
-          '• Request deletion of your account and associated data\n'
-          '• Withdraw consent for data processing where applicable\n\n'
-          'Contact your school administrator to exercise these rights.',
-    ),
-    _section(
-      Icons.mail_outline_rounded,
-      'Contact Us',
-      'For questions or concerns about this Privacy Policy, please contact your school administrator or reach out to the EventHub support team.',
-      isLast: true,
-    ),
+    for (var i = 0; i < eventHubPrivacy.length; i++)
+      _section(
+        eventHubPrivacy[i].icon,
+        eventHubPrivacy[i].title,
+        eventHubPrivacy[i].body,
+        isLast: i == eventHubPrivacy.length - 1,
+      ),
   ];
 
   Widget _section(

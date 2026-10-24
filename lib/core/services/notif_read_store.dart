@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../app_colors.dart' show countsAsRegistered;
+import 'user_settings_cloud.dart';
 
 /// Notification id for "an event you registered for was cancelled" — shared
 /// by the notifications screen and the dashboard bell badge so both agree.
@@ -17,12 +19,16 @@ String? updatedNotifIdFor(Map<String, dynamic> reg) {
   final changed = DateTime.tryParse(ev?['schedule_changed_at'] as String? ?? '');
   if (ev == null || eventId == null || changed == null) return null;
   if ('${ev['event_status'] ?? ''}'.toLowerCase() == 'cancelled') return null;
+  // A declined registration doesn't "still stand".
+  if (!countsAsRegistered(reg)) return null;
   final registered = DateTime.tryParse(reg['registered_at'] as String? ?? '');
   if (registered != null && !registered.isBefore(changed)) return null;
   return 'evupdate_${eventId}_${changed.millisecondsSinceEpoch}';
 }
 
-/// Persists notification read-state across app restarts, scoped per student.
+/// Persists notification read-state across app restarts, scoped per student,
+/// and across phones: the account's read marks are also saved in
+/// user_settings (UserSettingsCloud) and merged in at sign-in.
 /// Call [NotifReadStore.init()] once at app startup, then [loadForUser] after
 /// every sign-in so read-state never bleeds between different students who
 /// use the same device.
@@ -56,6 +62,17 @@ class NotifReadStore {
     _ids.addAll(stored);
     _current = const [];
     unreadNotifier.value = 0;
+
+    // Read on another phone counts as read here (and the other way round).
+    final cloud = await UserSettingsCloud.fetch(userId, refresh: true);
+    if (_userId != userId) return;   // signed out meanwhile
+    final cloudIds = cloud?.readIds ?? const <String>{};
+    final hadAll = _ids.containsAll(cloudIds);
+    final cloudHadAll = cloudIds.containsAll(_ids);
+    _ids.addAll(cloudIds);
+    _recount();
+    if (!hadAll) _persistLocal();
+    if (!cloudHadAll) _persist();
   }
 
   static bool isRead(String id) => _ids.contains(id);
@@ -81,13 +98,25 @@ class NotifReadStore {
     unreadNotifier.value = _current.where((id) => !_ids.contains(id)).length;
   }
 
-  static Future<void> _persist() async {
-    if (_userId.isEmpty) return;
-    final prefs = await SharedPreferences.getInstance();
+  static List<String> _trimmed() {
     final list = _ids.toList();
-    final trimmed = list.length > _maxStoredIds
+    return list.length > _maxStoredIds
         ? list.sublist(list.length - _maxStoredIds)
         : list;
-    await prefs.setStringList(_key(_userId), trimmed);
+  }
+
+  static Future<void> _persistLocal() async {
+    if (_userId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_key(_userId), _trimmed());
+  }
+
+  /// On this phone and in the account's user_settings row.
+  static Future<void> _persist() async {
+    if (_userId.isEmpty) return;
+    final userId = _userId;
+    final ids = _trimmed();
+    await _persistLocal();
+    await UserSettingsCloud.save(userId, readIds: ids);
   }
 }

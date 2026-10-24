@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'create_event_screen.dart';
 import 'event_actions.dart';
 import 'event_details.dart';
+import 'organizer_events_ui.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../shared/widgets/error_alert.dart';
@@ -12,7 +13,6 @@ import '../../../../core/app_colors.dart';
 import '../../../../core/services/audit_service.dart';
 import '../../../../core/services/event_cancellation_service.dart';
 import '../../../../core/services/student_count_service.dart';
-import '../../../../shared/utils/event_labels.dart';
 import '../../../../shared/utils/realtime_utils.dart';
 
 class OrganizerEventsScreen extends StatefulWidget {
@@ -177,6 +177,8 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
             .in_('event_id', eventIds);
         for (final r in (regRows as List)) {
           final eid = r['event_id'] as String;
+          // Declined registrations don't count as registered.
+          if (!countsAsRegistered(r as Map<String, dynamic>)) continue;
           registrationCounts[eid] = (registrationCounts[eid] ?? 0) + 1;
           if (r['status'] == 'checked_in') {
             checkedIn[eid] = (checkedIn[eid] ?? 0) + 1;
@@ -220,8 +222,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     final q = _searchCtrl.text.toLowerCase();
     _filtered = _events.where((e) {
       final label = _statusLabel(e);
-      final approval = (e['approval_status'] as String? ?? 'approved')
-          .toLowerCase();
+      final approval = approvalStatusOf(e);
       final matchFilter = eventIsArchived(e)
           ? _filter == 'Archived'
           : _filter == 'All' ||
@@ -271,17 +272,10 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     final active = _events.where((e) => !eventIsArchived(e));
     if (filter == 'All') return active.length;
     if (filter == 'Rejected') {
-      return active
-          .where(
-            (e) =>
-                (e['approval_status'] as String? ?? 'approved').toLowerCase() ==
-                'rejected',
-          )
-          .length;
+      return active.where((e) => approvalStatusOf(e) == 'rejected').length;
     }
     return active.where((e) {
-      final approval = (e['approval_status'] as String? ?? 'approved')
-          .toLowerCase();
+      final approval = approvalStatusOf(e);
       return approval != 'rejected' && _statusLabel(e) == filter;
     }).length;
   }
@@ -300,17 +294,6 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   // state (pending admin review / rejected) is a separate concept, shown as
   // its own badge in _buildEventCard, not folded into this lifecycle label.
   String _statusLabel(Map<String, dynamic> e) => eventStatusLabel(e);
-
-  // Same compact labels as the web Events table, no year: "Oct 25",
-  // "Oct 25–27", "Oct 30 – Nov 2".
-  String _dateLabel(Map<String, dynamic> e) {
-    final start = DateTime.tryParse(e['event_date'] as String? ?? '');
-    if (start == null) return '—';
-    return dateRangeLabel(
-      start,
-      DateTime.tryParse(e['end_date'] as String? ?? ''),
-    );
-  }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
 
@@ -343,11 +326,11 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   // registrations and attendance. Offer to cancel instead (server enforces too).
   Future<void> _confirmDeleteEvent(Map<String, dynamic> event) async {
     final eventId = event['event_id'] as String?;
-    // The list may be stale — an event that has since ended can't be deleted.
+    // The list may be stale — an approved event that has since ended can't
+    // be deleted.
     if (eventId == null ||
         _organizerId == null ||
-        _statusLabel(event) == 'Ended' ||
-        eventIsArchived(event)) {
+        !organizerCanDeleteEvent(event)) {
       return;
     }
     final title = event['title'] as String? ?? 'this event';
@@ -423,7 +406,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // BUILD
+  // BUILD — the look lives in organizer_events_ui.dart
   // ══════════════════════════════════════════════════════════════════════════
 
   @override
@@ -449,8 +432,13 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                         slivers: [
                           SliverToBoxAdapter(child: _buildHeader(t)),
                           SliverToBoxAdapter(child: _buildSearchBar(t)),
-                          SliverToBoxAdapter(child: _buildCreateButton()),
-                          SliverToBoxAdapter(child: _buildFilterRow(t)),
+                          // The filters stay in reach while the list scrolls.
+                          SliverPersistentHeader(
+                            pinned: true,
+                            delegate: OrgFilterBarDelegate(
+                              (scrolled) => _buildFilterRow(t, scrolled: scrolled),
+                            ),
+                          ),
                           if (_filtered.isEmpty)
                             SliverFillRemaining(
                               hasScrollBody: false,
@@ -458,7 +446,9 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
                             )
                           else
                             SliverPadding(
-                              padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
+                              // Bottom room so the AI assistant button never
+                              // covers the last card's buttons.
+                              padding: const EdgeInsets.fromLTRB(20, 12, 20, 104),
                               sliver: SliverList(
                                 delegate: SliverChildBuilderDelegate(
                                   (_, i) => _buildEventCard(_filtered[i], t),
@@ -496,72 +486,18 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
 
   Widget _buildErrorState(AppTk t) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 68,
-              height: 68,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEF4444).withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: const Color(0xFFEF4444).withValues(alpha: 0.22),
-                ),
-              ),
-              child: const Icon(
-                Icons.wifi_off_rounded,
-                size: 32,
-                color: Color(0xFFEF4444),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Could not load events',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: t.text,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Check your connection and try again.',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 13,
-                color: t.muted,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _loadData,
-              icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: const Text(
-                'Retry',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kGold,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 28,
-                  vertical: 13,
-                ),
-              ),
-            ),
-          ],
+      child: SingleChildScrollView(
+        child: OrgMessage(
+          icon: Icons.wifi_off_rounded,
+          isError: true,
+          title: 'Could not load events',
+          message: 'Check your connection and try again.',
+          action: OrgPrimaryButton(
+            label: 'Retry',
+            icon: Icons.refresh_rounded,
+            onPressed: _loadData,
+          ),
+          t: t,
         ),
       ),
     );
@@ -615,715 +551,88 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     );
   }
 
-  // ── Header — matches the student events tab pattern ───────────────────────
+  // ── Header, search, filters ────────────────────────────────────────────────
 
-  Widget _buildHeader(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            width: 3,
-            height: 36,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFC49230), kGold, Color(0xFFEAB866)],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Text(
-            'My Events',
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 26,
-              fontWeight: FontWeight.w800,
-              color: t.text,
-              height: 1.15,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildHeader(AppTk t) => OrgEventsHeader(
+    onCreate: _openCreate,
+    t: t,
+  );
 
-  // ── Search bar ─────────────────────────────────────────────────────────────
+  Widget _buildSearchBar(AppTk t) => OrgSearchField(
+    controller: _searchCtrl,
+    hint: 'Search events, venue, or type…',
+    onChanged: (_) => _applyFilter(),
+    onClear: () {
+      _searchCtrl.clear();
+      _applyFilter();
+    },
+    t: t,
+  );
 
-  Widget _buildSearchBar(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
-      child: Container(
-        decoration: BoxDecoration(
-          color: t.inputBg,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: t.border),
-          boxShadow: [
-            BoxShadow(
-              color: t.shadow,
-              blurRadius: 12,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: TextField(
-          controller: _searchCtrl,
-          onChanged: (_) => _applyFilter(),
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: t.text),
-          decoration: InputDecoration(
-            hintText: 'Search events, venue, or type…',
-            hintStyle: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 13,
-              color: t.muted,
-            ),
-            prefixIcon: const Icon(
-              Icons.search_rounded,
-              color: kGold,
-              size: 22,
-            ),
-            suffixIcon: _searchCtrl.text.isNotEmpty
-                ? IconButton(
-                    icon: Icon(Icons.cancel_rounded, color: t.muted, size: 20),
-                    onPressed: () {
-                      _searchCtrl.clear();
-                      _applyFilter();
-                    },
-                  )
-                : null,
-            filled: false,
-            contentPadding: const EdgeInsets.symmetric(vertical: 16),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: kGold, width: 1.8),
-            ),
-          ),
+  Widget _buildFilterRow(AppTk t, {bool scrolled = false}) => AnimatedContainer(
+    duration: const Duration(milliseconds: 180),
+    height: kOrgFilterBarHeight,
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+    decoration: BoxDecoration(
+      color: t.bg,
+      border: Border(
+        bottom: BorderSide(
+          color: scrolled ? t.border : t.border.withValues(alpha: 0),
         ),
       ),
-    );
-  }
-
-  // ── Create new event (gradient CTA — parallels the student shortcut) ───────
-
-  Widget _buildCreateButton() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-      child: GestureDetector(
-        onTap: _openCreate,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFC49230), kGold, Color(0xFFE8C26C)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: kGold.withValues(alpha: 0.35),
-                blurRadius: 18,
-                offset: const Offset(0, 6),
-              ),
-            ],
+    ),
+    child: CompactFilterMenu<String>(
+      label: 'Status',
+      icon: Icons.filter_list_rounded,
+      selected: _filter,
+      accent: kGold,
+      t: t,
+      options: [
+        for (final status in _filterOptions)
+          CompactFilterOption(
+            value: status,
+            label: status,
+            count: _countFor(status),
+            color: switch (status) {
+              'Upcoming' => eventStatusColor('Upcoming'),
+              'Ongoing' => eventStatusColor('Ongoing'),
+              'Ended' => eventStatusColor('Ended'),
+              'Cancelled' => eventStatusColor('Cancelled'),
+              'Rejected' => approvalStatusColor('rejected'),
+              'Archived' => kArchivedColor,
+              _ => null,
+            },
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.add_rounded,
-                  color: Colors.white,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 14),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Create New Event',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Publish a school event for students',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 11.5,
-                        color: Colors.white70,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: const Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  color: Colors.white,
-                  size: 13,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+      ],
+      onSelect: (status) {
+        HapticFeedback.selectionClick();
+        setState(() => _filter = status);
+        _applyFilter();
+      },
+    ),
+  );
 
-  // ── Filter chips with live count badges ────────────────────────────────────
-
-  Widget _buildFilterRow(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: SizedBox(
-        height: 38,
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          itemCount: _filterOptions.length,
-          itemBuilder: (_, i) {
-            final f = _filterOptions[i];
-            final selected = _filter == f;
-            final count = _countFor(f);
-
-            return GestureDetector(
-              onTap: () {
-                HapticFeedback.selectionClick();
-                setState(() => _filter = f);
-                _applyFilter();
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                margin: const EdgeInsets.only(right: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  gradient: selected ? kGoldGradient : null,
-                  color: selected ? null : t.card,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: selected ? const Color(0xFFC49230) : t.border,
-                    width: 1.5,
-                  ),
-                  boxShadow: selected
-                      ? [
-                          BoxShadow(
-                            color: kGold.withValues(alpha: 0.28),
-                            blurRadius: 8,
-                            offset: const Offset(0, 3),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      f,
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: selected ? Colors.white : t.sub,
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? Colors.white.withValues(alpha: 0.25)
-                            : t.divider,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        '$count',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: selected ? Colors.white : t.muted,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // Event card — image header, meta, capacity + check-in stats, actions
-  // ══════════════════════════════════════════════════════════════════════════
+  // ── Event card ─────────────────────────────────────────────────────────────
 
   Widget _buildEventCard(Map<String, dynamic> e, AppTk t) {
     final eventId = e['event_id'] as String;
-    final title = e['title'] as String? ?? '—';
-    final location = e['location'] as String? ?? '—';
-    final type = e['event_type'] as String?;
-    final imageUrl = e['event_image_url'] as String?;
-    final hasImage = imageUrl != null && imageUrl.isNotEmpty;
-    final registered =
-        _registrationCountMap[eventId] ??
-        (e['current_participants'] as int? ?? 0);
-    // Capacity = every active student (null until the count loads).
-    final capacity = _studentCount;
-    final checkedIn = _checkedInMap[eventId] ?? 0;
-    final statusLabel = _statusLabel(e);
-    final canEdit = organizerCanEditEvent(e);
-    final archived = eventIsArchived(e);
-    // One status, nothing under it — the same words and colours as the web
-    // Events table (reasons and deadlines are in the event's details).
-    final status = organizerEventStatus(e);
-    final time = timeRangeLabel(
-      e['start_time'] as String?,
-      e['end_time'] as String?,
-    );
-    final attendancePct = registered > 0
-        ? ((checkedIn / registered) * 100).round()
-        : 0;
-    final shortId = eventId.length > 8
-        ? '…${eventId.substring(eventId.length - 8)}'
-        : eventId;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: t.card,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: t.border),
-        boxShadow: [
-          BoxShadow(
-            color: t.shadow,
-            blurRadius: 14,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Image header: status chip + delete ───────────────────────────
-          GestureDetector(
-            onTap: () => _openDetails(e),
-            child: Stack(
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  height: 150,
-                  child: hasImage
-                      ? Image.network(
-                          imageUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => _imagePlaceholder(t),
-                        )
-                      : _imagePlaceholder(t),
-                ),
-                Positioned(
-                  top: 10,
-                  left: 10,
-                  child: _StatusChip(
-                    label: status.label,
-                    color: status.color,
-                    t: t,
-                  ),
-                ),
-                // Ended events are part of the record — no delete.
-                if (statusLabel != 'Ended' && !archived)
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: IconButton(
-                      tooltip: 'Delete event',
-                      onPressed: _deletingEventId == eventId
-                          ? null
-                          : () => _confirmDeleteEvent(e),
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.black.withValues(alpha: 0.55),
-                        foregroundColor: const Color(0xFFEF4444),
-                        disabledBackgroundColor: Colors.black.withValues(
-                          alpha: 0.55,
-                        ),
-                        disabledForegroundColor: const Color(0xFFEF4444),
-                        minimumSize: const Size(40, 40),
-                        maximumSize: const Size(40, 40),
-                        padding: EdgeInsets.zero,
-                      ),
-                      icon: _deletingEventId == eventId
-                          ? const SizedBox(
-                              width: 17,
-                              height: 17,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(
-                              Icons.delete_outline_rounded,
-                              color: Color(0xFFEF4444),
-                              size: 20,
-                            ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-
-          // ── Body ─────────────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Title + type chip
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 16.5,
-                          fontWeight: FontWeight.w800,
-                          color: t.text,
-                          height: 1.2,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (type != null && type.isNotEmpty) ...[
-                      const SizedBox(width: 10),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: kGold.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: kGold.withValues(alpha: 0.25),
-                          ),
-                        ),
-                        child: Text(
-                          type,
-                          style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFFB8861C),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  shortId,
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 11.5,
-                    color: t.muted,
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // ── Venue + schedule panel ──────────────────────────────
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                  decoration: BoxDecoration(
-                    color: kGold.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: kGold.withValues(alpha: 0.14)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_month_rounded,
-                            size: 13,
-                            color: t.sub,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            _dateLabel(e),
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                              color: t.sub,
-                            ),
-                          ),
-                          if (time.isNotEmpty) ...[
-                            Text(
-                              '  ·  ',
-                              style: TextStyle(fontSize: 12.5, color: t.muted),
-                            ),
-                            Icon(
-                              Icons.access_time_rounded,
-                              size: 13,
-                              color: t.sub,
-                            ),
-                            const SizedBox(width: 5),
-                            Flexible(
-                              child: Text(
-                                time,
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 12.5,
-                                  color: t.sub,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.location_on_rounded,
-                            size: 15,
-                            color: kGold,
-                          ),
-                          const SizedBox(width: 7),
-                          Expanded(
-                            child: Text(
-                              location,
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w600,
-                                color: t.sub,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 5),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.people_alt_outlined,
-                            size: 13,
-                            color: kGold,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            capacity != null
-                                ? '$registered / $capacity students'
-                                : '$registered registered',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                              color: t.sub,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-
-                // ── Stats: Checked In / Attendance ───────────────────────
-                IntrinsicHeight(
-                  child: Row(
-                    children: [
-                      _statCol(
-                        '$checkedIn',
-                        'Checked In',
-                        const Color(0xFF16A34A),
-                        t,
-                        first: true,
-                      ),
-                      Container(width: 1, color: t.divider),
-                      _statCol(
-                        '$attendancePct%',
-                        'Attendance',
-                        const Color(0xFF3B82F6),
-                        t,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Divider(height: 1, color: t.divider),
-                const SizedBox(height: 14),
-
-                // ── Actions ─────────────────────────────────────────────
-                Row(
-                  children: [
-                    if (canEdit) ...[
-                      Expanded(
-                        child: SizedBox(
-                          height: 46,
-                          child: ElevatedButton(
-                            onPressed: () => _openManage(e),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: kGold,
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            child: const Text(
-                              'Edit',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                    ],
-                    Expanded(
-                      child: SizedBox(
-                        height: 46,
-                        child: OutlinedButton(
-                          onPressed: () => _openDetails(e),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: kGold,
-                            side: BorderSide(
-                              color: kGold.withValues(alpha: 0.55),
-                              width: 1.5,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          child: const Text(
-                            'Details',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _statCol(
-    String value,
-    String label,
-    Color color,
-    AppTk t, {
-    bool first = false,
-  }) {
-    return Expanded(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(first ? 0 : 12, 0, 12, 0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 15.5,
-                fontWeight: FontWeight.w800,
-                color: color,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 11.5,
-                color: t.muted,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _imagePlaceholder(AppTk t) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            kGold.withValues(alpha: 0.14),
-            kGold.withValues(alpha: 0.05),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Center(
-        child: Icon(
-          Icons.event_rounded,
-          size: 42,
-          color: kGold.withValues(alpha: 0.35),
-        ),
-      ),
+    return OrganizerEventCard(
+      key: ValueKey(eventId),
+      event: e,
+      registered:
+          _registrationCountMap[eventId] ??
+          (e['current_participants'] as int? ?? 0),
+      // Capacity = every active student (null until the count loads).
+      capacity: _studentCount,
+      checkedIn: _checkedInMap[eventId] ?? 0,
+      canEdit: organizerCanEditEvent(e),
+      // Ended live events are part of the record — no delete.
+      canDelete: organizerCanDeleteEvent(e),
+      deleting: _deletingEventId == eventId,
+      onOpen: () => _openDetails(e),
+      onEdit: () => _openManage(e),
+      onDelete: () => _confirmDeleteEvent(e),
+      t: t,
     );
   }
 
@@ -1335,178 +644,45 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     final noneCancelled = _filter == 'Cancelled' && _searchCtrl.text.isEmpty;
     final noneArchived = _filter == 'Archived' && _searchCtrl.text.isEmpty;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 70,
-            height: 70,
-            decoration: BoxDecoration(
-              color: kGold.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: kGold.withValues(alpha: 0.18)),
-            ),
-            child: Icon(
-              noneArchived
-                  ? Icons.inventory_2_outlined
-                  : noneCancelled
-                  ? Icons.event_available_rounded
-                  : isFiltered
-                  ? Icons.search_off_rounded
-                  : Icons.event_busy_rounded,
-              size: 32,
-              color: kGold.withValues(alpha: 0.55),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            noneArchived
-                ? 'No archived events'
-                : noneCancelled
-                ? 'No cancelled events'
-                : isFiltered
-                ? 'No results found'
-                : 'No events yet',
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: t.text,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            noneArchived
-                ? 'The administrator archives finished events. They show here, read-only.'
-                : noneCancelled
-                ? 'Events you cancel appear here with the reason students were given.'
-                : isFiltered
-                ? 'Try a different search or filter.'
-                : 'Create your first event to get started.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 12.5,
-              color: t.muted,
-              height: 1.6,
-            ),
-          ),
-          const SizedBox(height: 24),
-          if (isFiltered)
-            OutlinedButton(
+    return OrgMessage(
+      icon: noneArchived
+          ? Icons.inventory_2_outlined
+          : noneCancelled
+          ? Icons.event_available_rounded
+          : isFiltered
+          ? Icons.search_off_rounded
+          : Icons.event_busy_rounded,
+      title: noneArchived
+          ? 'No archived events'
+          : noneCancelled
+          ? 'No cancelled events'
+          : isFiltered
+          ? 'No results found'
+          : 'No events yet',
+      message: noneArchived
+          ? 'The administrator archives finished events. They show here, read-only.'
+          : noneCancelled
+          ? 'Events you cancel appear here with the reason students were given.'
+          : isFiltered
+          ? 'Try a different search or filter.'
+          : 'Create your first event to get started.',
+      action: isFiltered
+          ? OrgSecondaryButton(
+              label: noneCancelled ? 'Show all events' : 'Clear filters',
+              icon: Icons.filter_alt_off_outlined,
               onPressed: () {
                 _searchCtrl.clear();
                 setState(() => _filter = 'All');
                 _applyFilter();
               },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: kGold,
-                side: const BorderSide(color: kGold, width: 1.5),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-              ),
-              child: Text(
-                noneCancelled ? 'Show all events' : 'Clear filters',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: kGold,
-                ),
-              ),
+              t: t,
             )
-          else
-            ElevatedButton.icon(
+          : OrgPrimaryButton(
+              label: 'Create Event',
+              icon: Icons.add_rounded,
               onPressed: _openCreate,
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text(
-                'Create Event',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kGold,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-              ),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Status chip ─────────────────────────────────────────────────────────────
-// The event's one status, nothing under it: the same words, colours and dot
-// as the web Events table's pill (organizerEventStatus), on a solid card so
-// it reads over any banner image.
-
-class _StatusChip extends StatelessWidget {
-  final String label;
-  final Color color;
-  final AppTk t;
-  const _StatusChip({
-    required this.label,
-    required this.color,
-    required this.t,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: 'Status: $label',
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(9, 5, 11, 5),
-        decoration: BoxDecoration(
-          color: t.card,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                height: 1.2,
-                color: readableStatusColor(color, t.dark),
-              ),
-            ),
-          ],
-        ),
-      ),
+      t: t,
     );
   }
 }

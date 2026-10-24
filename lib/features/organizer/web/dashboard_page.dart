@@ -190,7 +190,9 @@ class _WebDashboardPageState extends State<WebDashboardPage>
 
       _eventAttendance = last5.map((e) {
         final eid       = e['event_id'] as String;
-        final total     = orgRegs.where((r) => r['event_id'] == eid).length;
+        // Declined registrations don't count as registered.
+        final total     = orgRegs.where((r) =>
+            r['event_id'] == eid && countsAsRegistered(r)).length;
         final checkedIn = orgRegs.where((r) =>
             r['event_id'] == eid && r['status'] == 'checked_in').length;
         String label = '—';
@@ -218,7 +220,8 @@ class _WebDashboardPageState extends State<WebDashboardPage>
       final pastEventIdSet =
           pastEvents.map((e) => e['event_id'] as String).toSet();
       _pastEventRegs = orgRegs
-          .where((r) => pastEventIdSet.contains(r['event_id']))
+          .where((r) =>
+              pastEventIdSet.contains(r['event_id']) && countsAsRegistered(r))
           .length;
       _pastCheckedIn = orgRegs
           .where((r) =>

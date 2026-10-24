@@ -120,10 +120,11 @@ class _WebProfilePageState extends State<WebProfilePage> {
             : '${months[createdAt.month - 1]} ${createdAt.year}';
         _totalEvents = totalApprovedEventCount(eventList);
         _activeEvents = activeApprovedEventCount(eventList);
+        // History: archived events still count (archiving only hides them).
         _registeredParticipants = eventList.fold<int>(
           0,
           (sum, event) => sum + (
-            eventIsApproved(event) && !eventIsArchived(event)
+            eventIsApproved(event)
                 ? (event['current_participants'] as int? ?? 0)
                 : 0
           ),

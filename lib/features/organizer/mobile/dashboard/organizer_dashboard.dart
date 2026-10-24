@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:math' as math;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -18,8 +18,8 @@ import '../../../../core/app_colors.dart';
 import '../../../../core/services/org_notif_prefs.dart';
 import '../../../../core/services/account_session_guard.dart';
 import '../../../../core/services/organizer_notices.dart';
-import '../../../../shared/utils/event_labels.dart' show monthDayLabel;
 import '../../../../shared/widgets/error_alert.dart';
+import '../../../../shared/utils/realtime_utils.dart';
 import 'dashboard_metrics.dart';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -119,15 +119,9 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
   bool _hasAnyEvents = false;
   String? _organizerName;
   String? _photoUrl;
-
-  // Analytics data — sign-ups per day for the last 7 days (index 6 = today)
-  // and for the 7 days before them (same weekday a week earlier).
-  List<double> _dailyRegistrations = List.filled(7, 0);
-  List<double> _prevDailyRegistrations = List.filled(7, 0);
-  int _regsLast7 = 0;
-  int _regsPrev7 = 0;
+  List<int> _weeklyRegistrations = List<int>.filled(DateTime.daysPerWeek, 0);
   List<Map<String, dynamic>> _eventAttendance = [];
-  DateTime? _lastUpdated;
+
   Map<String, dynamic>? _nextEvent;
   List<_AppNotif> _notifs = [];
   Set<String> _unreadIds = {};
@@ -136,8 +130,14 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
   /// lands, so a refresh racing it can't bring the badge back.
   final Set<String> _seenIds = {};
 
-  // Live updates — see _watchEvents.
+  // Live updates — see _watchLive.
   RealtimeChannel? _eventsChannel;
+  /// This organizer's events, from the last load — keeps the registrations
+  /// listener to them.
+  Set<String> _myEventIds = {};
+  /// Sign-ups or check-ins came in while another tab was open — Home
+  /// reloads when it's opened again instead of after every one of them.
+  bool _homeStale = false;
   RealtimeChannel? _accountChannel;
   String? _watchedOrgId;
   Timer? _liveDebounce;
@@ -159,6 +159,10 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
         context,
         table: 'organizers',
         userId: userId,
+        // An admin edit to the name or photo shows in the header at once.
+        onUpdate: (_) {
+          if (mounted && !_homeLoading) _loadData(silent: true);
+        },
       );
     }
     _loadData();
@@ -179,33 +183,70 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
   }
 
   // ── Live updates ──────────────────────────────────────────────────────────
-  // An admin approving or rejecting one of this organizer's events (or
-  // applying their change request) updates the event row, so the bell picks
-  // it up without a pull-to-refresh. A one-minute timer and returning to the
-  // app catch the rest (rejected change requests, removed announcements).
+  // Everything Home shows follows the database at once: the admin's
+  // decisions (events, change requests, removed announcements — the bell),
+  // new sign-ups and check-ins (the week's chart, attendance) and events
+  // added or deleted elsewhere. The one-minute timer stays for what follows
+  // the clock ("Starting today", "Event is live") and as a safety net.
 
-  void _watchEvents(String organizerId) {
+  void _watchLive(String organizerId) {
     if (_watchedOrgId == organizerId) return;
     _stopWatching();
     _watchedOrgId = organizerId;
-    _eventsChannel =
-        Supabase.instance.client.channel('org-mobile-dashboard-$organizerId')
-          ..on(
-            RealtimeListenTypes.postgresChanges,
-            ChannelFilter(
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'events',
-              filter: 'organizer_id=eq.$organizerId',
-            ),
-            (_, [_]) {
-              _liveDebounce?.cancel();
-              _liveDebounce = Timer(const Duration(milliseconds: 800), () {
-                if (mounted) _loadData(silent: true);
-              });
-            },
-          )
-          ..subscribe();
+    // [whenOnHome]: check-in day brings a sign-up or check-in every few
+    // seconds; while another tab is open they only mark Home stale. The
+    // admin's decisions always reload it — the Dashboard tab's badge needs
+    // them — and the one-minute timer still runs.
+    void soon({bool whenOnHome = false}) {
+      if (whenOnHome && _selectedIndex != 0) {
+        _homeStale = true;
+        return;
+      }
+      _liveDebounce?.cancel();
+      _liveDebounce = Timer(const Duration(milliseconds: 800), () {
+        if (mounted) _loadData(silent: true);
+      });
+    }
+
+    final channel =
+        Supabase.instance.client.channel('org-mobile-dashboard-$organizerId');
+    for (final (table, column) in const [
+      ('events', 'organizer_id'),
+      ('event_revisions', 'organizer_id'),
+      ('notifications', 'user_id'),
+    ]) {
+      channel.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: '*',
+          schema: 'public',
+          table: table,
+          filter: '$column=eq.$organizerId',
+        ),
+        (_, [_]) => soon(),
+      );
+    }
+    // Deletes can't be filtered and carry only the row's id.
+    channel.on(
+      RealtimeListenTypes.postgresChanges,
+      ChannelFilter(event: 'DELETE', schema: 'public', table: 'events'),
+      (payload, [_]) {
+        if (_myEventIds.contains(realtimeRow(payload)?['event_id'])) soon();
+      },
+    );
+    // Registrations can't be filtered by organizer: keep to this
+    // organizer's events (a deleted one has no event id — reload anyway).
+    channel.on(
+      RealtimeListenTypes.postgresChanges,
+      ChannelFilter(event: '*', schema: 'public', table: 'registrations'),
+      (payload, [_]) {
+        final eventId = realtimeRow(payload)?['event_id'];
+        if (eventId == null || _myEventIds.contains(eventId)) {
+          soon(whenOnHome: true);
+        }
+      },
+    );
+    _eventsChannel = channel..subscribe();
   }
 
   void _stopWatching() {
@@ -287,15 +328,19 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
       final orgRow = await client
           .from('organizers')
-          .select('organizer_id, full_name, organization, profile_image_url, is_active')
+          .select(
+            'organizer_id, full_name, organization, profile_image_url, is_active',
+          )
           .eq('user_id', user.id)
           .maybeSingle();
 
-      if (orgRow == null) throw StateError('Could not find your organizer profile.');
+      if (orgRow == null)
+        throw StateError('Could not find your organizer profile.');
       if (!await AccountSessionGuard.ensureActive(
         context,
         isActive: orgRow['is_active'] == true,
-      )) return null;
+      ))
+        return null;
 
       final organizerId = orgRow['organizer_id'] as String;
 
@@ -310,51 +355,45 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
       final allEvents = List<Map<String, dynamic>>.from(eventRows as List);
       final eventIds = allEvents.map((e) => e['event_id'] as String).toList();
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+      final weekStart = todayStart.subtract(
+        Duration(days: todayStart.weekday - DateTime.monday),
+      );
+      final nextWeekStart = weekStart.add(const Duration(days: 7));
 
       List<Map<String, dynamic>> regList = [];
       if (eventIds.isNotEmpty) {
         final regRows = await client
             .from('registrations')
-            .select('id, status, event_id, registered_at')
-            .in_('event_id', eventIds);
+            .select('registered_at')
+            .in_('event_id', eventIds)
+            .gte('registered_at', weekStart.toUtc().toIso8601String())
+            .lt('registered_at', nextWeekStart.toUtc().toIso8601String());
         regList = List<Map<String, dynamic>>.from(regRows as List);
       }
-
-      final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
-
-      // Sign-ups: the last 7 days next to the 7 days before them.
-      final signups = signupsByDay(regList, now: now);
-
-      // Attendance: the last 5 events whose attendance is final — approved,
-      // not cancelled, had registrations, check-in closed. An event still
-      // running, a cancelled one or one nobody could join would only drag
-      // the rate down.
-      final regCounts = <String, int>{};
-      final checkedInCounts = <String, int>{};
-      for (final r in regList) {
-        final eid = r['event_id'] as String?;
-        if (eid == null) continue;
-        regCounts[eid] = (regCounts[eid] ?? 0) + 1;
-        if (r['status'] == 'checked_in') {
-          checkedInCounts[eid] = (checkedInCounts[eid] ?? 0) + 1;
-        }
+      final weeklyRegistrations = weeklyRegistrationsByDay(regList, now: now);
+      final attendanceEvents = recentPastEventsForAttendance(
+        allEvents,
+        now: now,
+      );
+      List<Map<String, dynamic>> attendanceRegistrations = [];
+      final attendanceEventIds = attendanceEvents
+          .map((event) => event['event_id'] as String)
+          .toList();
+      if (attendanceEventIds.isNotEmpty) {
+        final attendanceRows = await client
+            .from('registrations')
+            .select('event_id, status')
+            .in_('event_id', attendanceEventIds);
+        attendanceRegistrations = List<Map<String, dynamic>>.from(
+          attendanceRows as List,
+        );
       }
-      final finished = attendanceEvents(allEvents, regCounts, now: now);
-      final last5 = finished.length > 5
-          ? finished.sublist(finished.length - 5)
-          : finished;
-
-      final attendance = last5.map((e) {
-        final eid = e['event_id'] as String;
-        return <String, dynamic>{
-          // "Oct\n25"
-          'label': monthDayLabel(eventWindow(e)!.start).replaceFirst(' ', '\n'),
-          'title': (e['title'] as String?) ?? '—',
-          'checkedIn': checkedInCounts[eid] ?? 0,
-          'total': regCounts[eid] ?? 0,
-        };
-      }).toList();
+      final eventAttendance = eventAttendanceBreakdown(
+        attendanceEvents,
+        attendanceRegistrations,
+      );
 
       // Next event: the earliest approved one that's on now or still ahead,
       // by date and start time.
@@ -368,15 +407,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           '${notifTomDt.year}-${notifTomDt.month.toString().padLeft(2, '0')}-${notifTomDt.day.toString().padLeft(2, '0')}';
       final notifResult = <_AppNotif>[];
 
-      final todayRegCount = regList.where((r) {
-        final ds = r['registered_at'] as String?;
-        if (ds == null) return false;
-        try {
-          return !DateTime.parse(ds).toLocal().isBefore(todayStart);
-        } catch (_) {
-          return false;
-        }
-      }).length;
+      final todayRegCount = weeklyRegistrations[now.weekday - 1];
       if (todayRegCount > 0) {
         notifResult.add(
           _AppNotif(
@@ -488,27 +519,23 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
         setState(() {
           _organizerName = orgRow['full_name'] as String? ?? 'Organizer';
           _photoUrl = orgRow['profile_image_url'] as String?;
-          _dailyRegistrations = [for (final v in signups.last7) v.toDouble()];
-          _prevDailyRegistrations = [
-            for (final v in signups.prev7) v.toDouble(),
-          ];
-          _regsLast7 = signups.last7.fold(0, (s, v) => s + v);
-          _regsPrev7 = signups.prev7.fold(0, (s, v) => s + v);
-          _eventAttendance = attendance;
+          _myEventIds = eventIds.toSet();
+          _homeStale = false;
           _nextEvent = nextEvt;
           _hasAnyEvents = allEvents.isNotEmpty;
+          _weeklyRegistrations = weeklyRegistrations;
+          _eventAttendance = eventAttendance;
           _notifs = notifResult;
           _unreadIds = {
             for (final n in notifResult)
               if (!readIds.contains(n.id) && !_seenIds.contains(n.id)) n.id,
           };
-          _lastUpdated = DateTime.now();
           _homeLoading = false;
           _dashError = false; // a background refresh can recover the screen
         });
         // The content fades in on first show — including after an error.
         if (!silent || recovering) _staggerCtrl.forward(from: 0);
-        _watchEvents(organizerId);
+        _watchLive(organizerId);
       }
     } catch (e) {
       debugPrint('OrganizerDashboard load error: $e');
@@ -525,14 +552,6 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
   }
 
   // ── Camera / QR ───────────────────────────────────────────────────────────
-
-  String _timeAgo(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inSeconds < 60) return 'Updated just now';
-    if (diff.inMinutes < 60) return 'Updated ${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return 'Updated ${diff.inHours}h ago';
-    return 'Updated ${diff.inDays}d ago';
-  }
 
   Future<void> _requestCameraPermission() async {
     final status = await Permission.camera.request();
@@ -732,15 +751,34 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           SliverToBoxAdapter(
             child: _stagger(_buildAnnouncementsCard(t), start: 0.20, end: 0.58),
           ),
-          SliverToBoxAdapter(
-            child: _stagger(
-              _hasAnyEvents
-                  ? _buildAnalyticsSection(t)
-                  : _buildEmptyStateCTA(t),
-              start: 0.32,
-              end: 0.72,
+          if (_hasAnyEvents)
+            SliverToBoxAdapter(
+              child: _stagger(
+                _buildAnalyticsHeading(t),
+                start: 0.26,
+                end: 0.62,
+              ),
             ),
-          ),
+          if (_hasAnyEvents)
+            SliverToBoxAdapter(
+              child: _stagger(
+                _buildWeeklyRegistrationsCard(t),
+                start: 0.28,
+                end: 0.66,
+              ),
+            ),
+          if (_hasAnyEvents)
+            SliverToBoxAdapter(
+              child: _stagger(
+                _buildEventAttendanceCard(t),
+                start: 0.34,
+                end: 0.72,
+              ),
+            ),
+          if (!_hasAnyEvents)
+            SliverToBoxAdapter(
+              child: _stagger(_buildEmptyStateCTA(t), start: 0.32, end: 0.72),
+            ),
           const SliverToBoxAdapter(child: SizedBox(height: 32)),
         ],
       ),
@@ -1072,247 +1110,131 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
     );
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // Analytics section
-  // ══════════════════════════════════════════════════════════════════════════
+  Widget _buildWeeklyRegistrationsCard(AppTk t) {
+    const purple = Color(0xFF7C3AED);
+    const indigo = Color(0xFF4F46E5);
+    const green = Color(0xFF059669);
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-  Widget _buildAnalyticsSection(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 28, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildAnalyticsHeader(t),
-          const SizedBox(height: 16),
-          _buildRegistrationsCard(t),
-          const SizedBox(height: 14),
-          _buildAttendanceCard(t),
-        ],
-      ),
+    final todayIndex = DateTime.now().weekday - 1;
+    final todayCount = _weeklyRegistrations[todayIndex];
+    final total = _weeklyRegistrations.fold<int>(
+      0,
+      (sum, count) => sum + count,
     );
-  }
+    var peakIndex = -1;
+    var peakCount = 0;
+    for (var i = 0; i < _weeklyRegistrations.length; i++) {
+      if (_weeklyRegistrations[i] > peakCount) {
+        peakIndex = i;
+        peakCount = _weeklyRegistrations[i];
+      }
+    }
 
-  // ── Section header ────────────────────────────────────────────────────────
-
-  Widget _buildAnalyticsHeader(AppTk t) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: const Color(0xFF16A34A),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF16A34A).withValues(alpha: 0.50),
-                blurRadius: 5,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 9),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Analytics',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: t.text,
-                  height: 1.1,
-                ),
-              ),
-              Text(
-                'Live event performance data',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 11,
-                  color: t.muted,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (_lastUpdated != null)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: t.card,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: t.border),
-              boxShadow: [
-                BoxShadow(
-                  color: t.shadow,
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: t.card,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: t.border),
+          boxShadow: [
+            BoxShadow(
+              color: t.shadow,
+              blurRadius: 18,
+              offset: const Offset(0, 6),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Icon(Icons.access_time_rounded, size: 11, color: t.muted),
-                const SizedBox(width: 4),
-                Text(
-                  _timeAgo(_lastUpdated!),
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 10,
-                    color: t.muted,
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: purple.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.how_to_reg_rounded,
+                    color: purple,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Weekly Registrations',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: t.text,
+                        ),
+                      ),
+                      Text(
+                        'Sign-up activity · this week',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 11,
+                          color: t.sub,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-          ),
-      ],
-    );
-  }
-
-  // ── Registrations card: the last 7 days vs. the 7 days before ────────────
-
-  Widget _buildRegistrationsCard(AppTk t) {
-    const purple = Color(0xFF7C3AED);
-    const indigo = Color(0xFF4F46E5);
-    const up = Color(0xFF047857);
-    const down = Color(0xFFDC2626);
-
-    // ▲ / ▼ percentage; "New" when the 7 days before had no sign-ups.
-    final diff = _regsLast7 - _regsPrev7;
-    final String change;
-    final Color changeColor;
-    final IconData changeIcon;
-    if (_regsPrev7 == 0) {
-      change = _regsLast7 == 0 ? '—' : 'New';
-      changeColor = _regsLast7 == 0 ? t.sub : up;
-      changeIcon = _regsLast7 == 0
-          ? Icons.trending_flat_rounded
-          : Icons.trending_up_rounded;
-    } else {
-      final pct = (diff / _regsPrev7 * 100).round();
-      change = '${pct > 0 ? '+' : ''}$pct%';
-      changeColor = pct > 0
-          ? up
-          : pct < 0
-          ? down
-          : t.sub;
-      changeIcon = pct > 0
-          ? Icons.trending_up_rounded
-          : pct < 0
-          ? Icons.trending_down_rounded
-          : Icons.trending_flat_rounded;
-    }
-    final summary = diff == 0
-        ? 'Same number of sign-ups as the 7 days before'
-        : '${diff.abs()} ${diff > 0 ? 'more' : 'fewer'} sign-up'
-              '${diff.abs() == 1 ? '' : 's'} than the 7 days before';
-
-    return Container(
-      decoration: BoxDecoration(
-        color: t.card,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: t.border),
-        boxShadow: [
-          BoxShadow(
-            color: t.shadow,
-            blurRadius: 14,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Card header ──────────────────────────────────────────────
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: purple.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(11),
-                ),
-                child: const Icon(
-                  Icons.how_to_reg_rounded,
-                  color: purple,
-                  size: 19,
-                ),
-              ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Registrations',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: t.text,
-                      ),
-                    ),
-                    Text(
-                      'Last 7 days vs. the 7 days before',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 10,
-                        color: t.sub,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // ── KPI chips ────────────────────────────────────────────────
-          Row(
-            children: [
-              _kpiChip(
-                t: t,
-                value: '$_regsLast7',
-                label: 'Last 7 days',
-                icon: Icons.how_to_reg_rounded,
-                color: purple,
-              ),
-              const SizedBox(width: 10),
-              _kpiChip(
-                t: t,
-                value: '$_regsPrev7',
-                label: 'Previous 7 days',
-                icon: Icons.history_rounded,
-                color: indigo,
-              ),
-              const SizedBox(width: 10),
-              _kpiChip(
-                t: t,
-                value: change,
-                label: 'Change',
-                icon: changeIcon,
-                color: changeColor,
-              ),
-            ],
-          ),
-
-          if (_regsLast7 + _regsPrev7 > 0) ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
             Row(
               children: [
-                Icon(changeIcon, size: 15, color: changeColor),
-                const SizedBox(width: 6),
                 Expanded(
-                  child: Text(
-                    summary,
+                  child: _weeklyRegistrationKpi(
+                    t,
+                    value: '$total',
+                    label: 'This Week',
+                    color: purple,
+                    icon: Icons.how_to_reg_rounded,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _weeklyRegistrationKpi(
+                    t,
+                    value: peakIndex >= 0 ? '$peakCount' : '—',
+                    label: peakIndex >= 0
+                        ? 'Peak · ${days[peakIndex]}'
+                        : 'Peak Day',
+                    color: indigo,
+                    icon: Icons.trending_up_rounded,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _weeklyRegistrationKpi(
+                    t,
+                    value: '$todayCount',
+                    label: 'Today',
+                    color: green,
+                    icon: Icons.today_rounded,
+                  ),
+                ),
+              ],
+            ),
+            if (total > 0) ...[
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Today vs. this week',
                     style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 11,
@@ -1320,86 +1242,171 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                       color: t.sub,
                     ),
                   ),
+                  Text(
+                    '$todayCount of $total',
+                    style: const TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: purple,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 7),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(
+                    begin: 0,
+                    end: (todayCount / total).clamp(0.0, 1.0),
+                  ),
+                  duration: const Duration(milliseconds: 700),
+                  curve: Curves.easeOut,
+                  builder: (_, value, _) => LinearProgressIndicator(
+                    value: value,
+                    minHeight: 6,
+                    backgroundColor: purple.withValues(alpha: 0.10),
+                    valueColor: const AlwaysStoppedAnimation<Color>(purple),
+                  ),
                 ),
-              ],
+              ),
+            ],
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 180,
+              child: _buildWeeklyRegistrationsChart(t, days, todayIndex),
             ),
+            if (total > 0) ...[
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _weeklyRegistrationLegend(t, purple, 'Registrations'),
+                  const SizedBox(width: 20),
+                  _weeklyRegistrationLegend(t, kGold, 'Today'),
+                ],
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
 
-          const SizedBox(height: 16),
+  Widget _buildAnalyticsHeading(AppTk t) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+      child: Text(
+        'Analytics',
+        style: TextStyle(
+          fontFamily: 'Poppins',
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          color: t.text,
+        ),
+      ),
+    );
+  }
 
-          // ── Bar chart: each day next to the same weekday a week earlier ─
-          SizedBox(height: 185, child: _buildDailyBarChart(t)),
-
-          if (_regsLast7 + _regsPrev7 > 0) ...[
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _legendItem(t: t, color: purple, label: 'Last 7 days'),
-                const SizedBox(width: 20),
-                _legendItem(
-                  t: t,
-                  color: purple.withValues(alpha: 0.25),
-                  label: 'Previous 7 days',
+  Widget _weeklyRegistrationKpi(
+    AppTk t, {
+    required String value,
+    required String label,
+    required Color color,
+    required IconData icon,
+  }) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 70),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 13, color: color),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 9,
+                    fontWeight: FontWeight.w500,
+                    color: t.sub,
+                  ),
                 ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 19,
+              height: 1.1,
+              fontWeight: FontWeight.w800,
+              color: color,
             ),
-          ],
+          ),
         ],
       ),
     );
   }
 
-  // ── Bar chart: last 7 days (solid) beside the 7 days before (light) ─────
-
-  Widget _buildDailyBarChart(AppTk t) {
+  Widget _buildWeeklyRegistrationsChart(
+    AppTk t,
+    List<String> days,
+    int todayIndex,
+  ) {
     const purple = Color(0xFF7C3AED);
-    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final now = DateTime.now();
-    // Index 6 is today; the light bar at index i is 7 days earlier.
-    String label(int i) => i == 6
-        ? 'Today'
-        : weekdays[now.subtract(Duration(days: 6 - i)).weekday - 1];
-    final rawMax = [
-      ..._dailyRegistrations,
-      ..._prevDailyRegistrations,
-    ].reduce(max);
-    final barMaxY = max(rawMax + 1.5, 5.0);
+    final maxCount = _weeklyRegistrations.isEmpty
+        ? 0
+        : _weeklyRegistrations.reduce(math.max);
 
-    if (rawMax == 0) {
+    if (maxCount == 0) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 62,
-              height: 62,
+              width: 52,
+              height: 52,
               decoration: BoxDecoration(
                 color: purple.withValues(alpha: 0.07),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(16),
               ),
               child: const Icon(
                 Icons.bar_chart_rounded,
-                size: 30,
+                size: 27,
                 color: purple,
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             Text(
-              'No sign-ups in the last 14 days',
+              'No registrations this week',
               style: TextStyle(
                 fontFamily: 'Poppins',
-                fontSize: 14,
+                fontSize: 12,
                 fontWeight: FontWeight.w600,
                 color: t.text,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               'Appears once students sign up',
               style: TextStyle(
                 fontFamily: 'Poppins',
-                fontSize: 11,
+                fontSize: 10,
                 color: t.sub,
               ),
             ),
@@ -1408,62 +1415,47 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       );
     }
 
-    LinearGradient empty() => LinearGradient(
-      colors: [
-        Colors.grey.withValues(alpha: 0.10),
-        Colors.grey.withValues(alpha: 0.18),
-      ],
-      begin: Alignment.bottomCenter,
-      end: Alignment.topCenter,
-    );
-
+    final maxY = math.max(maxCount.toDouble() + 1.5, 5.0);
     return BarChart(
       BarChartData(
         alignment: BarChartAlignment.spaceAround,
-        maxY: barMaxY,
+        maxY: maxY,
         minY: 0,
-        barGroups: List.generate(7, (i) {
-          final value = _dailyRegistrations[i];
-          final before = _prevDailyRegistrations[i];
+        barGroups: List.generate(7, (index) {
+          final value = _weeklyRegistrations[index].toDouble();
+          final isToday = index == todayIndex;
           return BarChartGroupData(
-            x: i,
-            barsSpace: 3,
-            // The day's number above its (solid) bar.
-            showingTooltipIndicators: value > 0 ? [1] : [],
+            x: index,
+            showingTooltipIndicators: value > 0 ? [0] : [],
             barRods: [
-              // The same weekday a week earlier.
-              BarChartRodData(
-                toY: before > 0 ? before : 0.18,
-                gradient: before > 0
-                    ? LinearGradient(
-                        colors: [
-                          purple.withValues(alpha: 0.16),
-                          purple.withValues(alpha: 0.30),
-                        ],
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                      )
-                    : empty(),
-                width: 11,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(5),
-                ),
-              ),
               BarChartRodData(
                 toY: value > 0 ? value : 0.18,
-                gradient: value > 0
+                gradient: isToday
+                    ? const LinearGradient(
+                        colors: [Color(0xFFC49230), Color(0xFFEAB866)],
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                      )
+                    : value > 0
                     ? LinearGradient(
                         colors: [
-                          purple.withValues(alpha: 0.55),
-                          purple.withValues(alpha: 0.95),
+                          purple.withValues(alpha: 0.50),
+                          purple.withValues(alpha: 0.85),
                         ],
                         begin: Alignment.bottomCenter,
                         end: Alignment.topCenter,
                       )
-                    : empty(),
-                width: 13,
+                    : LinearGradient(
+                        colors: [
+                          Colors.grey.withValues(alpha: 0.10),
+                          Colors.grey.withValues(alpha: 0.18),
+                        ],
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                      ),
+                width: 20,
                 borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(6),
+                  top: Radius.circular(7),
                 ),
               ),
             ],
@@ -1474,11 +1466,13 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 34,
+              reservedSize: 30,
               getTitlesWidget: (value, meta) {
-                final i = value.toInt();
-                if (i < 0 || i > 6) return const SizedBox();
-                final isToday = i == 6;
+                final index = value.toInt();
+                if (index < 0 || index >= days.length) {
+                  return const SizedBox.shrink();
+                }
+                final isToday = index == todayIndex;
                 return SideTitleWidget(
                   meta: meta,
                   child: Column(
@@ -1492,16 +1486,16 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                           color: isToday ? kGold : Colors.transparent,
                         ),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 2),
                       Text(
-                        label(i),
+                        days[index],
                         style: TextStyle(
                           fontFamily: 'Poppins',
-                          fontSize: 10,
+                          fontSize: 9,
                           fontWeight: isToday
                               ? FontWeight.w700
                               : FontWeight.w400,
-                          color: isToday ? t.text : t.sub,
+                          color: isToday ? kGold : t.sub,
                         ),
                       ),
                     ],
@@ -1513,8 +1507,8 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 28,
-              interval: max(1, (barMaxY / 4).ceilToDouble()),
+              reservedSize: 24,
+              interval: math.max(1.0, (maxY / 4).ceilToDouble()),
               getTitlesWidget: (value, meta) {
                 if (value == meta.max) return const SizedBox.shrink();
                 return SideTitleWidget(
@@ -1523,8 +1517,8 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                     value.toInt().toString(),
                     style: TextStyle(
                       fontFamily: 'Poppins',
-                      fontSize: 9,
-                      color: t.sub,
+                      fontSize: 8,
+                      color: t.muted,
                     ),
                   ),
                 );
@@ -1541,8 +1535,11 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
-          getDrawingHorizontalLine: (value) =>
-              FlLine(color: t.divider, strokeWidth: 1, dashArray: [4, 4]),
+          getDrawingHorizontalLine: (_) => FlLine(
+            color: Colors.grey.withValues(alpha: 0.09),
+            strokeWidth: 1,
+            dashArray: [4, 4],
+          ),
         ),
         borderData: FlBorderData(show: false),
         barTouchData: BarTouchData(
@@ -1551,23 +1548,33 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             getTooltipColor: (_) => const Color(0xFF1C1814),
             tooltipBorder: const BorderSide(color: Color(0xFF2C2419)),
             tooltipPadding: const EdgeInsets.symmetric(
-              horizontal: 6,
-              vertical: 3,
+              horizontal: 10,
+              vertical: 7,
             ),
-            tooltipMargin: 4,
-            // One small number per day, over the solid (last 7 days) bar.
-            getTooltipItem: (group, groupIndex, rod, rodIndex) {
-              if (rodIndex != 1) return null;
-              final v = _dailyRegistrations[group.x].toInt();
-              if (v <= 0) return null;
+            getTooltipItem: (group, _, rod, _) {
+              final count = _weeklyRegistrations[group.x];
+              if (count <= 0) return null;
               return BarTooltipItem(
-                '$v',
+                '$count reg${count == 1 ? '' : 's'}',
                 const TextStyle(
                   fontFamily: 'Poppins',
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
                   fontSize: 11,
                 ),
+                children: [
+                  TextSpan(
+                    text: group.x == todayIndex
+                        ? '\nToday'
+                        : '\n${days[group.x]}',
+                    style: const TextStyle(
+                      fontFamily: 'Poppins',
+                      fontWeight: FontWeight.w400,
+                      fontSize: 9,
+                      color: Colors.white60,
+                    ),
+                  ),
+                ],
               );
             },
           ),
@@ -1578,21 +1585,37 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
     );
   }
 
-  // ── Attendance card (white + blue) ────────────────────────────────────────
+  Widget _weeklyRegistrationLegend(AppTk t, Color color, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.sub),
+        ),
+      ],
+    );
+  }
 
-  Widget _buildAttendanceCard(AppTk t) {
+  Widget _buildEventAttendanceCard(AppTk t) {
     const blue = Color(0xFF2563EB);
-
     final totalCheckedIn = _eventAttendance.fold<int>(
       0,
-      (s, e) => s + (e['checkedIn'] as int),
+      (sum, event) => sum + (event['checkedIn'] as int),
     );
     final totalRegistered = _eventAttendance.fold<int>(
       0,
-      (s, e) => s + (e['total'] as int),
+      (sum, event) => sum + (event['total'] as int),
     );
-    // Checked in out of registered. Capacity is now the whole student body,
-    // so measuring against it would make a full event look poorly attended.
     final rate = totalRegistered > 0
         ? (totalCheckedIn / totalRegistered * 100).round()
         : 0;
@@ -1602,217 +1625,194 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
         ? kGold
         : const Color(0xFFDC2626);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: t.card,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: t.border),
-        boxShadow: [
-          BoxShadow(
-            color: t.shadow,
-            blurRadius: 14,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Card header ──────────────────────────────────────────────
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: blue.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(11),
-                ),
-                child: const Icon(
-                  Icons.people_alt_rounded,
-                  color: blue,
-                  size: 19,
-                ),
-              ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Event Attendance',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: t.text,
-                      ),
-                    ),
-                    Text(
-                      'Attendance per event · last 5 past events',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 10,
-                        color: t.muted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // ── KPI chips ────────────────────────────────────────────────
-          Row(
-            children: [
-              _kpiChip(
-                t: t,
-                value: '$totalCheckedIn',
-                label: 'Checked In',
-                icon: Icons.check_circle_rounded,
-                color: blue,
-              ),
-              const SizedBox(width: 10),
-              _kpiChip(
-                t: t,
-                value: '$rate%',
-                label: 'Avg Rate',
-                icon: Icons.trending_up_rounded,
-                color: rateColor,
-              ),
-            ],
-          ),
-
-          if (_eventAttendance.isNotEmpty) ...[
-            const SizedBox(height: 14),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: t.card,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: t.border),
+          boxShadow: [
+            BoxShadow(
+              color: t.shadow,
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Overall attendance',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: t.sub,
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: blue.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.people_alt_rounded,
+                    color: blue,
+                    size: 20,
                   ),
                 ),
-                Text(
-                  '$rate%',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Event Attendance',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: t.text,
+                        ),
+                      ),
+                      Text(
+                        'Check-in data · last 5 past events',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 11,
+                          color: t.sub,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _attendanceKpi(
+                    t,
+                    value: '$totalCheckedIn',
+                    label: 'Checked In',
+                    icon: Icons.check_circle_rounded,
+                    color: blue,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _attendanceKpi(
+                    t,
+                    value: '$rate%',
+                    label: 'Avg Rate',
+                    icon: Icons.trending_up_rounded,
                     color: rateColor,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(
-                  begin: 0,
-                  end: totalRegistered > 0
-                      ? totalCheckedIn / totalRegistered
-                      : 0.0,
-                ),
-                duration: const Duration(milliseconds: 700),
-                curve: Curves.easeOut,
-                builder: (_, v, _) => LinearProgressIndicator(
-                  value: v,
-                  minHeight: 6,
-                  backgroundColor: t.divider,
-                  valueColor: AlwaysStoppedAnimation<Color>(rateColor),
+            if (_eventAttendance.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Overall attendance',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: t.sub,
+                    ),
+                  ),
+                  Text(
+                    '$rate%',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: rateColor,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 7),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(
+                    begin: 0,
+                    end: totalRegistered > 0
+                        ? totalCheckedIn / totalRegistered
+                        : 0.0,
+                  ),
+                  duration: const Duration(milliseconds: 700),
+                  curve: Curves.easeOut,
+                  builder: (_, value, _) => LinearProgressIndicator(
+                    value: value,
+                    minHeight: 6,
+                    backgroundColor: t.divider,
+                    valueColor: AlwaysStoppedAnimation<Color>(rateColor),
+                  ),
                 ),
               ),
-            ),
+            ],
+            const SizedBox(height: 16),
+            _buildAttendanceBreakdown(t),
           ],
-
-          const SizedBox(height: 16),
-          _buildAttendanceBreakdown(t),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _kpiChip({
-    required AppTk t,
+  Widget _attendanceKpi(
+    AppTk t, {
     required String value,
     required String label,
     required IconData icon,
     required Color color,
   }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 11, 10, 11),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(13),
-          border: Border.all(color: color.withValues(alpha: 0.16)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: color, size: 15),
-            const SizedBox(height: 6),
-            Text(
-              value,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: color,
-                height: 1.0,
+    return Container(
+      constraints: const BoxConstraints(minHeight: 66),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                  color: t.sub,
+                ),
               ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 19,
+              height: 1.1,
+              fontWeight: FontWeight.w800,
+              color: color,
             ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 9,
-                color: t.muted,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
-
-  Widget _legendItem({
-    required AppTk t,
-    required Color color,
-    required String label,
-  }) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(3),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
-        ),
-      ],
-    );
-  }
-
-  // ── Per-event attendance breakdown (horizontal progress rows) ───────────
 
   Widget _buildAttendanceBreakdown(AppTk t) {
     const blue = Color(0xFF2563EB);
@@ -1820,72 +1820,66 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
     const red = Color(0xFFDC2626);
 
     if (_eventAttendance.isEmpty) {
-      return Column(
-        children: [
-          const SizedBox(height: 8),
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: blue.withValues(alpha: 0.07),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(
-                    Icons.people_alt_rounded,
-                    size: 26,
-                    color: blue,
-                  ),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Center(
+          child: Column(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: blue.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(18),
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  'No attendance data yet',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: t.text,
-                  ),
+                child: const Icon(
+                  Icons.people_alt_rounded,
+                  size: 28,
+                  color: blue,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Appears after your first check-in',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 11,
-                    color: t.muted,
-                  ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'No attendance data yet',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: t.text,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Appears after your first check-in',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 11,
+                  color: t.sub,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-        ],
+        ),
       );
     }
 
     return Column(
       children: _eventAttendance.asMap().entries.map((entry) {
-        final idx = entry.key;
-        final e = entry.value;
-        final total = e['total'] as int;
-        final checkedIn = e['checkedIn'] as int;
-        final title = e['title'] as String;
-        final dateLabel = (e['label'] as String).replaceAll('\n', ' ');
-        final rate = total > 0 ? (checkedIn / total * 100).round() : 0;
-        final rateColor = rate >= 70
+        final index = entry.key;
+        final event = entry.value;
+        final total = event['total'] as int;
+        final checkedIn = event['checkedIn'] as int;
+        final eventRate = total > 0 ? (checkedIn / total * 100).round() : 0;
+        final eventRateColor = eventRate >= 70
             ? green
-            : rate >= 40
+            : eventRate >= 40
             ? kGold
             : red;
         final fraction = total > 0 ? (checkedIn / total).clamp(0.0, 1.0) : 0.0;
 
         return Padding(
           padding: EdgeInsets.only(
-            bottom: idx < _eventAttendance.length - 1 ? 14 : 0,
+            bottom: index < _eventAttendance.length - 1 ? 14 : 0,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1896,7 +1890,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                     width: 8,
                     height: 8,
                     decoration: BoxDecoration(
-                      color: rateColor,
+                      color: eventRateColor,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -1906,18 +1900,18 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          title,
+                          event['title'] as String,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontFamily: 'Poppins',
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                             color: t.text,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         Text(
-                          dateLabel,
+                          event['label'] as String,
                           style: TextStyle(
                             fontFamily: 'Poppins',
                             fontSize: 10,
@@ -1927,29 +1921,29 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                       ],
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
+                          horizontal: 8,
                           vertical: 3,
                         ),
                         decoration: BoxDecoration(
-                          color: rateColor.withValues(alpha: 0.10),
+                          color: eventRateColor.withValues(alpha: 0.10),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: rateColor.withValues(alpha: 0.25),
+                            color: eventRateColor.withValues(alpha: 0.25),
                           ),
                         ),
                         child: Text(
-                          '$rate%',
+                          '$eventRate%',
                           style: TextStyle(
                             fontFamily: 'Poppins',
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
-                            color: rateColor,
+                            color: eventRateColor,
                           ),
                         ),
                       ),
@@ -1972,13 +1966,13 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                 borderRadius: BorderRadius.circular(5),
                 child: TweenAnimationBuilder<double>(
                   tween: Tween<double>(begin: 0, end: fraction),
-                  duration: Duration(milliseconds: 500 + idx * 80),
+                  duration: Duration(milliseconds: 500 + index * 80),
                   curve: Curves.easeOut,
-                  builder: (_, v, _) => LinearProgressIndicator(
-                    value: v,
-                    minHeight: 6,
-                    backgroundColor: rateColor.withValues(alpha: 0.10),
-                    valueColor: AlwaysStoppedAnimation<Color>(rateColor),
+                  builder: (_, value, _) => LinearProgressIndicator(
+                    value: value,
+                    minHeight: 7,
+                    backgroundColor: eventRateColor.withValues(alpha: 0.10),
+                    valueColor: AlwaysStoppedAnimation<Color>(eventRateColor),
                   ),
                 ),
               ),
@@ -1988,8 +1982,6 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       }).toList(),
     );
   }
-
-  // ── Empty dashboard CTA (shown to new organizers with no events) ─────────
 
   Widget _buildEmptyStateCTA(AppTk t) {
     return Padding(
@@ -2242,7 +2234,13 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                 // The bell lives on the Dashboard — flag new notifications
                 // (e.g. an admin decision) while another tab is open.
                 badge: _selectedIndex != 0 && _unreadIds.isNotEmpty,
-                onTap: () => setState(() => _selectedIndex = 0),
+                onTap: () {
+                  setState(() => _selectedIndex = 0);
+                  if (_homeStale && !_homeLoading) {
+                    _homeStale = false;
+                    _loadData(silent: true);
+                  }
+                },
               ),
             ),
             Flexible(

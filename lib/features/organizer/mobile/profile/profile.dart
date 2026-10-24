@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -54,10 +55,28 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     'status': 'Active',
   };
 
+  // Live while the tab is on screen: an admin editing the account and any
+  // change to this organizer's events (approvals, sign-ups through the
+  // participant count, cancellations) refresh it in place. Hidden, it waits
+  // and reloads when the tab is opened again.
+  RealtimeChannel? _channel;
+  Timer? _debounce;
+  // "Active events" (upcoming or ongoing) moves with the clock.
+  Timer? _clock;
+  List<Map<String, dynamic>> _events = [];
+  bool _loaded = false;     // shown once — later loads are quiet
+
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted || !_loaded || !widget.isVisible) return;
+      final active = activeApprovedEventCount(_events);
+      if (active != _organizer['activeEvents']) {
+        setState(() => _organizer['activeEvents'] = active);
+      }
+    });
   }
 
   @override
@@ -66,8 +85,54 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     if (!oldWidget.isVisible && widget.isVisible) _loadProfile();
   }
 
+  @override
+  void dispose() {
+    _clock?.cancel();
+    _debounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
+    super.dispose();
+  }
+
+  void _subscribe(String userId, String organizerId) {
+    if (_channel != null) return;
+    void soon() {
+      if (!widget.isVisible) return; // reloads when the tab is opened
+      _debounce?.cancel();
+      _debounce = Timer(const Duration(milliseconds: 700), () {
+        if (mounted) _loadProfile();
+      });
+    }
+
+    _channel = SupabaseService.client.channel('org-mobile-profile-$organizerId')
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'organizers',
+          filter: 'user_id=eq.$userId',
+        ),
+        (_, [_]) => soon(),
+      )
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: '*',
+          schema: 'public',
+          table: 'events',
+          filter: 'organizer_id=eq.$organizerId',
+        ),
+        (_, [_]) => soon(),
+      )
+      ..subscribe();
+  }
+
+  /// The first load shows the loader (and an error screen if it fails);
+  /// later ones — opening the tab, live updates, pull to refresh — refresh
+  /// in place and keep what's on screen if they fail.
   Future<void> _loadProfile() async {
-    if (mounted)
+    final quiet = _loaded;
+    if (mounted && !quiet)
       setState(() {
         _loading = true;
         _loadError = null;
@@ -103,13 +168,15 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
           .eq('organizer_id', orgId);
 
       final eventList = List<Map<String, dynamic>>.from(events as List);
+      _subscribe(user.id, orgId);
       final activeCount = activeApprovedEventCount(eventList);
       final totalCount = totalApprovedEventCount(eventList);
+      // History: archived events still count (archiving only hides them).
       final totalParticipants = eventList.fold<int>(
         0,
         (sum, e) =>
             sum +
-            (eventIsApproved(e) && !eventIsArchived(e)
+            (eventIsApproved(e)
                 ? (e['current_participants'] as int? ?? 0)
                 : 0),
       );
@@ -155,14 +222,16 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
           'registeredParticipants': totalParticipants,
           'status': orgRow['is_active'] == true ? 'Active' : 'Inactive',
         };
+        _events = eventList;
         _langCode = langCode;
         _appVersion = packageInfo.version;
         _loadError = null;
         _loading = false;
+        _loaded = true;
       });
     } catch (e) {
       debugPrint('Organizer profile load error: $e');
-      if (mounted)
+      if (mounted && !quiet)
         setState(() {
           _loading = false;
           _loadError = e;
@@ -2128,6 +2197,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
       confirmButtonText: 'Log Out',
       confirmButtonColor: const Color(0xFFDC3741),
       cancelButtonText: 'Stay',
+      reverseButtons: true,
     ).then((result) {
       if (result.isConfirmed) _performLogout();
     });
@@ -2151,6 +2221,18 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     }
     if (mounted) {
       Navigator.of(context).pop(); // dismiss loader
+      await Swal.fire(
+        context,
+        icon: SwalIcon.success,
+        title: 'Signed out',
+        text: 'You have been signed out successfully.',
+        showConfirmButton: false,
+        timer: const Duration(milliseconds: 1200),
+        timerProgressBar: true,
+        allowOutsideClick: false,
+      );
+    }
+    if (mounted) {
       Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
     }
   }

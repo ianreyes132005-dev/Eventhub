@@ -37,7 +37,8 @@ void main() {
     expect(activeApprovedEventCount(events, now: now), 2);
   });
 
-  test('total includes only approved, non-archived events', () {
+  // Archiving hides an event from everyday lists, not from the history.
+  test('total includes approved events, archived ones too', () {
     final events = [
       event(date: '2026-10-19', start: '08:00:00', end: '09:00:00'),
       event(date: '2026-10-20', start: '09:00:00', end: '10:00:00',
@@ -48,6 +49,6 @@ void main() {
           status: 'cancelled'),
     ];
 
-    expect(totalApprovedEventCount(events), 2);
+    expect(totalApprovedEventCount(events), 3);
   });
 }

@@ -32,14 +32,14 @@ const eventHubPrivacy = <({IconData icon, String title, String body})>[
     icon: Icons.people_outline_rounded,
     title: 'Who Can See It',
     body: '• You: your own profile, tickets, registrations and check-in status\n'
-        '• Event organizers: registrations, check-in records and check-in selfies, so they can run check-in\n'
+        '• Event organizers: only the organizer of an event you register for sees that registration, its check-in record and check-in selfie, so they can run check-in\n'
         '• The school administrator: all accounts and records, to manage the system\n\n'
         'Organizers see your name and LRN when you register for their events. Students see the name of the organizer who posted an announcement.',
   ),
   (
     icon: Icons.face_outlined,
     title: 'Photos',
-    body: 'Check-in selfies are kept in private storage. Organizers and the school administrator open them through links that stop working after an hour. They are used only to confirm attendance, and the app asks you before it opens the camera.\n\n'
+    body: 'Check-in selfies are kept in private storage. Only the event’s organizer and the school administrator can open them, through links that stop working after an hour. They are used only to confirm attendance, and the app asks you before it opens the camera. When the school administrator archives the event, its check-in selfies are deleted; the attendance record stays.\n\n'
         'A profile photo is optional. It is stored so the app can show it, and anyone who has the photo’s link can open it, so only add one you are comfortable sharing.',
   ),
   (
@@ -52,14 +52,15 @@ const eventHubPrivacy = <({IconData icon, String title, String body})>[
   (
     icon: Icons.access_time_outlined,
     title: 'How Long It Is Kept',
-    body: 'Records are kept for as long as the school uses them for events and attendance. The school administrator can archive and delete old events — their registrations and attendance records are deleted with them — and can delete accounts.',
+    body: 'Records are kept for as long as the school uses them for events and attendance. When the school administrator archives a finished event, its check-in selfies are deleted and its attendance is kept as a read-only record. The administrator can permanently delete archived events, which deletes their registrations and attendance.\n\n'
+        'Accounts can be deleted, except accounts with attendance in archived events: those are deactivated instead, so the school’s records stay complete.',
   ),
   (
     icon: Icons.verified_user_outlined,
     title: 'Your Choices',
     body: '• See the details EventHub holds about you in your Profile\n'
         '• Ask the school administrator to correct your details — they can’t be edited in the app\n'
-        '• Ask the school administrator to delete your account\n'
+        '• Ask the school administrator to delete your account (it is deactivated instead if your attendance is part of an archived event)\n'
         '• Say Not now when asked for a check-in photo (you may not be checked in without one)\n'
         '• Choose which notifications you get in Profile → Notifications',
   ),

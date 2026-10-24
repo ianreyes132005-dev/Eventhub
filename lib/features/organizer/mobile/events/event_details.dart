@@ -34,6 +34,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   RealtimeChannel? _channel;
   Timer?           _debounce;
+  // Upcoming → Ongoing → Check-in open → Ended, and which of Edit / Cancel /
+  // Restore are offered, follow the clock — not just database changes.
+  Timer?           _clock;
   bool _fetching = false;     // a load is running…
   bool _refetch  = false;     // …and another change arrived meanwhile
 
@@ -47,10 +50,14 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     super.initState();
     _loadData();
     _subscribeRealtime();
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _clock?.cancel();
     _debounce?.cancel();
     if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
     super.dispose();
@@ -199,15 +206,16 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   String  get _status   => eventStatusValue(_d);
   // Orthogonal to _status — admin moderation gate, not the event's own
   // lifecycle. See admin_web_events.dart / Section 18 of supabase_schema.sql.
-  String  get _approval => (_d['approval_status'] as String? ?? 'approved').toLowerCase();
-  String? get _rejectionReason => _d['rejection_reason'] as String?;
+  String  get _approval => approvalStatusOf(_d);
+  String? get _rejectionReason => rejectionReasonOf(_d);
 
   // Capacity = every active student (0 until the count is known, which hides
   // the "of N" parts).
   int get _capacity   => _studentCount ?? 0;
   // Use registrations count as ground truth; fall back to DB column.
+  // Declined registrations don't count (countsAsRegistered).
   int get _registered => _registrations.isNotEmpty
-      ? _registrations.length
+      ? _registrations.where(countsAsRegistered).length
       : (_d['current_participants'] as int? ?? _d['registered'] as int? ?? 0);
   int get _checkedIn  =>
       _registrations.where((r) => r['status'] == 'checked_in').length;
@@ -250,17 +258,16 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     return en != null ? '${fmt(s)} — ${fmt(en)}' : fmt(s);
   }
 
+  // When registration closes: the deadline, or 2 hours after the start
+  // (registrationClosesAt — the same rule the database enforces).
   String get _fmtDeadline {
-    final iso = _d['registration_deadline'] as String?;
-    if (iso == null) return 'No deadline set';
-    try {
-      final dt = DateTime.parse(iso).toLocal();
-      const m = ['Jan','Feb','Mar','Apr','May','Jun',
-                  'Jul','Aug','Sep','Oct','Nov','Dec'];
-      final hh = dt.hour.toString().padLeft(2, '0');
-      final mm = dt.minute.toString().padLeft(2, '0');
-      return '${m[dt.month - 1]} ${dt.day}, ${dt.year}  $hh:$mm';
-    } catch (_) { return iso; }
+    final dt = registrationClosesAt(_d);
+    if (dt == null) return '—';
+    const m = ['Jan','Feb','Mar','Apr','May','Jun',
+                'Jul','Aug','Sep','Oct','Nov','Dec'];
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '${m[dt.month - 1]} ${dt.day}, $h:$mm ${dt.hour < 12 ? 'AM' : 'PM'}';
   }
 
   Color get _statusColor {
@@ -670,7 +677,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       (icon: Icons.location_on_rounded,    color: kGold,                   label: 'Venue',               value: _location),
       (icon: Icons.category_rounded,       color: const Color(0xFF7C3AED), label: 'Event Type',          value: _type),
       (icon: Icons.person_rounded,         color: const Color(0xFFEA580C), label: 'Organizer',           value: _organizerName ?? '—'),
-      (icon: Icons.lock_clock_rounded,     color: t.muted,                 label: 'Reg. Deadline',       value: _fmtDeadline),
+      (icon: Icons.lock_clock_rounded,     color: t.muted,                 label: 'Registration closes', value: _fmtDeadline),
     ];
 
     return _sectionCard(t,
@@ -732,7 +739,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   }
 
   // ── Action bar ─────────────────────────────────────────────────────────────
-  // Only what this event allows right now; nothing at all once it has ended.
+  // Only what this event allows right now; nothing at all once a live event
+  // has ended (a rejected one can still be edited and resubmitted).
 
   Widget? _buildActionBar(AppTk t) {
     if (_loading || _loadError) return null;

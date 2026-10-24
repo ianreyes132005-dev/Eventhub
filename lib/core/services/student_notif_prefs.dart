@@ -1,6 +1,9 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'user_settings_cloud.dart';
 
-/// Per-user student notification preferences.
+/// Per-user student notification preferences — saved on the phone and in
+/// the account's user_settings row, so they follow the student to any phone
+/// (the saved row wins when there is one).
 ///
 /// Categories default to enabled — only disabled ones are persisted.
 /// Verification requests (selfie required / photo submitted) are intentionally
@@ -14,6 +17,11 @@ class StudentNotifPrefs {
 
   static Future<Set<String>> disabled(String userId) async {
     final prefs = await SharedPreferences.getInstance();
+    final cloud = await UserSettingsCloud.fetch(userId);
+    if (cloud != null) {
+      await prefs.setStringList(_key(userId), cloud.disabledNotifications.toList());
+      return cloud.disabledNotifications;
+    }
     return Set<String>.from(prefs.getStringList(_key(userId)) ?? const []);
   }
 
@@ -27,5 +35,6 @@ class StudentNotifPrefs {
       off.add(category);
     }
     await prefs.setStringList(_key(userId), off.toList());
+    await UserSettingsCloud.save(userId, disabledNotifications: off);
   }
 }

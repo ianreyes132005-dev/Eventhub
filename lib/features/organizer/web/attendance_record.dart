@@ -68,7 +68,9 @@ class AttendanceRecord {
       ? 'Untitled event'
       : (event['title'] as String).trim();
 
-  int get registered => rows.length;
+  /// Every row but a rejected one: declined registrations are listed but
+  /// don't count as registered ([countsAsRegistered]).
+  int get registered => rows.length - count(AttendanceMark.rejected);
   int count(AttendanceMark m) => rows.where((r) => r.mark == m).length;
   int get present => count(AttendanceMark.present);
 
@@ -219,11 +221,12 @@ const kXlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
 const _sTitle = 1, _sSub = 2, _sLabel = 3, _sHead = 4, _sBody = 5,
     _sCenter = 6, _sPresent = 7, _sAbsent = 8, _sPct = 9, _sNote = 10;
 
-Uint8List buildAttendanceXlsx(AttendanceRecord rec) {
+/// Sheet rows being written, one at a time (columns A–Z).
+class _XlsxRows {
   final rows = <String>[];
   var r = 0;
 
-  // One sheet row of (column index, value, style) cells; null value = empty.
+  /// One row of (column index, value, style) cells; null value = empty.
   void row(List<(int, Object?, int)> cells, {double? height}) {
     r++;
     final ht = height == null ? '' : ' ht="$height" customHeight="1"';
@@ -237,7 +240,14 @@ Uint8List buildAttendanceXlsx(AttendanceRecord rec) {
     }).join();
     rows.add('<row r="$r"$ht>$xml</row>');
   }
+
   void blank() => r++;
+}
+
+Uint8List buildAttendanceXlsx(AttendanceRecord rec) {
+  final sheetRows = _XlsxRows();
+  final row = sheetRows.row;
+  final blank = sheetRows.blank;
 
   row([(0, rec.title, _sTitle)], height: 26);
   row([(0, 'Event Attendance Record · J-Jireh EventHub', _sSub)]);
@@ -282,7 +292,7 @@ Uint8List buildAttendanceXlsx(AttendanceRecord rec) {
   const headers = ['No.', 'Last Name', 'First Name', 'LRN', 'Grade', 'Strand',
       'Section', 'Registered', 'Checked In', 'Attendance'];
   row([for (var c = 0; c < headers.length; c++) (c, headers[c], _sHead)], height: 20);
-  final headerRow = r;
+  final headerRow = sheetRows.r;
 
   for (var i = 0; i < rec.rows.length; i++) {
     final a = rec.rows[i];
@@ -303,7 +313,7 @@ Uint8List buildAttendanceXlsx(AttendanceRecord rec) {
   if (rec.rows.isEmpty) {
     row([(1, 'No students registered for this event.', _sNote)]);
   }
-  final lastRow = rec.rows.isEmpty ? headerRow : r;
+  final lastRow = rec.rows.isEmpty ? headerRow : sheetRows.r;
 
   const widths = [6, 18, 22, 21, 7, 8, 14, 21, 21, 15];
   final cols = [
@@ -317,24 +327,34 @@ Uint8List buildAttendanceXlsx(AttendanceRecord rec) {
       '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
       'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
       '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>'
-      '<dimension ref="A1:J$r"/>'
+      '<dimension ref="A1:J${sheetRows.r}"/>'
       '<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>'
       '<sheetFormatPr defaultRowHeight="15"/>'
       '<cols>$cols</cols>'
-      '<sheetData>${rows.join()}</sheetData>'
+      '<sheetData>${sheetRows.rows.join()}</sheetData>'
       '${rec.rows.isEmpty ? '' : '<autoFilter ref="A$headerRow:J$lastRow"/>'}'
       '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
       '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
       '<headerFooter><oddFooter>&amp;L$footerTitle&amp;RPage &amp;P of &amp;N</oddFooter></headerFooter>'
       '</worksheet>';
 
+  return _xlsxPackage('Attendance', sheet,
+      filter: rec.rows.isEmpty ? null : '\$A\$$headerRow:\$J\$$lastRow',
+      headerRow: headerRow);
+}
+
+/// Zips one worksheet ([sheet], named [sheetName]) into an .xlsx, with the
+/// header row repeated on every printed page and the auto-filter range
+/// ([filter], absolute A1 refs) registered.
+Uint8List _xlsxPackage(String sheetName, String sheet,
+    {String? filter, required int headerRow}) {
   final workbook = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
       'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-      '<sheets><sheet name="Attendance" sheetId="1" r:id="rId1"/></sheets>'
+      '<sheets><sheet name="$sheetName" sheetId="1" r:id="rId1"/></sheets>'
       '<definedNames>'
-      '${rec.rows.isEmpty ? '' : '<definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">Attendance!\$A\$$headerRow:\$J\$$lastRow</definedName>'}'
-      '<definedName name="_xlnm.Print_Titles" localSheetId="0">Attendance!\$$headerRow:\$$headerRow</definedName>'
+      '${filter == null ? '' : '<definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">$sheetName!$filter</definedName>'}'
+      '<definedName name="_xlnm.Print_Titles" localSheetId="0">$sheetName!\$$headerRow:\$$headerRow</definedName>'
       '</definedNames>'
       '</workbook>';
 
@@ -367,6 +387,157 @@ Uint8List buildAttendanceXlsx(AttendanceRecord rec) {
     archive.addFile(ArchiveFile(name, bytes.length, bytes));
   });
   return Uint8List.fromList(ZipEncoder().encode(archive)!);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// School-year summary (admin Archives) — one row per event
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// One event in the admin's school-year attendance summary.
+class AttendanceSummaryRow {
+  final String date;                // as shown, e.g. "Oct 5, 2026"
+  final String sortKey;             // event_date, for ordering
+  final String title, type, venue, organizer;
+  final bool cancelled, archived;
+  /// Every registration row; [rejected] of them were declined.
+  final int registrations, present, rejected;
+
+  const AttendanceSummaryRow({
+    required this.date,
+    required this.sortKey,
+    required this.title,
+    required this.type,
+    required this.venue,
+    required this.organizer,
+    required this.cancelled,
+    required this.archived,
+    required this.registrations,
+    required this.present,
+    required this.rejected,
+  });
+
+  /// Declined registrations don't count as registered ([countsAsRegistered]).
+  int get registered => registrations - rejected;
+  int get absent => cancelled ? 0 : registered - present;
+
+  /// Present ÷ registered, or null when there's no attendance to rate
+  /// (cancelled, or nobody registered).
+  double? get rate => cancelled || registered <= 0 ? null : present / registered;
+}
+
+/// The summary's totals: attendance only counts events that took place.
+({int events, int registered, int present, int absent, int rejected, double? rate})
+    attendanceSummaryTotals(List<AttendanceSummaryRow> rows) {
+  final held = rows.where((r) => !r.cancelled);
+  final registered = held.fold<int>(0, (n, r) => n + r.registered);
+  final present = held.fold<int>(0, (n, r) => n + r.present);
+  return (
+    events: rows.length,
+    registered: registered,
+    present: present,
+    absent: registered - present,
+    rejected: rows.fold<int>(0, (n, r) => n + r.rejected),
+    rate: registered == 0 ? null : present / registered,
+  );
+}
+
+/// [title] is e.g. "SY 2025–2026" or "All school years".
+Uint8List buildAttendanceSummaryXlsx({
+  required String title,
+  required List<AttendanceSummaryRow> rows,
+  required DateTime generatedAt,
+}) {
+  final sheetRows = _XlsxRows();
+  final row = sheetRows.row;
+  final events = [...rows]..sort((a, b) => a.sortKey.compareTo(b.sortKey));
+  final totals = attendanceSummaryTotals(events);
+
+  row([(0, 'Attendance summary · $title', _sTitle)], height: 26);
+  row([(0, 'School-year attendance summary · J-Jireh EventHub', _sSub)]);
+  sheetRows.blank();
+
+  final details = [
+    ('School year', title),
+    ('Events', '${totals.events}'),
+    ('Generated', _fmtStamp(generatedAt)),
+  ];
+  final figures = <(String, num?, int)>[
+    ('Registered', totals.registered, _sBody),
+    ('Present', totals.present, _sBody),
+    ('Absent', totals.absent, _sBody),
+    if (totals.rejected > 0) ('Rejected', totals.rejected, _sBody),
+    ('Attendance rate', totals.rate, _sPct),
+  ];
+  for (var i = 0; i < details.length || i < figures.length; i++) {
+    row([
+      if (i < details.length) ...[
+        (1, details[i].$1, _sLabel),
+        (2, details[i].$2, 0),
+      ],
+      if (i < figures.length) ...[
+        (10, figures[i].$1, _sLabel),
+        (11, figures[i].$2 ?? '—', figures[i].$2 == null ? _sCenter : figures[i].$3),
+      ],
+    ]);
+  }
+  row([(1, 'Cancelled events show their registrations but no attendance; '
+      'declined registrations are counted as Rejected, not as registered.', _sNote)]);
+  sheetRows.blank();
+
+  const headers = ['No.', 'Date', 'Event', 'Type', 'Venue', 'Organizer', 'Status',
+      'Archived', 'Registered', 'Present', 'Absent', 'Rejected', 'Attendance'];
+  row([for (var c = 0; c < headers.length; c++) (c, headers[c], _sHead)], height: 20);
+  final headerRow = sheetRows.r;
+
+  for (var i = 0; i < events.length; i++) {
+    final e = events[i];
+    final rate = e.rate;
+    row([
+      (0, i + 1, _sCenter),
+      (1, e.date, _sBody),
+      (2, e.title, _sBody),
+      (3, e.type, _sBody),
+      (4, e.venue, _sBody),
+      (5, e.organizer, _sBody),
+      (6, e.cancelled ? 'Cancelled' : 'Ended', e.cancelled ? _sAbsent : _sBody),
+      (7, e.archived ? 'Yes' : 'No', _sCenter),
+      (8, e.registered, _sCenter),
+      (9, e.cancelled ? '—' : e.present, _sCenter),
+      (10, e.cancelled ? '—' : e.absent, _sCenter),
+      (11, e.rejected, _sCenter),
+      (12, rate ?? '—', rate == null ? _sCenter : _sPct),
+    ]);
+  }
+  if (events.isEmpty) {
+    row([(1, 'No events in this school year.', _sNote)]);
+  }
+  final lastRow = events.isEmpty ? headerRow : sheetRows.r;
+
+  const widths = [6, 14, 32, 12, 20, 22, 11, 10, 11, 9, 9, 9, 12];
+  final cols = [
+    for (var c = 0; c < widths.length; c++)
+      '<col min="${c + 1}" max="${c + 1}" width="${widths[c]}" customWidth="1"/>',
+  ].join();
+
+  final footerTitle = _xml('Attendance summary $title'.replaceAll('&', '&&'));
+  final sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>'
+      '<dimension ref="A1:M${sheetRows.r}"/>'
+      '<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>'
+      '<sheetFormatPr defaultRowHeight="15"/>'
+      '<cols>$cols</cols>'
+      '<sheetData>${sheetRows.rows.join()}</sheetData>'
+      '${events.isEmpty ? '' : '<autoFilter ref="A$headerRow:M$lastRow"/>'}'
+      '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
+      '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
+      '<headerFooter><oddFooter>&amp;L$footerTitle&amp;RPage &amp;P of &amp;N</oddFooter></headerFooter>'
+      '</worksheet>';
+
+  return _xlsxPackage('Summary', sheet,
+      filter: events.isEmpty ? null : '\$A\$$headerRow:\$M\$$lastRow',
+      headerRow: headerRow);
 }
 
 const _xlsxStyles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'

@@ -14,7 +14,8 @@ Map<String, dynamic>? nextApprovedEvent(
   Map<String, dynamic>? next;
   DateTime? nextStart;
   for (final e in events) {
-    if (!eventIsApproved(e) || eventIsCancelled(e) || eventIsArchived(e)) continue;
+    if (!eventIsApproved(e) || eventIsCancelled(e) || eventIsArchived(e))
+      continue;
     final w = eventWindow(e);
     if (w == null || !at.isBefore(w.end)) continue; // already over
     if (nextStart == null || w.start.isBefore(nextStart)) {
@@ -25,45 +26,109 @@ Map<String, dynamic>? nextApprovedEvent(
   return next;
 }
 
-/// Events whose attendance is final: approved, not cancelled, had
-/// registrations, and check-in has closed — oldest first.
-/// [registrations] maps event_id → number of registrations.
-List<Map<String, dynamic>> attendanceEvents(
-  List<Map<String, dynamic>> events,
-  Map<String, int> registrations, {
-  DateTime? now,
-}) {
-  final at = now ?? DateTime.now();
-  final done = events.where((e) {
-    if (!eventIsApproved(e) || eventIsCancelled(e)) return false;
-    if ((registrations[e['event_id']] ?? 0) == 0) return false;
-    final closes = checkInClosesAt(e);
-    return closes != null && !at.isBefore(closes);
-  }).toList()
-    ..sort((a, b) => eventWindow(a)!.start.compareTo(eventWindow(b)!.start));
-  return done;
-}
-
-/// Sign-ups per day for the last 7 days (index 6 = today) and the 7 days
-/// before them (index i = the same weekday one week earlier).
-({List<int> last7, List<int> prev7}) signupsByDay(
+/// Registrations by weekday for the current Monday–Sunday week.
+/// The returned list uses Monday at index 0 and Sunday at index 6.
+List<int> weeklyRegistrationsByDay(
   Iterable<Map<String, dynamic>> registrations, {
   DateTime? now,
 }) {
   final at = now ?? DateTime.now();
-  // Calendar days (UTC dates avoid daylight-saving gaps in the arithmetic).
-  final today = DateTime.utc(at.year, at.month, at.day);
-  final last7 = List<int>.filled(7, 0);
-  final prev7 = List<int>.filled(7, 0);
-  for (final r in registrations) {
-    final t = DateTime.tryParse(r['registered_at'] as String? ?? '')?.toLocal();
-    if (t == null) continue;
-    final daysAgo = today.difference(DateTime.utc(t.year, t.month, t.day)).inDays;
-    if (daysAgo >= 0 && daysAgo < 7) {
-      last7[6 - daysAgo]++;
-    } else if (daysAgo >= 7 && daysAgo < 14) {
-      prev7[13 - daysAgo]++;
-    }
+  final monday = DateTime(
+    at.year,
+    at.month,
+    at.day,
+  ).subtract(Duration(days: at.weekday - DateTime.monday));
+  final nextMonday = monday.add(const Duration(days: 7));
+  final counts = List<int>.filled(DateTime.daysPerWeek, 0);
+  for (final registration in registrations) {
+    final registeredAt = DateTime.tryParse(
+      registration['registered_at'] as String? ?? '',
+    )?.toLocal();
+    if (registeredAt == null) continue;
+    final date = DateTime(
+      registeredAt.year,
+      registeredAt.month,
+      registeredAt.day,
+    );
+    if (date.isBefore(monday) || !date.isBefore(nextMonday)) continue;
+    counts[date.weekday - DateTime.monday]++;
   }
-  return (last7: last7, prev7: prev7);
+  return counts;
+}
+
+/// The five most recent past events used by the organizer attendance card.
+/// Upcoming and ongoing events are excluded using the shared clock rules.
+List<Map<String, dynamic>> recentPastEventsForAttendance(
+  Iterable<Map<String, dynamic>> events, {
+  DateTime? now,
+}) {
+  final at = now ?? DateTime.now();
+  final today = DateTime(at.year, at.month, at.day);
+  final pastEvents =
+      events.where((event) {
+        final status = eventStatusValue(event, now: at);
+        if (status == 'upcoming' || status == 'ongoing') return false;
+        final eventDate = DateTime.tryParse(
+          event['event_date'] as String? ?? '',
+        );
+        return eventDate != null &&
+            !DateTime(
+              eventDate.year,
+              eventDate.month,
+              eventDate.day,
+            ).isAfter(today);
+      }).toList()..sort((a, b) {
+        final dateA =
+            DateTime.tryParse(a['event_date'] as String? ?? '') ?? DateTime(0);
+        final dateB =
+            DateTime.tryParse(b['event_date'] as String? ?? '') ?? DateTime(0);
+        return dateA.compareTo(dateB);
+      });
+
+  return pastEvents.length > 5
+      ? pastEvents.sublist(pastEvents.length - 5)
+      : pastEvents;
+}
+
+/// Builds per-event attendance rows for the events selected by
+/// [recentPastEventsForAttendance], matching the organizer web dashboard.
+List<Map<String, dynamic>> eventAttendanceBreakdown(
+  Iterable<Map<String, dynamic>> events,
+  Iterable<Map<String, dynamic>> registrations,
+) {
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  final regs = registrations.toList();
+  return events.map((event) {
+    final eventId = event['event_id'] as String;
+    // Declined registrations don't count as registered.
+    final eventRegs = regs.where(
+      (reg) => reg['event_id'] == eventId && countsAsRegistered(reg),
+    );
+    final total = eventRegs.length;
+    final checkedIn = eventRegs
+        .where((reg) => reg['status'] == 'checked_in')
+        .length;
+    final date = DateTime.tryParse(event['event_date'] as String? ?? '');
+    final label = date == null ? '—' : '${months[date.month - 1]} ${date.day}';
+    return <String, dynamic>{
+      'event_id': eventId,
+      'title': event['title'] as String? ?? '—',
+      'label': label,
+      'checkedIn': checkedIn,
+      'total': total,
+    };
+  }).toList();
 }

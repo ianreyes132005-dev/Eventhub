@@ -1,74 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/services/registration_service.dart';
+import '../../../../core/services/selfie_links.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../shared/widgets/error_alert.dart';
 import '../../../../core/app_colors.dart';
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-String _statusLabel(String s) {
-  const map = {
-    'pending': 'Pending',
-    'qr_scanned': 'QR Scanned',
-    'photo_required': 'Awaiting Selfie',
-    'photo_submitted': 'Photo Submitted',
-    'checked_in': 'Checked In',
-    'rejected': 'Rejected',
-  };
-  return map[s] ?? s;
-}
-
-Color _statusColor(String s) {
-  switch (s) {
-    case 'pending':
-      return const Color(0xFFE87A00);
-    case 'qr_scanned':
-      return const Color(0xFF2979C8);
-    case 'photo_required':
-      return const Color(0xFF9333EA);
-    case 'photo_submitted':
-      return const Color(0xFF0891B2);
-    case 'checked_in':
-      return const Color(0xFF16A34A);
-    case 'rejected':
-      return const Color(0xFFDC2626);
-    default:
-      return kMuted;
-  }
-}
-
-String _initials(String name) {
-  final parts = name.trim().split(' ');
-  if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-  return parts.isNotEmpty && parts[0].isNotEmpty
-      ? parts[0][0].toUpperCase()
-      : '?';
-}
-
-String _fmtDate(String iso) {
-  try {
-    final d = DateTime.parse(iso).toLocal();
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return '${months[d.month - 1]} ${d.day}, ${d.year}';
-  } catch (_) {
-    return iso;
-  }
-}
+import '../org_tab_ui.dart';
+import 'organizer_registrations_ui.dart';
 
 // ── Reject reason prompt ─────────────────────────────────────────────────────
 // Shared by the main list's Reject button. Returns the typed reason, or null
@@ -258,41 +198,6 @@ Future<String?> _promptBulkRejectReason(BuildContext context, int count) {
   );
 }
 
-// ── Reject icon button — sits next to Check In on a photo_submitted row ──────
-
-class _RejectIconBtn extends StatelessWidget {
-  final VoidCallback onTap;
-  const _RejectIconBtn({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
-    return Tooltip(
-      message: 'Reject',
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: t.card,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: const Color(0xFFDC2626).withValues(alpha: 0.4),
-              width: 1.5,
-            ),
-          ),
-          child: const Icon(
-            Icons.block_rounded,
-            size: 16,
-            color: Color(0xFFDC2626),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 class RegistrationsScreen extends StatefulWidget {
@@ -311,26 +216,42 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   String _eventFilter = 'All';
   final _search = TextEditingController();
   RealtimeChannel? _channel;
-  final Map<String, String> _selfieUrls = {};
-  List<String> _eventTitles = ['All'];
+  // Links to the selfies on screen, renewed before they expire — this tab
+  // stays open for the whole session (see SelfieLinks).
+  final _selfies = SelfieLinks();
+  Timer? _selfieRenewal;
+  List<Map<String, dynamic>> _organizerEvents = [];
   final Set<String> _selectedIds = {};
   final Set<String> _statusUpdatingIds = {};
   bool _bulkProcessing = false;
 
   // Organizer identity — resolved once and reused for scoped queries.
   String? _organizerId;
+
+  /// Every event of this organizer — live changes are kept to these. Taken
+  /// from the events themselves, not from the registrations, so an event
+  /// nobody has registered for yet counts too; events created while the tab
+  /// is open join through the subscription (organizerId).
   final Set<String> _orgEventIds = {};
+  // Events the admin archived: their registrations are read-only records.
+  final Set<String> _archivedEventIds = {};
+  bool _fetching = false; // a load is running…
+  bool _refetch = false; // …and a change arrived meanwhile
 
   @override
   void initState() {
     super.initState();
     _search.addListener(() => setState(() {}));
     _load();
-    _subscribeRealtime();
+    _selfieRenewal = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => _loadSelfies(),
+    );
   }
 
   @override
   void dispose() {
+    _selfieRenewal?.cancel();
     _search.dispose();
     if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
     super.dispose();
@@ -338,8 +259,15 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  /// [silent]: refresh in place (pull to refresh, a change that arrived
+  /// mid-load) — no shimmer, and a failure keeps what's on screen.
+  Future<void> _load({bool silent = false}) async {
+    if (_fetching) {
+      _refetch = true;
+      return;
+    }
+    _fetching = true;
+    if (!silent) setState(() => _loading = true);
     try {
       // Resolve the organizer ID once so all subsequent queries are scoped.
       if (_organizerId == null) {
@@ -353,94 +281,147 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
           _organizerId = orgRow?['organizer_id'] as String?;
         }
       }
+      final organizerId = _organizerId;
+      if (organizerId == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
 
-      final rows = await RegistrationService.getAllRegistrations(
-        organizerId: _organizerId,
+      // The organizer's events first, then the live channel, then the
+      // registrations — so nothing that happens meanwhile slips through.
+      final events = await RegistrationService.organizerEventsWithArchive(
+        organizerId,
       );
-
-      // Track which events belong to this organizer so the realtime handler
-      // can reject events from other organizers' registrations.
+      final eventIds = events.ids;
       _orgEventIds
         ..clear()
-        ..addAll(
-          rows
-              .map((r) => r['event_id'] as String? ?? '')
-              .where((id) => id.isNotEmpty),
-        );
+        ..addAll(eventIds);
+      _archivedEventIds
+        ..clear()
+        ..addAll(events.archived);
+      _organizerEvents = events.events;
+      _subscribeRealtime(organizerId);
+
+      final rows = await RegistrationService.getAllRegistrations(
+        eventIds: eventIds,
+      );
 
       if (!mounted) return;
       setState(() {
         _all = rows;
-        _refreshEventTitles();
+        _refreshEventOptions();
         _loading = false;
         _applyFilter();
       });
-      for (final r in rows) {
-        if (r['status'] == 'photo_submitted' && r['selfie_url'] != null) {
-          _fetchSelfieUrl(r['id'] as String, r['selfie_url'] as String);
-        }
-      }
+      _loadSelfies();
     } catch (e) {
       if (mounted) setState(() => _loading = false);
       debugPrint('RegistrationsScreen load error: $e');
+    } finally {
+      _fetching = false;
+      if (_refetch && mounted) {
+        _refetch = false;
+        _load(silent: true);
+      }
     }
   }
 
-  Future<void> _fetchSelfieUrl(String regId, String path) async {
-    try {
-      final url = await RegistrationService.getSelfieSignedUrl(path);
-      if (mounted) setState(() => _selfieUrls[regId] = url);
-    } catch (_) {}
+  // Links for the selfies waiting for review — new ones, and old ones
+  // renewed (every 5 minutes) before they stop working.
+  Future<void> _loadSelfies() async {
+    final paths = {
+      for (final r in _all)
+        if (r['status'] == 'photo_submitted' && r['selfie_url'] != null)
+          r['id'] as String: r['selfie_url'] as String,
+    };
+    if (await _selfies.fetch(paths) && mounted) setState(() {});
   }
 
-  void _subscribeRealtime() {
+  void _subscribeRealtime(String organizerId) {
+    if (_channel != null) return;
     _channel = RegistrationService.subscribeToAllRegistrations(
       (eventType, record) {
         if (!mounted) return;
-
-        // If we've already loaded our event set, reject records from other
-        // organizers. During initial load _orgEventIds may be empty — in that
-        // brief window we accept all events (the UI is still loading anyway).
-        if (_orgEventIds.isNotEmpty) {
-          final evId = record['event_id'] as String?;
-          if (evId == null || !_orgEventIds.contains(evId)) return;
-        }
-
         final id = record['id'] as String?;
         if (id == null) return;
-        setState(() {
-          if (eventType == 'INSERT') {
-            _all.insert(0, record);
-            final evId = record['event_id'] as String?;
-            if (evId != null) _orgEventIds.add(evId);
-          } else if (eventType == 'DELETE') {
+        // A load is running and may not include this change — load again
+        // once it's done.
+        if (_fetching) {
+          _refetch = true;
+          return;
+        }
+
+        if (eventType == 'DELETE') {
+          // Only the row id comes with a delete; ignore other organizers'.
+          if (!_all.any((r) => r['id'] == id)) return;
+          setState(() {
             _all.removeWhere((r) => r['id'] == id);
-            _selfieUrls.remove(id);
+            _selfies.remove(id);
+            _selectedIds.remove(id);
+            _refreshEventOptions();
+            _applyFilter();
+          });
+          return;
+        }
+
+        // Only this organizer's events come through (allowedEventIds).
+        setState(() {
+          final idx = _all.indexWhere((r) => r['id'] == id);
+          if (idx >= 0) {
+            _all[idx] = record;
           } else {
-            final idx = _all.indexWhere((r) => r['id'] == id);
-            if (idx >= 0) {
-              _all[idx] = record;
-            } else {
-              _all.insert(0, record);
-            }
+            _all.insert(0, record);
           }
+          _refreshEventOptions();
           _applyFilter();
         });
-        if (eventType != 'DELETE' &&
-            record['status'] == 'photo_submitted' &&
-            record['selfie_url'] != null) {
-          _fetchSelfieUrl(id, record['selfie_url'] as String);
+        // A new selfie: a new link (the file path is the same as a re-taken
+        // one's, so the old link would show the old photo).
+        final path = record['selfie_url'] as String?;
+        if (record['status'] == 'photo_submitted' && path != null) {
+          _selfies.fetch({id: path}, fresh: true).then((changed) {
+            if (changed && mounted) setState(() {});
+          });
         }
       },
-      channelSuffix: _organizerId,
-      allowedEventIds: _orgEventIds.isEmpty ? null : _orgEventIds.toList(),
+      channelSuffix: organizerId,
+      allowedEventIds: _orgEventIds,
+      organizerId: organizerId,
+      // The admin archiving or restoring an event makes its rows read-only
+      // or editable again.
+      onEventRow: (event) {
+        final id = event['event_id'];
+        if (id is! String || !mounted) return;
+        setState(() {
+          final existingIndex = _organizerEvents.indexWhere(
+            (row) => row['event_id'] == id,
+          );
+          if (existingIndex >= 0) {
+            _organizerEvents[existingIndex] = event;
+          } else {
+            _organizerEvents.add(event);
+            _orgEventIds.add(id);
+          }
+          final archived = eventIsArchived(event);
+          archived ? _archivedEventIds.add(id) : _archivedEventIds.remove(id);
+          if (archived) {
+            _selectedIds.removeWhere(
+              (rid) => _all.any((r) => r['id'] == rid && r['event_id'] == id),
+            );
+          }
+          _refreshEventOptions();
+          _applyFilter();
+        });
+      },
     );
   }
 
   void _applyFilter() {
     final q = _search.text.toLowerCase();
-    final validEventTitles = _eventTitles.toSet();
-    if (!validEventTitles.contains(_eventFilter)) {
+    final validEventIds = _organizerEvents
+        .map((event) => event['event_id'] as String? ?? '')
+        .toSet();
+    if (_eventFilter != 'All' && !validEventIds.contains(_eventFilter)) {
       _eventFilter = 'All';
     }
 
@@ -453,13 +434,15 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
       final matchesFilter =
           _filter == 'All' ||
-          (_filter == 'Pending' &&
-              (status == 'pending' || status == 'qr_scanned')) ||
+          (_filter == 'Pending' && status == 'pending') ||
+          (_filter == 'QR Scanned' && status == 'qr_scanned') ||
           (_filter == 'Awaiting Selfie' && status == 'photo_required') ||
           (_filter == 'Photo Submitted' && status == 'photo_submitted') ||
-          (_filter == 'Checked In' && status == 'checked_in');
+          (_filter == 'Checked In' && status == 'checked_in') ||
+          (_filter == 'Rejected' && status == 'rejected');
 
-      final matchesEvent = _eventFilter == 'All' || evt == _eventFilter;
+      final matchesEvent =
+          _eventFilter == 'All' || r['event_id'] == _eventFilter;
       final matchesSearch =
           q.isEmpty ||
           name.contains(q) ||
@@ -477,10 +460,14 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   }
 
   List<String> get _filteredReviewableIds => _filtered
-      .where((r) => r['status'] == 'photo_submitted')
+      .where((r) => r['status'] == 'photo_submitted' && !_isArchived(r))
       .map((r) => r['id'] as String? ?? '')
       .where((id) => id.isNotEmpty)
       .toList();
+
+  // Its event is archived: a read-only record.
+  bool _isArchived(Map<String, dynamic> r) =>
+      _archivedEventIds.contains(r['event_id']);
 
   bool get _allReviewableSelected =>
       _filteredReviewableIds.isNotEmpty &&
@@ -576,25 +563,38 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  void _refreshEventTitles() {
-    final titles =
-        _all
-            .map((r) => (r['event_title'] as String? ?? '').trim())
-            .where((title) => title.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
-    _eventTitles = ['All', ...titles];
-    if (!titles.contains(_eventFilter)) {
+  void _refreshEventOptions() {
+    _organizerEvents.sort((a, b) {
+      final titleA = (a['title'] as String? ?? '').toLowerCase();
+      final titleB = (b['title'] as String? ?? '').toLowerCase();
+      final byTitle = titleA.compareTo(titleB);
+      if (byTitle != 0) return byTitle;
+      return (a['event_date'] as String? ?? '').compareTo(
+        b['event_date'] as String? ?? '',
+      );
+    });
+    final eventIds = _organizerEvents
+        .map((event) => event['event_id'] as String? ?? '')
+        .toSet();
+    if (_eventFilter != 'All' && !eventIds.contains(_eventFilter)) {
       _eventFilter = 'All';
     }
   }
 
-  int _countForEvent(String title) {
-    if (title == 'All') return _all.length;
-    return _all
-        .where((r) => (r['event_title'] as String? ?? '').trim() == title)
+  String _eventLabel(Map<String, dynamic> event) {
+    final title = (event['title'] as String? ?? '').trim();
+    final label = title.isEmpty ? 'Untitled event' : title;
+    final sameTitleCount = _organizerEvents
+        .where((candidate) => candidate['title'] == event['title'])
         .length;
+    if (sameTitleCount < 2) return label;
+    final date = event['event_date'] as String?;
+    return date == null || date.isEmpty ? label : '$label · $date';
+  }
+
+  int _countForEvent(String eventId) {
+    if (eventId == 'All') return _all.length;
+    return _all.where((r) => r['event_id'] == eventId).length;
   }
 
   Future<void> _updateStatus(
@@ -632,9 +632,12 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
           _applyFilter();
         });
         // Rule messages (e.g. "Check-in opens 1 hour before…") show as written.
-        showErrorAlert(context, e,
-            title: 'Couldn’t update the status',
-            fallback: 'The status couldn’t be updated. Please try again.');
+        showErrorAlert(
+          context,
+          e,
+          title: 'Couldn’t update the status',
+          fallback: 'The status couldn’t be updated. Please try again.',
+        );
       }
     } finally {
       _statusUpdatingIds.remove(id);
@@ -666,17 +669,30 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
       await RegistrationService.deleteRegistration(id);
       setState(() {
         _all.removeWhere((r) => r['id'] == id);
-        _selfieUrls.remove(id);
+        _selfies.remove(id);
         _applyFilter();
       });
     } catch (e) {
-      if (mounted) showErrorAlert(context, e, title: 'Couldn’t delete the registration');
+      if (mounted) {
+        showErrorAlert(context, e, title: 'Couldn’t delete the registration');
+      }
     }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // BUILD
+  // BUILD — the look lives in organizer_registrations_ui.dart and, shared with
+  // the Events tab, org_tab_ui.dart
   // ══════════════════════════════════════════════════════════════════════════
+
+  static const _statusFilters = [
+    'All',
+    'Pending',
+    'QR Scanned',
+    'Awaiting Selfie',
+    'Photo Submitted',
+    'Checked In',
+    'Rejected',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -692,17 +708,22 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                   ? _buildLoadingState(t)
                   : RefreshIndicator(
                       color: kGold,
-                      onRefresh: _load,
+                      backgroundColor: t.card,
+                      onRefresh: () => _load(silent: true),
                       child: CustomScrollView(
                         physics: const AlwaysScrollableScrollPhysics(),
                         slivers: [
                           SliverToBoxAdapter(child: _buildPageHeader(t)),
-                          SliverToBoxAdapter(child: _buildFilterRow(t)),
                           SliverToBoxAdapter(child: _buildSearchBar(t)),
-                          if (_eventTitles.length > 2)
-                            SliverToBoxAdapter(
-                              child: _buildEventFilterSection(t),
+                          // The status filters stay in reach while the list
+                          // scrolls, as on the Events tab.
+                          SliverPersistentHeader(
+                            pinned: true,
+                            delegate: OrgFilterBarDelegate(
+                              (scrolled) =>
+                                  _buildFilterRow(t, scrolled: scrolled),
                             ),
+                          ),
                           SliverToBoxAdapter(child: _buildResultCount(t)),
                           if (_selectedIds.isNotEmpty)
                             SliverToBoxAdapter(child: _buildBulkActionsBar(t)),
@@ -713,16 +734,18 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                             )
                           else
                             SliverPadding(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                              // Bottom room so the AI assistant button never
+                              // covers the last card's buttons.
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                8,
+                                20,
+                                104,
+                              ),
                               sliver: SliverList(
                                 delegate: SliverChildBuilderDelegate(
-                                  (_, i) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 14),
-                                    child: _buildRegistrationCard(
-                                      _filtered[i],
-                                      t,
-                                    ),
-                                  ),
+                                  (_, i) =>
+                                      _buildRegistrationCard(_filtered[i], t),
                                   childCount: _filtered.length,
                                 ),
                               ),
@@ -741,9 +764,12 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   Widget _buildLoadingState(AppTk t) {
     return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
       child: Column(
         children: [
           _buildPageHeader(t),
+          _buildSearchBar(t),
+          const SizedBox(height: 8),
           const AppShimmerList(itemCount: 6, hasAvatar: true, hasImage: false),
         ],
       ),
@@ -803,1015 +829,166 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     );
   }
 
-  // ── Page header (embedded) ────────────────────────────────────────────────
+  // ── Header, search, filters ───────────────────────────────────────────────
 
-  Widget _buildPageHeader(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            width: 3,
-            height: 36,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFC49230), kGold, Color(0xFFEAB866)],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Text(
-            'Registrations',
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 26,
-              fontWeight: FontWeight.w800,
-              color: t.text,
-              height: 1.15,
-            ),
-          ),
-        ],
+  Widget _buildPageHeader(AppTk t) =>
+      OrgTabHeader(title: 'Registrations', t: t);
+
+  Widget _buildSearchBar(AppTk t) => OrgSearchField(
+    controller: _search,
+    hint: 'Search by name, school ID, or event…',
+    onChanged: (_) {
+      _applyFilter();
+      setState(() {});
+    },
+    onClear: () {
+      _search.clear();
+      _applyFilter();
+      setState(() {});
+    },
+    t: t,
+  );
+
+  Widget _buildFilterRow(AppTk t, {bool scrolled = false}) => AnimatedContainer(
+    duration: const Duration(milliseconds: 180),
+    height: kOrgFilterBarHeight,
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+    decoration: BoxDecoration(
+      color: t.bg,
+      border: Border(
+        bottom: BorderSide(
+          color: scrolled ? t.border : t.border.withValues(alpha: 0),
+        ),
       ),
-    );
-  }
-
-  // ── Scan QR CTA card ──────────────────────────────────────────────────────
-
-  // ── Filter pills ──────────────────────────────────────────────────────────
-
-  Widget _buildFilterRow(AppTk t) {
-    const filters = [
-      'All',
-      'Pending',
-      'Awaiting Selfie',
-      'Photo Submitted',
-      'Checked In',
-    ];
-    return Padding(
-      padding: const EdgeInsets.only(top: 18),
-      child: SizedBox(
-        height: 42,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: filters.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 8),
-          itemBuilder: (_, i) {
-            final f = filters[i];
-            final selected = _filter == f;
-            return GestureDetector(
-              onTap: () => setState(() {
-                _filter = f;
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: CompactFilterMenu<String>(
+            label: 'Status',
+            icon: Icons.filter_list_rounded,
+            selected: _filter,
+            accent: kGold,
+            t: t,
+            options: [
+              for (final status in _statusFilters)
+                CompactFilterOption(
+                  value: status,
+                  label: status,
+                  count: _countForStatus(status),
+                  color: status == 'All'
+                      ? null
+                      : registrationStatusColor(
+                          {
+                            'Pending': 'pending',
+                            'QR Scanned': 'qr_scanned',
+                            'Awaiting Selfie': 'photo_required',
+                            'Photo Submitted': 'photo_submitted',
+                            'Checked In': 'checked_in',
+                            'Rejected': 'rejected',
+                          }[status]!,
+                        ),
+                ),
+            ],
+            onSelect: (status) => setState(() {
+              _filter = status;
+              _applyFilter();
+            }),
+          ),
+        ),
+        if (_organizerEvents.length > 1) ...[
+          const SizedBox(width: 8),
+          Expanded(
+            child: CompactFilterMenu<String>(
+              label: 'Event',
+              icon: Icons.event_rounded,
+              selected: _eventFilter,
+              accent: kRegSelectColor,
+              searchable: _organizerEvents.length > 8,
+              t: t,
+              options: [
+                CompactFilterOption(
+                  value: 'All',
+                  label: 'All events',
+                  count: _all.length,
+                ),
+                for (final event in _organizerEvents)
+                  CompactFilterOption(
+                    value: event['event_id'] as String,
+                    label: _eventLabel(event),
+                    count: _countForEvent(event['event_id'] as String),
+                    color: kRegSelectColor,
+                  ),
+              ],
+              onSelect: (eventId) => setState(() {
+                _eventFilter = eventId;
                 _applyFilter();
               }),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                decoration: BoxDecoration(
-                  gradient: selected ? kGoldGradient : null,
-                  color: selected ? null : t.card,
-                  borderRadius: BorderRadius.circular(21),
-                  border: Border.all(
-                    color: selected ? const Color(0xFFC49230) : t.border,
-                    width: 1.5,
-                  ),
-                  boxShadow: selected
-                      ? [
-                          BoxShadow(
-                            color: kGold.withValues(alpha: 0.32),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Center(
-                  child: Text(
-                    f,
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: selected ? Colors.white : t.sub,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  // ── Search bar ────────────────────────────────────────────────────────────
-
-  Widget _buildSearchBar(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      child: Container(
-        decoration: BoxDecoration(
-          color: t.card,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: t.shadow,
-              blurRadius: 14,
-              offset: const Offset(0, 4),
             ),
-          ],
-        ),
-        child: TextField(
-          controller: _search,
-          onChanged: (_) {
-            _applyFilter();
-            setState(() {});
-          },
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: t.text),
-          decoration: InputDecoration(
-            hintText: 'Search by name, school ID, or event…',
-            hintStyle: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 13,
-              color: t.muted.withValues(alpha: 0.8),
-            ),
-            prefixIcon: const Icon(
-              Icons.search_rounded,
-              color: kGold,
-              size: 22,
-            ),
-            suffixIcon: _search.text.isNotEmpty
-                ? IconButton(
-                    icon: Icon(
-                      Icons.cancel_rounded,
-                      color: t.muted.withValues(alpha: 0.6),
-                      size: 20,
-                    ),
-                    onPressed: () {
-                      _search.clear();
-                      _applyFilter();
-                      setState(() {});
-                    },
-                  )
-                : null,
-            filled: false,
-            contentPadding: const EdgeInsets.symmetric(vertical: 16),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: kGold, width: 2),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── Event filter section ──────────────────────────────────────────────────
-
-  Widget _buildEventFilterSection(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 3,
-                height: 14,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF8B5CF6),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Filter by Event',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: t.sub,
-                  letterSpacing: 0.3,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '(${_eventTitles.length - 1})',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 10,
-                  color: t.muted,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _eventTitles.map((title) {
-              final selected = _eventFilter == title;
-              final count = _countForEvent(title);
-              return GestureDetector(
-                onTap: () {
-                  setState(() => _eventFilter = title);
-                  _applyFilter();
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOut,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? const Color(0xFF8B5CF6).withValues(alpha: 0.10)
-                        : t.card,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: selected
-                          ? const Color(0xFF8B5CF6).withValues(alpha: 0.35)
-                          : t.border,
-                      width: selected ? 1.5 : 1,
-                    ),
-                    boxShadow: selected
-                        ? [
-                            BoxShadow(
-                              color: const Color(
-                                0xFF8B5CF6,
-                              ).withValues(alpha: 0.18),
-                              blurRadius: 8,
-                              offset: const Offset(0, 3),
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (selected)
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF8B5CF6),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      if (selected) const SizedBox(width: 6),
-                      Text(
-                        title.length > 26
-                            ? '${title.substring(0, 26)}…'
-                            : title,
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 11.5,
-                          fontWeight: selected
-                              ? FontWeight.w700
-                              : FontWeight.w600,
-                          color: selected ? const Color(0xFF8B5CF6) : t.sub,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? const Color(0xFF8B5CF6).withValues(alpha: 0.14)
-                              : t.divider,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '$count',
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w700,
-                            color: selected ? const Color(0xFF8B5CF6) : t.muted,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
           ),
         ],
-      ),
+      ],
+    ),
+  );
+
+  // Status counts are scoped to the selected event, matching the web filters.
+  int _countForStatus(String filter) {
+    final inEvent = _all.where(
+      (r) => _eventFilter == 'All' || r['event_id'] == _eventFilter,
     );
+    if (filter == 'All') return inEvent.length;
+    return inEvent.where((r) {
+      final status = r['status'] as String? ?? '';
+      return switch (filter) {
+        'Pending' => status == 'pending',
+        'QR Scanned' => status == 'qr_scanned',
+        'Awaiting Selfie' => status == 'photo_required',
+        'Photo Submitted' => status == 'photo_submitted',
+        'Checked In' => status == 'checked_in',
+        'Rejected' => status == 'rejected',
+        _ => false,
+      };
+    }).length;
   }
 
-  // ── Result count ──────────────────────────────────────────────────────────
+  Widget _buildResultCount(AppTk t) => OrgRegistrationsToolbar(
+    count: _filtered.length,
+    canSelect: _filteredReviewableIds.isNotEmpty,
+    allSelected: _allReviewableSelected,
+    busy: _bulkProcessing,
+    onToggleSelectAll: _toggleSelectAllReviewable,
+    t: t,
+  );
 
-  Widget _buildResultCount(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              '${_filtered.length} registration${_filtered.length == 1 ? '' : 's'} found',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: t.sub,
-              ),
-            ),
-          ),
-          if (_filteredReviewableIds.isNotEmpty)
-            TextButton.icon(
-              onPressed: _bulkProcessing ? null : _toggleSelectAllReviewable,
-              icon: Icon(
-                _allReviewableSelected
-                    ? Icons.check_box_rounded
-                    : Icons.select_all_rounded,
-                size: 17,
-              ),
-              label: Text(
-                _allReviewableSelected ? 'Clear ready' : 'Select ready',
-                style: const TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF8B5CF6),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  Widget _buildBulkActionsBar(AppTk t) => OrgBulkActionBar(
+    selectedCount: _selectedIds.length,
+    busy: _bulkProcessing,
+    onClear: () => setState(() => _selectedIds.clear()),
+    onApprove: _bulkApproveSelected,
+    onReject: _bulkRejectSelected,
+    t: t,
+  );
 
-  Widget _buildBulkActionsBar(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: t.card,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: t.border),
-          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 8)],
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${_selectedIds.length} selected',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: t.text,
-                    ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: _bulkProcessing
-                      ? null
-                      : () => setState(() => _selectedIds.clear()),
-                  child: const Text(
-                    'Clear',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _bulkProcessing ? null : _bulkApproveSelected,
-                    icon: const Icon(Icons.check_circle_rounded, size: 16),
-                    label: const Text(
-                      'Approve & Check In',
-                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF16A34A),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 11,
-                        horizontal: 8,
-                      ),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _bulkProcessing ? null : _bulkRejectSelected,
-                    icon: const Icon(Icons.block_rounded, size: 16),
-                    label: const Text(
-                      'Reject',
-                      style: TextStyle(fontFamily: 'Poppins', fontSize: 11),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFDC2626),
-                      side: const BorderSide(color: Color(0xFFDC2626)),
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 11,
-                        horizontal: 8,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // Registration card
-  // ══════════════════════════════════════════════════════════════════════════
+  // ── Registration card ─────────────────────────────────────────────────────
 
   Widget _buildRegistrationCard(Map<String, dynamic> r, AppTk t) {
     final id = r['id'] as String;
     final name = r['student_name'] as String? ?? '—';
-    final sid = r['student_school_id'] as String? ?? '—';
-    final event = r['event_title'] as String? ?? '—';
-    final date = r['registered_at'] as String? ?? '';
-    final status = r['status'] as String? ?? 'pending';
-    final statusColor = _statusColor(status);
-    final statusText = _statusLabel(status);
-    final isSelected = _selectedIds.contains(id);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: t.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isSelected ? const Color(0xFF8B5CF6) : t.border,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: t.shadow,
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Left status accent strip
-            Container(width: 4, color: statusColor),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Top row: avatar + name/ID + status pill
-                    Row(
-                      children: [
-                        if (status == 'photo_submitted')
-                          SizedBox(
-                            width: 34,
-                            child: Checkbox(
-                              value: isSelected,
-                              onChanged: _bulkProcessing
-                                  ? null
-                                  : (_) => _toggleRegistrationSelection(id),
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                              activeColor: const Color(0xFF8B5CF6),
-                            ),
-                          )
-                        else
-                          const SizedBox(width: 34),
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: statusColor.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(13),
-                          ),
-                          child: Center(
-                            child: Text(
-                              _initials(name),
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                                color: statusColor,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                name,
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: t.text,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                sid,
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 11,
-                                  color: t.sub,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusColor,
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color: statusColor.withValues(alpha: 0.3),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Text(
-                            statusText,
-                            style: const TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    // Event + date info block
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: t.bg,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.event_rounded,
-                                size: 13,
-                                color: kGold,
-                              ),
-                              const SizedBox(width: 5),
-                              Expanded(
-                                child: Text(
-                                  event,
-                                  style: TextStyle(
-                                    fontFamily: 'Poppins',
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: t.text,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.schedule_rounded,
-                                size: 12,
-                                color: t.sub,
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                'Registered: ${_fmtDate(date)}',
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 11,
-                                  color: t.sub,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Selfie preview
-                    if (status == 'photo_submitted') ...[
-                      const SizedBox(height: 10),
-                      _buildSelfiePreview(id, r['selfie_url'] as String?, t),
-                    ],
-
-                    // Waiting spinner
-                    if (status == 'photo_required') ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(
-                            0xFF9333EA,
-                          ).withValues(alpha: 0.07),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: const [
-                            SizedBox(
-                              width: 11,
-                              height: 11,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Color(0xFF9333EA),
-                              ),
-                            ),
-                            SizedBox(width: 7),
-                            Text(
-                              'Waiting for student selfie…',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF9333EA),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-
-                    const SizedBox(height: 10),
-
-                    // Action row
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildPrimaryAction(r, id, name, status, t),
-                        ),
-                        const SizedBox(width: 8),
-                        PopupMenuButton<String>(
-                          onSelected: (v) {
-                            if (v == 'delete') _deleteRegistration(id, name);
-                          },
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.delete_outline,
-                                    size: 18,
-                                    color: Colors.red,
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Delete',
-                                    style: TextStyle(
-                                      fontFamily: 'Poppins',
-                                      fontSize: 13,
-                                      color: Colors.red,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                          icon: Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: t.border,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Icon(
-                              Icons.more_vert_rounded,
-                              color: t.sub,
-                              size: 20,
-                            ),
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    // Checked-in confirmation
-                    if (status == 'checked_in') ...[
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Icon(
-                            Icons.check_circle_rounded,
-                            size: 13,
-                            color: Color(0xFF16A34A),
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            'Successfully Checked In',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF16A34A),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Selfie preview ────────────────────────────────────────────────────────
-
-  Widget _buildSelfiePreview(String regId, String? path, AppTk t) {
-    final url = _selfieUrls[regId];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Icon(Icons.photo_camera_rounded, size: 13, color: kGold),
-            const SizedBox(width: 5),
-            Text(
-              'Student Selfie',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: t.text,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: url != null
-              ? Image.network(
-                  url,
-                  height: 140,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  loadingBuilder: (_, child, prog) => prog == null
-                      ? child
-                      : Container(
-                          height: 140,
-                          color: t.bg,
-                          child: const Center(
-                            child: CircularProgressIndicator(
-                              color: kGold,
-                              strokeWidth: 3,
-                            ),
-                          ),
-                        ),
-                  errorBuilder: (_, _, _) => _selfieError(t),
-                )
-              : (path != null ? _selfieSpinner(t) : _selfieError(t)),
-        ),
-      ],
-    );
-  }
-
-  Widget _selfieSpinner(AppTk t) => Container(
-    height: 100,
-    color: t.bg,
-    child: const Center(
-      child: CircularProgressIndicator(color: kGold, strokeWidth: 3),
-    ),
-  );
-
-  Widget _selfieError(AppTk t) => Container(
-    height: 100,
-    decoration: BoxDecoration(
-      color: kGold.withValues(alpha: 0.05),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: kGold.withValues(alpha: 0.15)),
-    ),
-    child: Center(
-      child: Icon(
-        Icons.broken_image_outlined,
-        color: kGold.withValues(alpha: 0.4),
-        size: 36,
-      ),
-    ),
-  );
-
-  // ── Primary action buttons ────────────────────────────────────────────────
-
-  Widget _buildPrimaryAction(
-    Map<String, dynamic> r,
-    String id,
-    String name,
-    String status,
-    AppTk t,
-  ) {
-    switch (status) {
-      case 'pending':
-        return _scanRequiredBtn();
-      case 'qr_scanned':
-        return _actionBtn(
-          label: 'Request Selfie',
-          icon: Icons.add_a_photo_rounded,
-          color: const Color(0xFF16A34A),
-          onTap: () => _updateStatus(id, 'photo_required'),
-          t: t,
-        );
-      case 'photo_required':
-        return _awaitingBtn(sending: _statusUpdatingIds.contains(id));
-      case 'photo_submitted':
-        return Row(
-          children: [
-            Expanded(
-              child: _actionBtn(
-                label: 'Check In Student',
-                icon: Icons.how_to_reg_rounded,
-                color: kGold,
-                onTap: () => _updateStatus(id, 'checked_in'),
-                t: t,
-              ),
-            ),
-            const SizedBox(width: 8),
-            _RejectIconBtn(onTap: () => _confirmReject(id, name)),
-          ],
-        );
-      case 'checked_in':
-      default:
-        return _actionBtn(
-          label: 'View Details',
-          icon: Icons.info_outline_rounded,
-          color: const Color(0xFF2979C8),
-          outlined: true,
-          onTap: () => _showDetails(r),
-          t: t,
-        );
-    }
-  }
-
-  Widget _scanRequiredBtn() {
-    return Tooltip(
-      message: "Scan the student's QR code before requesting a selfie.",
-      child: OutlinedButton.icon(
-        onPressed: null,
-        icon: const Icon(Icons.qr_code_scanner_rounded, size: 14),
-        label: const Text(
-          'Scan QR Code First',
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        style: OutlinedButton.styleFrom(
-          disabledForegroundColor: Colors.grey,
-          side: BorderSide(color: Colors.grey.withValues(alpha: 0.35)),
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _awaitingBtn({required bool sending}) {
-    return Tooltip(
-      message: sending
-          ? 'Sending selfie request to student'
-          : 'Awaiting selfie from student',
-      child: OutlinedButton.icon(
-        onPressed: null,
-        icon: sending
-            ? const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Color(0xFF9333EA),
-                ),
-              )
-            : const Icon(Icons.photo_camera_outlined, size: 15),
-        label: Text(
-          sending ? 'Sending Request' : 'Awaiting Selfie',
-          style: const TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF9333EA),
-          ),
-        ),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: const Color(0xFF9333EA),
-          disabledForegroundColor: const Color(0xFF9333EA),
-          side: const BorderSide(color: Color(0x669333EA), width: 1.5),
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _actionBtn({
-    required String label,
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-    required AppTk t,
-    bool outlined = false,
-  }) {
-    return ElevatedButton.icon(
-      onPressed: onTap,
-      icon: Icon(icon, size: 14),
-      label: Text(
-        label,
-        style: TextStyle(
-          fontFamily: 'Poppins',
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          color: outlined ? color : Colors.white,
-        ),
-      ),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: outlined ? t.card : color,
-        foregroundColor: outlined ? color : Colors.white,
-        elevation: 0,
-        side: BorderSide(
-          color: outlined ? color.withValues(alpha: 0.4) : color,
-          width: 1.5,
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
+    return OrgRegistrationCard(
+      key: ValueKey(id),
+      registration: r,
+      selfieUrl: _selfies[id],
+      selected: _selectedIds.contains(id),
+      busy: _bulkProcessing,
+      sending: _statusUpdatingIds.contains(id),
+      archived: _isArchived(r),
+      onToggleSelect: () => _toggleRegistrationSelection(id),
+      onRequestSelfie: () => _updateStatus(id, 'photo_required'),
+      onCheckIn: () => _updateStatus(id, 'checked_in'),
+      onReject: () => _confirmReject(id, name),
+      onDetails: () => _showDetails(r),
+      onDelete: () => _deleteRegistration(id, name),
+      t: t,
     );
   }
 
@@ -1819,85 +996,25 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
   Widget _buildEmptyState(AppTk t) {
     final isFiltered = _filter != 'All' || _search.text.isNotEmpty;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 84,
-            height: 84,
-            decoration: BoxDecoration(
-              color: kGold.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(26),
-            ),
-            child: Icon(
-              isFiltered ? Icons.search_off_rounded : Icons.inbox_rounded,
-              size: 42,
-              color: kGold.withValues(alpha: 0.65),
-            ),
-          ),
-          const SizedBox(height: 22),
-          Text(
-            isFiltered ? 'No registrations found' : 'No registrations yet',
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: t.text,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            isFiltered
-                ? 'Try adjusting your search or filter'
-                : 'Students who register for events will appear here',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 13,
-              color: t.muted,
-              height: 1.6,
-            ),
-          ),
-          if (isFiltered) ...[
-            const SizedBox(height: 28),
-            GestureDetector(
-              onTap: () {
+    return OrgMessage(
+      icon: isFiltered ? Icons.search_off_rounded : Icons.inbox_rounded,
+      title: isFiltered ? 'No registrations found' : 'No registrations yet',
+      message: isFiltered
+          ? 'Try adjusting your search or filter'
+          : 'Students who register for events will appear here',
+      action: isFiltered
+          ? OrgSecondaryButton(
+              label: 'Clear filters',
+              icon: Icons.filter_alt_off_outlined,
+              onPressed: () {
                 _search.clear();
                 setState(() => _filter = 'All');
                 _applyFilter();
               },
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 28,
-                  vertical: 13,
-                ),
-                decoration: BoxDecoration(
-                  color: kGold,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: kGold.withValues(alpha: 0.35),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: const Text(
-                  'Clear filters',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
+              t: t,
+            )
+          : null,
+      t: t,
     );
   }
 
@@ -1908,393 +1025,9 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _RegistrationDetailsSheet(
-        r: r,
-        selfieUrl: _selfieUrls[r['id'] as String? ?? ''],
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Registration details bottom sheet
-// ══════════════════════════════════════════════════════════════════════════════
-
-class _RegistrationDetailsSheet extends StatelessWidget {
-  final Map<String, dynamic> r;
-  final String? selfieUrl;
-  const _RegistrationDetailsSheet({required this.r, this.selfieUrl});
-
-  @override
-  Widget build(BuildContext context) {
-    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
-    final name = r['student_name'] as String? ?? '—';
-    final sid = r['student_school_id'] as String? ?? '—';
-    final event = r['event_title'] as String? ?? '—';
-    final status = r['status'] as String? ?? 'pending';
-    final regDate = r['registered_at'] as String? ?? '';
-    final checkedInAt = r['checked_in_at'] as String?;
-    final statusColor = _statusColor(status);
-    final statusText = _statusLabel(status);
-    final initials = _initials(name);
-    final bottomPad = MediaQuery.of(context).padding.bottom;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: t.card,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Drag handle
-          Padding(
-            padding: const EdgeInsets.only(top: 12, bottom: 4),
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: t.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          Flexible(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(20, 8, 20, bottomPad + 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  // Gold accent strip
-                  Container(
-                    width: 44,
-                    height: 3,
-                    decoration: BoxDecoration(
-                      gradient: kGoldGradient,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-
-                  // Student avatar
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: statusColor.withValues(alpha: 0.35),
-                        width: 2,
-                      ),
-                    ),
-                    child: Center(
-                      child: Text(
-                        initials,
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          color: statusColor,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // Student name
-                  Text(
-                    name,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: t.text,
-                      height: 1.2,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-
-                  // School ID
-                  Text(
-                    sid,
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 13,
-                      color: t.sub,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Status chip
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: statusColor.withValues(alpha: 0.30),
-                        width: 1.2,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: statusColor,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 7),
-                        Text(
-                          statusText,
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: statusColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Event card
-                  _infoCard(
-                    t,
-                    children: [
-                      _infoRow(
-                        t,
-                        Icons.event_rounded,
-                        'Event',
-                        event,
-                        kGold,
-                        multiLine: true,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Timeline card
-                  _infoCard(
-                    t,
-                    children: [
-                      _infoRow(
-                        t,
-                        Icons.schedule_rounded,
-                        'Registered',
-                        _fmtDate(regDate),
-                        t.sub,
-                      ),
-                      if (checkedInAt != null) ...[
-                        Divider(height: 1, thickness: 1, color: t.divider),
-                        _infoRow(
-                          t,
-                          Icons.check_circle_rounded,
-                          'Checked In',
-                          _fmtDate(checkedInAt),
-                          const Color(0xFF16A34A),
-                        ),
-                      ],
-                    ],
-                  ),
-
-                  // Selfie card
-                  if (selfieUrl != null) ...[
-                    const SizedBox(height: 12),
-                    _infoCard(
-                      t,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.photo_camera_rounded,
-                                    size: 14,
-                                    color: kGold,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Student Selfie',
-                                    style: TextStyle(
-                                      fontFamily: 'Poppins',
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: t.text,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: Image.network(
-                                  selfieUrl!,
-                                  height: 160,
-                                  width: double.infinity,
-                                  fit: BoxFit.cover,
-                                  loadingBuilder: (_, child, prog) =>
-                                      prog == null
-                                      ? child
-                                      : Container(
-                                          height: 160,
-                                          color: t.bg,
-                                          child: const Center(
-                                            child: CircularProgressIndicator(
-                                              color: kGold,
-                                              strokeWidth: 3,
-                                            ),
-                                          ),
-                                        ),
-                                  errorBuilder: (_, _, e2) => Container(
-                                    height: 100,
-                                    decoration: BoxDecoration(
-                                      color: kGold.withValues(alpha: 0.05),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: kGold.withValues(alpha: 0.15),
-                                      ),
-                                    ),
-                                    child: Center(
-                                      child: Icon(
-                                        Icons.broken_image_outlined,
-                                        color: kGold.withValues(alpha: 0.4),
-                                        size: 36,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-
-                  const SizedBox(height: 24),
-
-                  // Close button
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: kGold,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: const Text(
-                        'Close',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _infoCard(AppTk t, {required List<Widget> children}) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: t.bg,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: t.border),
-        boxShadow: [
-          BoxShadow(
-            color: t.shadow,
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
-  }
-
-  Widget _infoRow(
-    AppTk t,
-    IconData icon,
-    String label,
-    String value,
-    Color iconColor, {
-    bool multiLine = false,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(icon, size: 15, color: iconColor),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: t.muted,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: t.text,
-                    height: 1.3,
-                  ),
-                  maxLines: multiLine ? 3 : 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
+      builder: (_) => OrgRegistrationDetailsSheet(
+        registration: r,
+        selfieUrl: _selfies[r['id'] as String? ?? ''],
       ),
     );
   }

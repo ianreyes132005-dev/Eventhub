@@ -122,8 +122,10 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
         setState(() {
           _loading = false;
           _error = true;
-          _errorMsg = friendlyError(e,
-              fallback: 'The registrations couldn’t be loaded. Please try again.');
+          _errorMsg = friendlyError(
+            e,
+            fallback: 'The registrations couldn’t be loaded. Please try again.',
+          );
         });
     }
   }
@@ -220,17 +222,6 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final totalCount = _all.length;
-    final pendingCount = _all.where((r) => r['status'] == 'pending').length;
-    final checkedInCount = _all
-        .where((r) => r['status'] == 'checked_in')
-        .length;
-    final rejectedCount = _all.where((r) => r['status'] == 'rejected').length;
-    final needsReview = _all
-        .where((r) => r['status'] == 'photo_submitted')
-        .length;
-    final checkInRate = totalCount > 0
-        ? (checkedInCount / totalCount * 100).toStringAsFixed(0)
-        : '0';
     final eventOpts = _eventOptions;
     final hasFilter =
         _search.isNotEmpty || _statusFilter != 'All' || _eventFilter != 'All';
@@ -319,52 +310,33 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
                       width: 200,
                     ),
                     const SizedBox(width: 14),
-                    Container(width: 1, height: 18, color: t.border),
-                    const SizedBox(width: 14),
-                    Text(
-                      'Status:',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: t.text,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            WebFilterChip(
-                              label: 'All',
-                              selected: _statusFilter == 'All',
-                              onTap: () {
-                                _statusFilter = 'All';
-                                _applyFilter(resetPage: true);
-                              },
-                              count: totalCount,
-                            ),
-                            const SizedBox(width: 6),
-                            for (final s in _kStatuses) ...[
-                              WebFilterChip(
-                                label: webStatusLabel(s),
-                                selected: _statusFilter == s,
-                                onTap: () {
-                                  _statusFilter = s;
-                                  _applyFilter(resetPage: true);
-                                },
-                                count: _all
-                                    .where((r) => r['status'] == s)
-                                    .length,
-                                selectedColor: webStatusColor(s),
-                              ),
-                              const SizedBox(width: 6),
-                            ],
-                          ],
+                    WebFilterMenu<String>(
+                      icon: Icons.filter_list_rounded,
+                      label: 'Status',
+                      menuWidth: 260,
+                      selected: _statusFilter,
+                      options: [
+                        WebFilterOption(
+                          value: 'All',
+                          label: 'All',
+                          count: totalCount,
                         ),
-                      ),
+                        for (final status in _kStatuses)
+                          WebFilterOption(
+                            value: status,
+                            label: webStatusLabel(status),
+                            count: _all
+                                .where((r) => r['status'] == status)
+                                .length,
+                            color: webStatusColor(status),
+                          ),
+                      ],
+                      onSelect: (status) {
+                        _statusFilter = status;
+                        _applyFilter(resetPage: true);
+                      },
                     ),
+                    const Spacer(),
                     if (hasFilter) ...[
                       const SizedBox(width: 8),
                       MouseRegion(
@@ -475,7 +447,9 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
                                 child: Text(
                                   '$lbl  ($cnt)',
                                   style: const TextStyle(
-                                    fontFamily: 'Poppins', fontSize: 11),
+                                    fontFamily: 'Poppins',
+                                    fontSize: 11,
+                                  ),
                                 ),
                               );
                             }).toList(),

@@ -27,7 +27,7 @@ const kWebBg      = Color(0xFFF0F3F7);
 const kWebLightGold = Color(0xFFD4AA60);
 
 // ── Navigation enum ───────────────────────────────────────────────────────────
-enum OrganizerPage { dashboard, events, registrations, announcements, settings }
+enum OrganizerPage { dashboard, events, registrations, announcements, profile }
 
 // ── Shared web-dashboard dark/light tokens ─────────────────────────────────────
 // Used by BOTH the organizer and admin web dashboards, so the two render an

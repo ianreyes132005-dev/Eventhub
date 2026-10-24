@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/app_colors.dart';
 import '../../core/friendly_error.dart';
+import '../../core/services/event_archive_service.dart';
 import '../../core/services/supabase_service.dart';
 import '../organizer/web/web_shared.dart';
 import 'admin_shared.dart';
@@ -366,17 +367,38 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
   }
 
   Future<void> _bulkDeleteStudents() async {
-    final lrns = _selectedLrns.toList();
+    var lrns = _selectedLrns.toList();
     if (lrns.isEmpty || _bulkWorking) return;
+
+    // Students with archived attendance can only be deactivated.
+    final Set<String> kept;
+    try {
+      kept = await _withArchivedAttendance(lrns);
+    } catch (e) {
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t delete the students');
+      return;
+    }
+    if (!mounted) return;
+    if (kept.length == lrns.length) {
+      await _offerDeactivate(lrns);
+      return;
+    }
+    lrns = [for (final l in lrns) if (!kept.contains(l)) l];
 
     final ok = await WebAlert.confirm(
       context: context,
-      title: 'Delete ${lrns.length} Students?',
-      message:
-          'This permanently removes the selected profiles, revokes '
-          'their login access, and deletes their event registration history. '
-          'This cannot be undone.',
-      confirmLabel: 'Delete Students',
+      title: kept.isEmpty
+          ? 'Delete ${lrns.length} Students?'
+          : 'Delete ${lrns.length} of the Selected Students?',
+      message: kept.isEmpty
+          ? 'This permanently removes the selected profiles, revokes '
+            'their login access, and deletes their event registration history. '
+            'This cannot be undone.'
+          : '${kept.length} of the selected students ${kept.length == 1 ? 'has' : 'have'} '
+            'attendance in archived events, so they can only be deactivated — they stay '
+            'selected. Deleting the other ${lrns.length} permanently removes their profiles, '
+            'login access and registration history. This cannot be undone.',
+      confirmLabel: kept.isEmpty ? 'Delete Students' : 'Delete ${lrns.length}',
       confirmColor: const Color(0xFFEF4444),
       iconColor: const Color(0xFFEF4444),
       iconBg: const Color(0xFFFEF2F2),
@@ -607,7 +629,104 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
     }
   }
 
+  // ── Archived attendance: deactivate, don't delete ───────────────────────────
+  // Deleting a student would take their rows out of archived attendance
+  // records, so those accounts are deactivated instead (the database refuses
+  // the delete too — migration 202610230003).
+
+  String _studentName(String lrn) {
+    final s = _all.firstWhere((s) => s['lrn'] == lrn, orElse: () => const {});
+    final name = (s['full_name'] as String? ?? '').trim();
+    return name.isEmpty ? lrn : name;
+  }
+
+  /// The LRNs in [lrns] whose student has attendance in archived events.
+  Future<Set<String>> _withArchivedAttendance(List<String> lrns) async {
+    final byLrn = {for (final s in _all) s['lrn'] as String?: s};
+    final counts = await EventArchiveService.archivedAttendanceByStudent(
+        lrns.map((l) => byLrn[l]?['user_id'] as String?));
+    return {
+      for (final l in lrns)
+        if ((counts[byLrn[l]?['user_id']] ?? 0) > 0) l,
+    };
+  }
+
+  /// Says why [lrns] can't be deleted, and offers to deactivate the ones
+  /// that are still active.
+  Future<void> _offerDeactivate(List<String> lrns) async {
+    final active = [
+      for (final l in lrns)
+        if (_all.any((s) => s['lrn'] == l && s['is_active'] == true)) l,
+    ];
+    final one = lrns.length == 1;
+    final who = one ? _studentName(lrns.first) : '${lrns.length} students';
+    final r = await Swal.fire(context,
+      icon: SwalIcon.info,
+      title: one ? 'This student can’t be deleted' : 'These students can’t be deleted',
+      text: '$who ${one ? 'has' : 'have'} attendance in archived events. Archived attendance '
+          'is kept as the school’s record, so ${one ? 'this account' : 'these accounts'} can '
+          'be deactivated but not deleted. '
+          '${active.isEmpty
+              ? (one ? 'It’s already deactivated.' : 'They’re already deactivated.')
+              : 'A deactivated student can’t sign in, and their records stay complete.'}',
+      showCancelButton: active.isNotEmpty,
+      confirmButtonText: active.isEmpty
+          ? 'OK'
+          : one ? 'Deactivate instead' : 'Deactivate ${active.length}',
+      confirmButtonColor: active.isEmpty ? kSwalConfirmColor : const Color(0xFFB45309),
+      cancelButtonText: 'Close',
+      preConfirm: active.isEmpty
+          ? null
+          : (_) async {
+              try {
+                final done = await _deactivate(active);
+                return done.isEmpty ? 'Nothing was changed. Please try again.' : null;
+              } catch (e) {
+                return friendlyError(e);
+              }
+            },
+    );
+    if (!r.isConfirmed || active.isEmpty || !mounted) return;
+    await WebAlert.success(
+      context: context,
+      title: active.length == 1 ? 'Student Deactivated' : 'Students Deactivated',
+      message: active.length == 1
+          ? 'The student can no longer log in. Their attendance records are kept.'
+          : '${active.length} student accounts have been deactivated. Their attendance '
+            'records are kept.',
+    );
+  }
+
+  /// Deactivates [lrns] — the caller has already asked.
+  Future<Set<String>> _deactivate(List<String> lrns) async {
+    final updated = await SupabaseService.client
+        .from('students')
+        .update({'is_active': false})
+        .in_('lrn', lrns)
+        .select('lrn');
+    final done = {
+      for (final r in updated as List) (r as Map<String, dynamic>)['lrn'] as String,
+    };
+    for (final s in _all) {
+      if (done.contains(s['lrn'])) s['is_active'] = false;
+    }
+    if (mounted) _applyFilter();
+    return done;
+  }
+
   Future<void> _deleteStudent(String lrn, String name) async {
+    // Archived attendance is the school's record: deactivate instead.
+    try {
+      final kept = await _withArchivedAttendance([lrn]);
+      if (!mounted) return;
+      if (kept.isNotEmpty) {
+        await _offerDeactivate([lrn]);
+        return;
+      }
+    } catch (e) {
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t delete the student');
+      return;
+    }
     final ok = await WebAlert.confirm(
       context: context,
       title: 'Delete Student?',
@@ -769,43 +888,41 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
                   width: 200,
                 ),
                 const SizedBox(width: 14),
-                Container(width: 1, height: 18, color: t.border),
-                const SizedBox(width: 14),
-                Text(
-                  'Status:',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: t.text,
-                  ),
+                WebFilterMenu<String>(
+                  icon: Icons.filter_list_rounded,
+                  label: 'Status',
+                  menuWidth: 220,
+                  selected: _statusFilter,
+                  options: [
+                    WebFilterOption(
+                      value: 'All',
+                      label: 'All',
+                      count: totalCount,
+                    ),
+                    WebFilterOption(
+                      value: 'Active',
+                      label: 'Active',
+                      count: activeCount,
+                      color: const Color(0xFF10B981),
+                    ),
+                    WebFilterOption(
+                      value: 'Inactive',
+                      label: 'Inactive',
+                      count: inactiveCount,
+                      color: kMuted,
+                    ),
+                    WebFilterOption(
+                      value: 'No Regs',
+                      label: 'No Regs',
+                      count: unregisteredCount,
+                      color: const Color(0xFFF59E0B),
+                    ),
+                  ],
+                  onSelect: (status) {
+                    _statusFilter = status;
+                    _applyFilter(resetPage: true);
+                  },
                 ),
-                const SizedBox(width: 8),
-                for (final f in ['All', 'Active', 'Inactive', 'No Regs']) ...[
-                  WebFilterChip(
-                    label: f,
-                    selected: _statusFilter == f,
-                    onTap: () {
-                      _statusFilter = f;
-                      _applyFilter(resetPage: true);
-                    },
-                    count: f == 'All'
-                        ? totalCount
-                        : f == 'Active'
-                        ? activeCount
-                        : f == 'Inactive'
-                        ? inactiveCount
-                        : unregisteredCount,
-                    selectedColor: f == 'No Regs'
-                        ? const Color(0xFFF59E0B)
-                        : f == 'Inactive'
-                        ? kMuted
-                        : f == 'Active'
-                        ? const Color(0xFF10B981)
-                        : null,
-                  ),
-                  const SizedBox(width: 6),
-                ],
                 const SizedBox(width: 8),
                 Container(width: 1, height: 18, color: t.border),
                 const SizedBox(width: 14),
@@ -1854,6 +1971,7 @@ class _StudentDialogState extends State<_StudentDialog>
   final _sectionCtrl = TextEditingController();
   final _lastCtrl = TextEditingController();
   final _firstCtrl = TextEditingController();
+  final _middleCtrl = TextEditingController(); // optional
   // True when an older student (saved before name parts existed) was split
   // from full_name by guesswork — the admin is asked to double-check it.
   bool _nameGuessed = false;
@@ -1913,6 +2031,7 @@ class _StudentDialogState extends State<_StudentDialog>
           _nameGuessed = true;
         }
       }
+      _middleCtrl.text = (s['middle_name'] as String? ?? '').trim();
       _selectedYear = widget.student!['year_level'] as int?;
       final st = widget.student!['strand'];
       _selectedStrand = st is String && _kStrands.contains(st) ? st : null;
@@ -1927,6 +2046,7 @@ class _StudentDialogState extends State<_StudentDialog>
     _sectionCtrl.dispose();
     _lastCtrl.dispose();
     _firstCtrl.dispose();
+    _middleCtrl.dispose();
     _pwCtrl.dispose();
     super.dispose();
   }
@@ -1966,8 +2086,10 @@ class _StudentDialogState extends State<_StudentDialog>
 
     final data = <String, dynamic>{
       'first_name': _cleanName(_firstCtrl.text),
+      'middle_name': _cleanOptional(_middleCtrl.text),
       'last_name': _cleanName(_lastCtrl.text),
       // Display value, natural order — greetings/avatars/tickets read this.
+      // The middle name is kept separately and not added here.
       'full_name':
           '${_cleanName(_firstCtrl.text)} ${_cleanName(_lastCtrl.text)}',
       'year_level': _selectedYear,
@@ -2078,17 +2200,20 @@ class _StudentDialogState extends State<_StudentDialog>
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             _label('First name', t),
-                            _nameField(
-                              _firstCtrl,
-                              'first',
-                              'e.g. Juan',
-                              t,
-                              submitOnEnter: _isEdit,
-                            ),
+                            _nameField(_firstCtrl, 'first', 'e.g. Juan', t),
                           ],
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 14),
+                  adminFormLabel('Middle name', t, hint: 'Optional'),
+                  _nameField(
+                    _middleCtrl,
+                    'middle',
+                    'e.g. Santos',
+                    t,
+                    submitOnEnter: _isEdit,
                   ),
                   if (_nameGuessed) ...[
                     const SizedBox(height: 8),
@@ -2103,8 +2228,8 @@ class _StudentDialogState extends State<_StudentDialog>
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            'Split automatically from the saved name — check that the '
-                            'last and first names are correct before saving.',
+                            'Split automatically from the saved name — check the last, '
+                            'first and middle names before saving.',
                             style: TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 11,
@@ -2365,11 +2490,14 @@ class _StudentDialogState extends State<_StudentDialog>
 
   static String _cleanName(String raw) => adminCleanName(raw);
 
-  // Optional; blank → null. Title-cased like names ("SAMPAGUITA" → "Sampaguita").
-  static String? _cleanSection(String raw) {
+  // Optional fields (middle name, section); blank → null. Title-cased like
+  // names ("SAMPAGUITA" → "Sampaguita").
+  static String? _cleanOptional(String raw) {
     final s = adminCleanName(raw);
     return s.isEmpty ? null : s;
   }
+
+  static String? _cleanSection(String raw) => _cleanOptional(raw);
 
   Widget _readOnlyField(String value, WebTk t) => AdminReadOnlyField(
     value: value,

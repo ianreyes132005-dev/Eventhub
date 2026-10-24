@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+/// The Terms and Conditions shown from the login screens (app and web
+/// portal). Keep them true to how EventHub works — see also
+/// privacy_content.dart.
 const eventHubTerms = <({IconData icon, String title, String body})>[
   (
     icon: Icons.info_outline_rounded,
@@ -24,17 +27,17 @@ const eventHubTerms = <({IconData icon, String title, String body})>[
   (
     icon: Icons.event_available_outlined,
     title: 'Student Event Use',
-    body: 'Students may use EventHub to browse available school events, review event information, register where registration is open, view their registrations, and receive event announcements. Event details, registration availability, capacity, and attendance requirements are determined by the school or event organizer. A registration is subject to the event’s published requirements and does not override them.',
+    body: 'Students may use EventHub to browse available school events, review event information, register while registration is open (it closes 2 hours after an event starts), view their registrations, and receive event announcements. Event details and attendance requirements are determined by the school or event organizer. A registration is subject to the event’s published requirements and does not override them.',
   ),
   (
     icon: Icons.qr_code_2_rounded,
     title: 'QR Tickets and Attendance',
-    body: 'EventHub may issue a QR code associated with a student’s event registration. Present only your own ticket for check-in. Do not copy, share, alter, or attempt to reuse another person’s QR code. Organizers may scan the code to locate a registration and record or continue the event check-in process. The app’s displayed status may change as the organizer processes the check-in.',
+    body: 'EventHub issues a QR ticket for each event registration, with a short Ticket ID that an organizer can type if the code won’t scan. Present only your own ticket for check-in. Do not copy, share, alter, or attempt to reuse another person’s QR code or Ticket ID. Organizers scan the code or type the Ticket ID to find a registration and record or continue the event check-in process. The app’s displayed status may change as the organizer processes the check-in.',
   ),
   (
     icon: Icons.face_outlined,
     title: 'Selfie Check-In',
-    body: 'An organizer may request a selfie as part of an event’s identity verification process. Submit a genuine image of yourself when requested and follow the school’s event instructions. Selfie images and related registration information are used for the check-in workflow and are available to authorized personnel through the system. Do not upload another person’s image or an unrelated, misleading, or inappropriate image.',
+    body: 'An organizer may request a selfie as part of an event’s identity verification process; the app asks before it opens the camera. Submit a genuine image of yourself when requested and follow the school’s event instructions. Selfie images and related registration information are used for the check-in workflow and can be seen by that event’s organizer and the school administrator. Check-in selfies are deleted when the event is archived. Do not upload another person’s image or an unrelated, misleading, or inappropriate image.',
   ),
   (
     icon: Icons.admin_panel_settings_outlined,
@@ -44,7 +47,7 @@ const eventHubTerms = <({IconData icon, String title, String body})>[
   (
     icon: Icons.campaign_outlined,
     title: 'Announcements and AI Assistant',
-    body: 'EventHub may display school or event announcements. Check the event details and follow any instructions provided by the school or organizer. The organizer web portal may also provide an AI assistant for event-related questions. AI responses can be incomplete or inaccurate and are provided as assistance, not as an official school decision. Do not enter passwords or sensitive personal information into the assistant.',
+    body: 'EventHub may display school or event announcements. Check the event details and follow any instructions provided by the school or organizer. EventHub also includes an AI assistant, in the app and the web portal, for questions about using EventHub. AI responses can be incomplete or inaccurate and are provided as assistance, not as an official school decision. Do not enter passwords or sensitive personal information into the assistant.',
   ),
   (
     icon: Icons.rule_outlined,
@@ -54,7 +57,7 @@ const eventHubTerms = <({IconData icon, String title, String body})>[
   (
     icon: Icons.storage_outlined,
     title: 'Information and System Operation',
-    body: 'EventHub processes account, profile, event registration, attendance, announcement, and check-in information to provide its features. The system uses Supabase services for authentication and data storage. Access to information is controlled by account roles and the system’s configured permissions. Questions about school data practices should be directed to a school administrator.',
+    body: 'EventHub processes account, profile, event registration, attendance, announcement, and check-in information to provide its features. The system uses Supabase services for authentication and data storage, and Groq, an AI service, to answer questions typed into the assistant. Access to information is controlled by account roles and the system’s configured permissions. The Privacy Policy explains what is kept and who can see it; questions about school data practices should be directed to a school administrator.',
   ),
   (
     icon: Icons.sync_rounded,
@@ -69,6 +72,6 @@ const eventHubTerms = <({IconData icon, String title, String body})>[
   (
     icon: Icons.mail_outline_rounded,
     title: 'Contact',
-    body: 'For questions about these Terms and Conditions, your account, an event, or information shown in EventHub, contact your school administrator or the EventHub support team.',
+    body: 'For questions about these Terms and Conditions, your account, an event, or information shown in EventHub, contact your school administrator.',
   ),
 ];

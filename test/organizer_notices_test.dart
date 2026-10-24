@@ -44,9 +44,18 @@ void main() {
       expect(first.single.id, isNot(second.single.id));
     });
 
-    test('no "resubmit" hint once the event can no longer be edited', () {
+    test('once its date has passed: resubmit with a new date', () {
       final n = OrganizerNotices.eventDecisions([
         event('a', 'rejected', reviewedAt: ago(const Duration(hours: 1)), date: '2020-01-10'),
+      ], now: now);
+      expect(n.single.message,
+          '“Science Fair” was rejected. Edit it with a new date and resubmit it for review.');
+    });
+
+    test('no "resubmit" hint once the event can no longer be edited (archived)', () {
+      final n = OrganizerNotices.eventDecisions([
+        event('a', 'rejected', reviewedAt: ago(const Duration(hours: 1)))
+          ..['archived_at'] = ago(const Duration(minutes: 5)),
       ], now: now);
       expect(n.single.message, '“Science Fair” was rejected.');
     });

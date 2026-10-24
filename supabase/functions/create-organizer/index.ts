@@ -26,13 +26,15 @@ serve(async (req) => {
 
   try {
     // ── 1. Parse body ────────────────────────────────────────────────────────
-    const { organizer_id, full_name, first_name, last_name, organization, password } =
+    const { organizer_id, full_name, first_name, middle_name, last_name, organization, password } =
       await req.json()
 
     // Name parts are optional for backward compatibility; when present,
-    // full_name is always rebuilt from them ("First Last").
-    const first = String(first_name ?? '').trim()
-    const last  = String(last_name ?? '').trim()
+    // full_name is always rebuilt from them ("First Last"). The middle name
+    // is optional and stored on its own, not in full_name.
+    const first  = String(first_name ?? '').trim()
+    const middle = String(middle_name ?? '').trim()
+    const last   = String(last_name ?? '').trim()
     const displayName = first && last ? `${first} ${last}` : String(full_name ?? '').trim()
 
     if (!organizer_id || !/^Org\d{4}$/i.test(organizer_id))
@@ -84,6 +86,7 @@ serve(async (req) => {
       user_id:      created.user.id,
       full_name:    displayName,
       first_name:   first || null,
+      middle_name:  middle || null,
       last_name:    last || null,
       organization: organization?.trim() || null,
       is_active:    true,

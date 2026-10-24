@@ -17,6 +17,8 @@ import 'attendance_export_dialog.dart';
 import 'event_table_cells.dart';
 import '../../../shared/utils/event_form_validation.dart';
 import '../../../shared/widgets/form_errors.dart';
+import '../../../shared/widgets/stepped_wheel.dart';
+import '../../../shared/utils/realtime_utils.dart';
 
 // ── Banner upload constraints ─────────────────────────────────────────────
 const _kAllowedBannerExts = {'jpg', 'jpeg', 'png', 'webp'};
@@ -84,7 +86,6 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     'Archived',
   ];
 
-  String? _hoveredTab;
 
   late final AnimationController _staggerCtrl;
   RealtimeChannel? _channel;
@@ -120,6 +121,20 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
       _channel!.on(
         RealtimeListenTypes.postgresChanges,
         ChannelFilter(event: '*', schema: 'public', table: table),
+        (_, [a]) => _debounceLoad(),
+      );
+    }
+    // The admin's answer to a change request only touches event_revisions
+    // when it's a rejection — "Your last changes were rejected" shows at once.
+    if (widget.orgId != null) {
+      _channel!.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: '*',
+          schema: 'public',
+          table: 'event_revisions',
+          filter: 'organizer_id=eq.${widget.orgId}',
+        ),
         (_, [a]) => _debounceLoad(),
       );
     }
@@ -186,8 +201,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     setState(() {
       _displayed = _events.where((e) {
         final status = _resolveDisplayStatus(e);
-        final approval =
-            (e['approval_status'] as String? ?? 'approved').toLowerCase();
+        final approval = approvalStatusOf(e);
         final title  = (e['title'] as String? ?? '').toLowerCase();
         final loc    = (e['location'] as String? ?? '').toLowerCase();
         final type   = (e['event_type'] as String? ?? '').toLowerCase();
@@ -302,11 +316,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     return r != null && r['status'] == 'rejected' ? r : null;
   }
 
-  bool _canEditEvent(Map<String, dynamic> event) {
-    if (eventIsArchived(event)) return false;
-    final status = _resolveDisplayStatus(event);
-    return status != 'ongoing' && status != 'ended';
-  }
+  bool _canEditEvent(Map<String, dynamic> event) => organizerCanEditEvent(event);
 
   void _openDetails(Map<String, dynamic> e) {
     showDialog(
@@ -393,8 +403,9 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
 
   Future<void> _delete(Map<String, dynamic> e) async {
     final id = e['event_id'] as String?;
-    // The list may be stale — an event that has since ended can't be deleted.
-    if (id == null || _resolveDisplayStatus(e) == 'ended' || eventIsArchived(e)) return;
+    // The list may be stale — an approved event that has since ended can't be
+    // deleted.
+    if (id == null || !organizerCanDeleteEvent(e)) return;
     final title = e['title'] as String? ?? 'this event';
 
     // Events with registrations are never deleted — that would erase
@@ -531,37 +542,38 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     // Live counts per status — displayed as badges on each chip so the
     // organizer sees event distribution at a glance without filtering.
     final active = _events.where((e) => !eventIsArchived(e));
-    final scheduled = active.where(
-      (e) =>
-          (e['approval_status'] as String? ?? 'approved').toLowerCase() !=
-          'rejected',
-    );
+    final scheduled = active.where((e) => approvalStatusOf(e) != 'rejected');
     final counts = <String, int>{
       'All':       active.length,
       'Upcoming':  scheduled.where((e) => _resolveDisplayStatus(e) == 'upcoming').length,
       'Ongoing':   scheduled.where((e) => _resolveDisplayStatus(e) == 'ongoing').length,
       'Ended':     scheduled.where((e) => _resolveDisplayStatus(e) == 'ended').length,
       'Cancelled': scheduled.where((e) => _resolveDisplayStatus(e) == 'cancelled').length,
-      'Rejected':  active.where((e) =>
-          (e['approval_status'] as String? ?? 'approved').toLowerCase() == 'rejected').length,
+      'Rejected':  active.where((e) => approvalStatusOf(e) == 'rejected').length,
       'Archived':  _events.length - active.length,
     };
 
+    // One Status menu instead of seven chips: the chips ran off narrower
+    // screens (and laptops at 125% zoom), hiding Rejected and Archived
+    // behind a sideways scroll. Every status and its count is one click away.
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: _filters.map((f) => Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: _filterTab(f, counts[f] ?? 0),
-              )).toList(),
-            ),
-          ),
+        WebFilterMenu<String>(
+          icon: Icons.filter_list_rounded,
+          label: 'Status',
+          options: [
+            for (final f in _filters)
+              WebFilterOption(value: f, label: f, count: counts[f] ?? 0,
+                  color: _filterColor(f)),
+          ],
+          selected: _filter,
+          onSelect: (f) {
+            setState(() => _filter = f);
+            _applyFilter();
+          },
         ),
-        const SizedBox(width: 16),
+        const Spacer(),
         WebSearchField(
           controller: _search,
           hint: 'Search events…',
@@ -571,89 +583,13 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     );
   }
 
-  Widget _filterTab(String f, int count) {
-    final t        = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final selected = _filter == f;
-    final hovered  = _hoveredTab == f;
-    const accent = kGold;
-
-    return MouseRegion(
-      cursor:  SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hoveredTab = f),
-      onExit:  (_) => setState(() => _hoveredTab = null),
-      child: GestureDetector(
-        onTap: () {
-          setState(() { _filter = f; _hoveredTab = null; });
-          _applyFilter();
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve:    Curves.easeOut,
-          padding:  const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: selected
-                ? accent.withValues(alpha: 0.08)
-                : hovered
-                    ? t.divider
-                    : t.inputBg,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: selected
-                  ? accent.withValues(alpha: 0.35)
-                  : t.border,
-              width: selected ? 1.5 : 1.0,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Status dot — visible only when selected
-              if (selected) ...[
-                Container(
-                  width: 6, height: 6,
-                  decoration: BoxDecoration(
-                    color: accent, shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                f,
-                style: TextStyle(
-                  fontFamily:    'Poppins',
-                  fontSize:      12,
-                  fontWeight:    selected ? FontWeight.w700 : FontWeight.w500,
-                  color:         selected ? accent : t.sub,
-                  letterSpacing: selected ? 0.1 : 0,
-                ),
-              ),
-              const SizedBox(width: 7),
-              // Live count badge
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                decoration: BoxDecoration(
-                  color: selected
-                      ? accent.withValues(alpha: 0.15)
-                      : t.divider,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '$count',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize:   10,
-                    fontWeight: FontWeight.w700,
-                    color:      selected ? accent : t.muted,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  // The dot in front of each status in the menu — the table's pill colours.
+  static Color _filterColor(String f) => switch (f) {
+        'All'       => kGold,
+        'Rejected'  => approvalStatusColor('rejected'),
+        'Archived'  => kArchivedColor,
+        _           => eventStatusColor(f),
+      };
 
   // ── Table ───────────────────────────────────────────────────────────────────
   // One column layout for the header and every row, with a gutter after each
@@ -727,13 +663,12 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
       case 'Archived':
         lines.add('Archived by the administrator — hidden from students’ Events tab. Read-only.');
       case 'Rejected':
-        final reason = (e['rejection_reason'] as String?)?.trim() ?? '';
+        final reason = rejectionReasonOf(e) ?? '';
         if (reason.isNotEmpty) lines.add('Reason: $reason');
-        lines.add(_canEditEvent(e)
-            ? 'Edit and save it to resubmit.'
-            : 'Its start time has passed.');
-      case 'Expired':
-        lines.add('The start time passed before an admin reviewed it, so it can no longer be approved.');
+        final w = eventWindow(e);
+        lines.add(w != null && !DateTime.now().isBefore(w.start)
+            ? 'Its date has passed — edit it with a new date to resubmit, or delete it.'
+            : 'Edit and save it to resubmit.');
       case 'Pending review':
         lines.add('Waiting for admin approval — students can’t see it yet.');
       case 'Cancelled':
@@ -778,8 +713,9 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
       tooltip: 'Details',
       onTap: () => _openDetails(e),
     ),
-    // Ended events: download the attendance record.
-    if (resolved == 'ended')
+    // Ended live events: download the attendance record. One that was never
+    // approved had no registrations, so there's nothing to export.
+    if (resolved == 'ended' && eventIsApproved(e))
       _IconBtn(
         icon: Icons.download_rounded,
         color: const Color(0xFF16A34A),
@@ -801,8 +737,8 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
         tooltip: 'Cancel event',
         onTap: () => _cancel(e),
       ),
-    // Ended / archived events are part of the record — no delete.
-    if (resolved != 'ended' && !eventIsArchived(e))
+    // Ended live events and archived ones are part of the record — no delete.
+    if (organizerCanDeleteEvent(e))
       _IconBtn(
         icon: Icons.delete_outline_rounded,
         color: const Color(0xFFEF4444),
@@ -1215,6 +1151,9 @@ class _EventDialogState extends State<_EventDialog> {
         confirmButtonText: 'Yes, submit it',
         cancelButtonText: 'Keep editing',
         confirmButtonColor: kSwalGold,
+        reverseButtons: true,
+        buttonTextStyle: const TextStyle(fontFamily: 'Poppins',
+            fontSize: 14, fontWeight: FontWeight.w700),
         preConfirm: (_) async {
           final client = SupabaseService.client;
           String? uploadedPath;
@@ -1748,7 +1687,7 @@ class _EventDialogState extends State<_EventDialog> {
                           _buildCapacityInfo(t),
                           const SizedBox(height: 5),
                           Text('Set automatically — it grows as students are added. '
-                              'Registration closes when the event starts.',
+                              'Registration closes 2 hours after the event starts.',
                             style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted)),
                         ],
                       ),
@@ -2923,27 +2862,23 @@ class _WebTimePickerState extends State<_WebTimePicker> {
             border: Border.all(color: accent.withValues(alpha: 0.22)),
           ),
         ),
-        ListWheelScrollView.useDelegate(
+        // One number per wheel notch / swipe (a notch used to skip one).
+        SteppedWheel(
           controller: ctrl,
           itemExtent: _itemH,
-          diameterRatio: 1.8,
-          perspective: 0.003,
-          physics: const FixedExtentScrollPhysics(),
+          childCount: count * 1000,
           onSelectedItemChanged: (_) => setState(() => _pastError = false),
-          childDelegate: ListWheelChildBuilderDelegate(
-            childCount: count * 1000,
-            builder: (_, i) {
-              final idx   = i % count;
-              final isSel = ctrl.hasClients && ctrl.selectedItem % count == idx;
-              return Center(child: Text(label(idx),
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize:   isSel ? 28 : 18,
-                  fontWeight: isSel ? FontWeight.w800 : FontWeight.w400,
-                  color:      isSel ? accent : t.muted,
-                )));
-            },
-          ),
+          itemBuilder: (_, i) {
+            final idx   = i % count;
+            final isSel = ctrl.hasClients && ctrl.selectedItem % count == idx;
+            return Center(child: Text(label(idx),
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize:   isSel ? 28 : 18,
+                fontWeight: isSel ? FontWeight.w800 : FontWeight.w400,
+                color:      isSel ? accent : t.muted,
+              )));
+          },
         ),
         Positioned(top: 0, left: 0, right: 0,
           child: IgnorePointer(child: Container(
@@ -2978,7 +2913,16 @@ class _EventDetailsDialog extends StatefulWidget {
 
 class _EventDetailsDialogState extends State<_EventDetailsDialog> {
   bool _loading = true;
+  // Live copy of the event: approval, cancellation and edits from the app
+  // or the admin show while the dialog is open.
+  late Map<String, dynamic> _event = widget.event;
   List<Map<String, dynamic>> _registrations = [];
+  RealtimeChannel? _channel;
+  Timer? _debounce;
+  // Upcoming → Ongoing → Check-in open → Ended follow the clock.
+  Timer? _clock;
+  bool _fetching = false;     // a load is running…
+  bool _refetch = false;      // …and a change arrived meanwhile
   String? _organizerName;
   int?    _studentCount = StudentCountService.cached;
 
@@ -2992,14 +2936,71 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
   void initState() {
     super.initState();
     _load();
+    _subscribe();
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    _debounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
+    super.dispose();
+  }
+
+  String? get _eventId => widget.event['event_id'] as String?;
+
+  void _subscribe() {
+    final id = _eventId;
+    if (id == null) return;
+    _channel = SupabaseService.client.channel('org-event-details-$id')
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'events',
+          filter: 'event_id=eq.$id',
+        ),
+        (payload, [_]) {
+          final row = realtimeRow(payload);
+          if (row != null && mounted) setState(() => _event = {..._event, ...row});
+        },
+      )
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: 'registrations'),
+        (payload, [_]) {
+          final row = realtimeRow(payload);
+          if (row == null) return;
+          final eventId = row['event_id'];
+          // A deleted registration only carries its id.
+          final mine = eventId != null
+              ? eventId == id
+              : _registrations.any((r) => r['id'] == row['id']);
+          if (!mine) return;
+          _debounce?.cancel();
+          _debounce = Timer(const Duration(milliseconds: 500), () {
+            if (mounted) _load();
+          });
+        },
+      )
+      ..subscribe();
   }
 
   Future<void> _load() async {
-    final eventId = widget.event['event_id'] as String?;
+    final eventId = _eventId;
     if (eventId == null) {
       if (mounted) setState(() => _loading = false);
       return;
     }
+    if (_fetching) {
+      _refetch = true;
+      return;
+    }
+    _fetching = true;
     try {
       final regsRaw = await SupabaseService.client
           .from('registrations')
@@ -3008,14 +3009,16 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
           .order('registered_at', ascending: false);
 
       String? orgName;
-      final orgId = widget.event['organizer_id'] as String?;
-      if (orgId != null) {
+      final orgId = _event['organizer_id'] as String?;
+      if (orgId != null && _organizerName == null) {
         final orgRow = await SupabaseService.client
             .from('organizers')
             .select('full_name')
             .eq('organizer_id', orgId)
             .maybeSingle();
         orgName = orgRow?['full_name'] as String?;
+      } else {
+        orgName = _organizerName;
       }
 
       final regs = List<Map<String, dynamic>>.from(regsRaw as List);
@@ -3034,10 +3037,16 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
       });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
+    } finally {
+      _fetching = false;
+      if (_refetch && mounted) {
+        _refetch = false;
+        _load();
+      }
     }
   }
 
-  Map<String, dynamic> get _e => widget.event;
+  Map<String, dynamic> get _e => _event;
 
   String get _title    => _e['title'] as String? ?? '—';
   String get _location => _e['location'] as String? ?? '—';
@@ -3048,8 +3057,9 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
   // Capacity = every active student (0 until the count is known, which hides
   // the "of N" parts).
   int get _capacity   => _studentCount ?? 0;
+  // Declined registrations don't count (countsAsRegistered).
   int get _registered => _registrations.isNotEmpty
-      ? _registrations.length
+      ? _registrations.where(countsAsRegistered).length
       : (_e['current_participants'] as int? ?? 0);
   int get _checkedIn =>
       _registrations.where((r) => r['status'] == 'checked_in').length;
@@ -3063,8 +3073,12 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
   int get _attendancePct =>
       _registered > 0 ? (_checkedIn / _registered * 100).clamp(0, 100).toInt() : 0;
 
-  String  get _approval => (_e['approval_status'] as String? ?? 'approved').toLowerCase();
-  String? get _rejectionReason => _e['rejection_reason'] as String?;
+  String  get _approval => approvalStatusOf(_e);
+  String? get _rejectionReason => rejectionReasonOf(_e);
+  bool get _datePassed {
+    final w = eventWindow(_e);
+    return w != null && !DateTime.now().isBefore(w.start);
+  }
 
   String get _fmtTimeRange {
     final s  = _e['start_time'] as String?;
@@ -3141,7 +3155,8 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
                     ],
                   ),
                 ),
-                if (resolved == 'ended') ...[
+                // Only a live event that ended has an attendance record.
+                if (resolved == 'ended' && _approval == 'approved') ...[
                   const SizedBox(width: 8),
                   WebBtn(
                     label: 'Export',
@@ -3189,7 +3204,9 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
                                     style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
                                         color: t.text, height: 1.5)),
                                   const SizedBox(height: 6),
-                                  Text('Edit and save this event to resubmit it for review.',
+                                  Text(_datePassed
+                                      ? 'Its date has passed — edit it with a new date to resubmit it for review.'
+                                      : 'Edit and save this event to resubmit it for review.',
                                     style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
                                         color: t.muted, fontStyle: FontStyle.italic)),
                                 ],
@@ -3512,7 +3529,8 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
           final changed = await showStudentRegistrationPanel(context,
               registration: r,
               organizerId: _e['organizer_id'] as String?,
-              profile: p);
+              profile: p,
+              archived: eventIsArchived(_e));
           if (changed == true && mounted) _load();
         },
         child: Padding(

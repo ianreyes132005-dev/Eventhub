@@ -219,7 +219,11 @@ class StudentNotifications {
     for (final reg in registrations) {
       final rid     = reg['id']             as String? ?? '';
       final status  = reg['status']         as String? ?? '';
-      final event   = reg['event_title']    as String? ?? 'an event';
+      // The event's current name — the registration keeps the one from sign-up.
+      final evTitle = ((reg['events'] as Map?)?['title'] as String?)?.trim();
+      final event   = evTitle != null && evTitle.isNotEmpty
+          ? evTitle
+          : reg['event_title'] as String? ?? 'an event';
       final rawCi   = reg['checked_in_at']  as String?;
       final rawReg  = reg['registered_at']  as String?;
       final timeRaw = rawCi ?? rawReg ?? '';

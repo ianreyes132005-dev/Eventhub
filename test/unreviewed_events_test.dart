@@ -55,7 +55,8 @@ void main() {
     expect(shown.single.kind, OrgNoticeKind.eventRejected);
     expect(shown.single.at, atStart);
     expect(shown.single.message,
-        '“Science Fair” was rejected. Reason: $kNotReviewedInTimeReason');
+        '“Science Fair” was rejected. Reason: $kNotReviewedInTimeReason '
+        'Edit it with a new date and resubmit it for review.');
 
     // reject_unreviewed_events saves the start time as reviewed_at.
     final saved = OrganizerNotices.eventDecisions([

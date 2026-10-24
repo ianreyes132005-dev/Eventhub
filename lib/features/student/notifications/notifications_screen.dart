@@ -1,4 +1,5 @@
-  import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
@@ -49,6 +50,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   late final TabController _tabCtrl;
   RealtimeChannel? _realtimeChannel;
+  Timer? _debounce;
 
   static const _tabs = ['All', 'Announcements', 'My Events'];
 
@@ -68,6 +70,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   @override
   void dispose() {
     _tabCtrl.dispose();
+    _debounce?.cancel();
     if (_realtimeChannel != null) {
       Supabase.instance.client.removeChannel(_realtimeChannel!);
     }
@@ -76,8 +79,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
-  Future<void> _load() async {
-    if (mounted) setState(() => _loading = true);
+  /// [silent] (a live update) keeps the list on screen while it reloads.
+  Future<void> _load({bool silent = false}) async {
+    if (mounted && !silent) setState(() => _loading = true);
     try {
       // The same feed the Home bell counts (student_feed.dart), so the two
       // numbers always agree.
@@ -86,7 +90,8 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       if (!mounted) return;
 
       NotifReadStore.setAll(items.map((e) => e.id));
-      if (widget.markAllRead) NotifReadStore.markAll(items.map((e) => e.id));
+      // Only the first load: a notification arriving later stays unread.
+      if (widget.markAllRead && !silent) NotifReadStore.markAll(items.map((e) => e.id));
 
       setState(() {
         _all     = items;
@@ -112,26 +117,28 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     }
   }
 
+  // Announcements, the student's registrations (every check-in step, a
+  // decline, a deletion) and events (cancelled, moved, renamed) all change
+  // the list. RLS limits each table to what the student can see; the
+  // registrations listener isn't filtered because a filtered channel never
+  // hears deletes.
   void _subscribeRealtime() {
-    final userId = SupabaseService.currentUser?.id ?? '';
+    void soon() {
+      _debounce?.cancel();
+      _debounce = Timer(const Duration(milliseconds: 600), () {
+        if (mounted) _load(silent: true);
+      });
+    }
+
     _realtimeChannel = SupabaseService.client.channel('notif-screen');
-    _realtimeChannel!
-        .on(
-          RealtimeListenTypes.postgresChanges,
-          ChannelFilter(event: '*', schema: 'public', table: 'announcements'),
-          (_, [ref]) { if (mounted) _load(); },
-        )
-        .on(
-          RealtimeListenTypes.postgresChanges,
-          ChannelFilter(
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'registrations',
-            filter: 'student_user_id=eq.$userId',
-          ),
-          (_, [ref]) { if (mounted) _load(); },
-        )
-        .subscribe();
+    for (final table in ['announcements', 'registrations', 'events']) {
+      _realtimeChannel!.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (_, [ref]) => soon(),
+      );
+    }
+    _realtimeChannel!.subscribe();
   }
 
   void _markRead(String id) {

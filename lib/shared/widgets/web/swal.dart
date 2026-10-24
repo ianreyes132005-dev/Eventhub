@@ -57,6 +57,8 @@ class Swal {
     bool    showCancelButton   = false,
     String  cancelButtonText   = 'Cancel',
     Color   cancelButtonColor  = kSwalCancelColor,
+    bool    reverseButtons     = false,
+    TextStyle? buttonTextStyle,
     bool    input = false,
     String? inputLabel,
     String? inputPlaceholder,
@@ -78,6 +80,7 @@ class Swal {
           confirmButtonText: confirmButtonText, confirmButtonColor: confirmButtonColor,
           showCancelButton: showCancelButton,
           cancelButtonText: cancelButtonText, cancelButtonColor: cancelButtonColor,
+          reverseButtons: reverseButtons, buttonTextStyle: buttonTextStyle,
           input: input, inputLabel: inputLabel, inputPlaceholder: inputPlaceholder,
           inputValidator: inputValidator, preConfirm: preConfirm,
           timer: timer, timerProgressBar: timerProgressBar,
@@ -141,6 +144,8 @@ class _SwalPopup extends StatefulWidget {
   final bool    showConfirmButton, showCancelButton, input, timerProgressBar;
   final String  confirmButtonText, cancelButtonText;
   final Color   confirmButtonColor, cancelButtonColor;
+  final bool    reverseButtons;
+  final TextStyle? buttonTextStyle;
   final String? inputLabel, inputPlaceholder;
   final String? Function(String value)? inputValidator;
   final Future<String?> Function(String? value)? preConfirm;
@@ -151,6 +156,7 @@ class _SwalPopup extends StatefulWidget {
     required this.showConfirmButton, required this.confirmButtonText,
     required this.confirmButtonColor, required this.showCancelButton,
     required this.cancelButtonText, required this.cancelButtonColor,
+    required this.reverseButtons, required this.buttonTextStyle,
     required this.input, required this.inputLabel, required this.inputPlaceholder,
     required this.inputValidator, required this.preConfirm,
     required this.timer, required this.timerProgressBar,
@@ -253,15 +259,31 @@ class _SwalPopupState extends State<_SwalPopup> with SingleTickerProviderStateMi
         alignment: WrapAlignment.center,
         spacing: 10, runSpacing: 10,
         children: [
-          if (w.showConfirmButton)
-            _loading
-                ? _SwalLoader(color: w.confirmButtonColor)
-                : _SwalButton(label: w.confirmButtonText, color: w.confirmButtonColor,
-                    autofocus: !w.input, onPressed: _confirm),
-          if (w.showCancelButton)
-            _SwalButton(label: w.cancelButtonText, color: w.cancelButtonColor,
-                onPressed: _loading ? null
-                    : () => Navigator.of(context).pop(const SwalResult._(false))),
+          if (w.reverseButtons) ...[
+            if (w.showCancelButton)
+              _SwalButton(label: w.cancelButtonText, color: w.cancelButtonColor,
+                  textStyle: w.buttonTextStyle,
+                  onPressed: _loading ? null
+                      : () => Navigator.of(context).pop(const SwalResult._(false))),
+            if (w.showConfirmButton)
+              _loading
+                  ? _SwalLoader(color: w.confirmButtonColor)
+                  : _SwalButton(label: w.confirmButtonText, color: w.confirmButtonColor,
+                      textStyle: w.buttonTextStyle,
+                      autofocus: !w.input, onPressed: _confirm),
+          ] else ...[
+            if (w.showConfirmButton)
+              _loading
+                  ? _SwalLoader(color: w.confirmButtonColor)
+                  : _SwalButton(label: w.confirmButtonText, color: w.confirmButtonColor,
+                      textStyle: w.buttonTextStyle,
+                      autofocus: !w.input, onPressed: _confirm),
+            if (w.showCancelButton)
+              _SwalButton(label: w.cancelButtonText, color: w.cancelButtonColor,
+                  textStyle: w.buttonTextStyle,
+                  onPressed: _loading ? null
+                      : () => Navigator.of(context).pop(const SwalResult._(false))),
+          ],
         ],
       ),
       if (w.footer != null) ...[
@@ -415,10 +437,11 @@ class _ValidationMessage extends StatelessWidget {
 class _SwalButton extends StatefulWidget {
   final String label;
   final Color  color;
+  final TextStyle? textStyle;
   final VoidCallback? onPressed;
   final bool autofocus;
   const _SwalButton({required this.label, required this.color,
-      required this.onPressed, this.autofocus = false});
+      required this.onPressed, this.textStyle, this.autofocus = false});
   @override
   State<_SwalButton> createState() => _SwalButtonState();
 }
@@ -453,8 +476,9 @@ class _SwalButtonState extends State<_SwalButton> {
           overlayColor: const WidgetStatePropertyAll(Colors.transparent),
           padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 24, vertical: 15)),
           shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(6))),
-          textStyle: const WidgetStatePropertyAll(TextStyle(fontFamily: 'Poppins',
-              fontSize: 14.5, fontWeight: FontWeight.w600)),
+          textStyle: WidgetStatePropertyAll(widget.textStyle ??
+              const TextStyle(fontFamily: 'Poppins',
+                  fontSize: 14.5, fontWeight: FontWeight.w600)),
         ),
         child: Text(widget.label),
       ),

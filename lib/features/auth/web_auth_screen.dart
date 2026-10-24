@@ -10,9 +10,11 @@ import '../../core/app_colors.dart';
 import '../../core/friendly_error.dart';
 import '../../core/theme_store.dart';
 import '../../shared/widgets/app_alert.dart';
+import '../../shared/widgets/web/swal.dart';
 import '../organizer/web/web_shell.dart';
 import '../admin/admin_web_dashboard.dart';
 import 'terms_content.dart';
+import 'privacy_content.dart';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -391,6 +393,17 @@ class _WebAuthScreenState extends State<WebAuthScreen>
         unawaited(RateLimitService.clear(email));
         await _saveUsername(username);                    // BUG-01
         await ThemeStore.loadForUser(user.id, 'admin');
+        if (!mounted) return;
+        await Swal.fire(
+          context,
+          icon: SwalIcon.success,
+          title: 'Welcome back!',
+          text: 'You’re signed in to the admin portal.',
+          showConfirmButton: false,
+          timer: const Duration(milliseconds: 1200),
+          timerProgressBar: true,
+          allowOutsideClick: false,
+        );
         if (mounted) Navigator.of(context).pushReplacement(_adminRoute());
         return;
       }
@@ -442,6 +455,17 @@ class _WebAuthScreenState extends State<WebAuthScreen>
       unawaited(RateLimitService.clear(email));
       await _saveUsername(username);                      // BUG-01
       await ThemeStore.loadForUser(user.id, 'organizer');
+      if (!mounted) return;
+      await Swal.fire(
+        context,
+        icon: SwalIcon.success,
+        title: 'Welcome back!',
+        text: 'You’re signed in to your organizer account.',
+        showConfirmButton: false,
+        timer: const Duration(milliseconds: 1200),
+        timerProgressBar: true,
+        allowOutsideClick: false,
+      );
       if (mounted) Navigator.of(context).pushReplacement(_transitionRoute());
     } on AuthException catch (e) {
       await _recordFailure();
@@ -2095,30 +2119,14 @@ class _WebLegalDialog extends StatelessWidget {
       ),
     ];
 
+  // The shared, accurate policy — privacy_content.dart (app and web).
   List<Widget> _privacyContent() => [
-    _section(Icons.info_outline_rounded, 'Information We Collect',
-        'We collect the following personal data to operate EventHub:\n\n'
-        '• Identity: full name, email address\n'
-        '• Academic: year level, LRN / student ID\n'
-        '• Usage: event registrations, check-in selfies, timestamps'),
-    _section(Icons.storage_outlined, 'How We Use Your Data',
-        'Your data is used solely to:\n\n'
-        '• Verify your identity for event check-in\n'
-        '• Generate your QR code ticket\n'
-        '• Track registration and attendance records\n'
-        '• Send relevant event announcements'),
-    _section(Icons.lock_outline_rounded, 'Data Security',
-        'All data is stored securely on Supabase-hosted infrastructure. Selfie images are stored in a private bucket accessible only by authorized organizers. We do not sell or share your data with third parties.'),
-    _section(Icons.av_timer_rounded, 'Data Retention',
-        'Your data is retained for the duration of your enrollment. Upon request, the school administrator can arrange for deletion of your personal data.'),
-    _section(Icons.verified_user_outlined, 'Your Rights',
-        'You have the right to:\n\n'
-        '• Access the personal data we hold about you\n'
-        '• Request correction of inaccurate data\n'
-        '• Withdraw consent for data processing where applicable\n\n'
-        'Contact your school administrator to exercise these rights.'),
-    _section(Icons.mail_outline_rounded, 'Contact Us',
-        'For questions or concerns about this Privacy Policy, please contact your school administrator or reach out to the EventHub support team.',
-        isLast: true),
+    for (var i = 0; i < eventHubPrivacy.length; i++)
+      _section(
+        eventHubPrivacy[i].icon,
+        eventHubPrivacy[i].title,
+        eventHubPrivacy[i].body,
+        isLast: i == eventHubPrivacy.length - 1,
+      ),
   ];
 }

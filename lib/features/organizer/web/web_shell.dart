@@ -7,12 +7,13 @@ import '../../../core/services/supabase_service.dart';
 import '../../../core/services/org_notif_prefs.dart';
 import '../../../core/services/organizer_notices.dart';
 import '../../../core/services/account_session_guard.dart';
+import '../../../shared/utils/realtime_utils.dart';
 import 'web_shared.dart';
 import 'dashboard_page.dart';
 import 'events_page.dart';
 import 'registrations_page.dart';
 import 'announcements_page.dart';
-import 'settings_page.dart';
+import 'profile_page.dart';
 import 'ai_chatbot.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,6 +38,15 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   String?       _organization;
   String?       _photoUrl;
   RealtimeChannel? _accountChannel;
+
+  // Selfies waiting for this organizer's review — the badge on Registrations,
+  // like the admin's count of events to review.
+  int              _reviewCount = 0;
+  bool             _reviewFirst = false; // open Registrations on those selfies
+  Set<String>      _myEventIds  = {};
+  RealtimeChannel? _reviewChannel;
+  Timer?           _reviewDebounce;
+  Timer?           _reviewClock;
   bool          _loading      = true;
   bool          _profileError = false;
 
@@ -73,6 +83,20 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
         context,
         table: 'organizers',
         userId: userId,
+        // The admin renamed the organizer (or changed the organization or
+        // photo): the header and pages follow without a page refresh.
+        onUpdate: (row) {
+          if (!mounted) return;
+          setState(() {
+            if (row.containsKey('full_name')) _name = row['full_name'] as String?;
+            if (row.containsKey('organization')) {
+              _organization = row['organization'] as String?;
+            }
+            if (row.containsKey('profile_image_url')) {
+              _photoUrl = row['profile_image_url'] as String?;
+            }
+          });
+        },
       );
     }
     _loadTheme();
@@ -83,6 +107,11 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   void dispose() {
     if (_accountChannel != null) {
       SupabaseService.client.removeChannel(_accountChannel!);
+    }
+    _reviewDebounce?.cancel();
+    _reviewClock?.cancel();
+    if (_reviewChannel != null) {
+      SupabaseService.client.removeChannel(_reviewChannel!);
     }
     _entryCt.dispose();
     super.dispose();
@@ -108,6 +137,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
         _loading      = false;
       });
       _entryCt.forward();
+      _loadReviewCount();
+      if (_reviewChannel == null) _watchReviewCount();
     } catch (_) {
       if (mounted) setState(() { _loading = false; _profileError = true; });
     }
@@ -144,6 +175,17 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
     );
     if (ok != true) return;
     await SupabaseService.signOut();
+    if (!mounted) return;
+    await Swal.fire(
+      context,
+      icon: SwalIcon.success,
+      title: 'Signed out',
+      text: 'You have been signed out successfully.',
+      showConfirmButton: false,
+      timer: const Duration(milliseconds: 1200),
+      timerProgressBar: true,
+      allowOutsideClick: false,
+    );
     if (mounted) _goLogin();
   }
 
@@ -155,6 +197,83 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
       setState(() => _collapsed = !_collapsed);
     }
   }
+
+  // ── Registrations badge ──────────────────────────────────────────────────
+
+  /// Selfies submitted for this organizer's events while check-in is open —
+  /// the ones that can still be approved. A selfie left after check-in
+  /// closed can't be approved any more, so it doesn't keep the badge on.
+  Future<void> _loadReviewCount() async {
+    final orgId = _orgId;
+    if (orgId == null) return;
+    try {
+      final eventsRaw = await SupabaseService.client
+          .from('events')
+          .select()
+          .eq('organizer_id', orgId);
+      final events = List<Map<String, dynamic>>.from(eventsRaw as List);
+      _myEventIds = events.map((e) => e['event_id'] as String).toSet();
+      final open = events
+          .where(checkInIsOpen)
+          .map((e) => e['event_id'] as String)
+          .toList();
+      var count = 0;
+      if (open.isNotEmpty) {
+        final rows = await SupabaseService.client
+            .from('registrations')
+            .select('id')
+            .eq('status', 'photo_submitted')
+            .in_('event_id', open);
+        count = (rows as List).length;
+      }
+      if (mounted && count != _reviewCount) setState(() => _reviewCount = count);
+    } catch (_) {
+      // A shortcut, not the source of truth: the Registrations page reports
+      // a failed load itself, so the badge just keeps its last number.
+    }
+  }
+
+  void _watchReviewCount() {
+    final channel =
+        SupabaseService.client.channel('organizer-shell-review-$_orgId');
+    for (final table in ['registrations', 'events']) {
+      channel.on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: table),
+        (payload, [_]) {
+          if (!_touchesMyEvents(table, realtimeRow(payload))) return;
+          _reviewDebounce?.cancel();
+          _reviewDebounce = Timer(const Duration(milliseconds: 600), () {
+            if (mounted) _loadReviewCount();
+          });
+        },
+      );
+    }
+    _reviewChannel = channel..subscribe();
+    // Check-in opens and closes with the clock, not with a database change.
+    _reviewClock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) _loadReviewCount();
+    });
+  }
+
+  // Skips other organizers' changes. A row without the column (a delete
+  // carries only its key) counts as a maybe.
+  bool _touchesMyEvents(String table, Map<String, dynamic>? row) {
+    if (row == null) return true;
+    if (table == 'events') {
+      final owner = row['organizer_id'];
+      return owner == null || owner == _orgId;
+    }
+    final eventId = row['event_id'];
+    return eventId == null || _myEventIds.contains(eventId);
+  }
+
+  // While selfies are waiting, Registrations opens on them (the Photo
+  // Submitted filter); every other time it opens as usual.
+  void _openPage(OrganizerPage p) => setState(() {
+        _reviewFirst = p == OrganizerPage.registrations && _reviewCount > 0;
+        _page = p;
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -242,7 +361,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                     collapsed:    _collapsed,
                     minimal:      false,
                     currentPage:  _page,
-                    onPageChanged: (p) => setState(() => _page = p),
+                    onPageChanged: _openPage,
+                    reviewCount:  _reviewCount,
                     onToggle:  () => setState(() => _collapsed = !_collapsed),
                   ),
                 ),
@@ -266,7 +386,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                         onMenuTap:   _onMenuTap,
                         onSignOut:   _signOut,
                         onProfileTap: () =>
-                            setState(() => _page = OrganizerPage.settings),
+                            setState(() => _page = OrganizerPage.profile),
                         currentPage: _page,
                       ),
                     ),
@@ -305,7 +425,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                     onMenuTap:   _onMenuTap,
                     onSignOut:   _signOut,
                     onProfileTap: () =>
-                        setState(() => _page = OrganizerPage.settings),
+                        setState(() => _page = OrganizerPage.profile),
                     currentPage: _page,
                   ),
                 ),
@@ -345,7 +465,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                         collapsed:    _collapsed,
                         minimal:      false,
                         currentPage:  _page,
-                        onPageChanged: (p) => setState(() => _page = p),
+                        onPageChanged: _openPage,
+                        reviewCount:  _reviewCount,
                         onToggle:  () => setState(() => _collapsed = !_collapsed),
                       ),
                     ),
@@ -369,7 +490,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                   collapsed:    true,
                   minimal:      true,
                   currentPage:  _page,
-                  onPageChanged: (p) => setState(() => _page = p),
+                  onPageChanged: _openPage,
+                  reviewCount:  _reviewCount,
                   onToggle:  _onMenuTap,
                 ),
               ),
@@ -391,7 +513,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                         onMenuTap:   _onMenuTap,
                         onSignOut:   _signOut,
                         onProfileTap: () =>
-                            setState(() => _page = OrganizerPage.settings),
+                            setState(() => _page = OrganizerPage.profile),
                         currentPage: _page,
                       ),
                     ),
@@ -416,18 +538,21 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
       OrganizerPage.dashboard     => WebDashboardPage(
           orgId:      _orgId,
           name:       _name,
-          onNavigate: (p) => setState(() => _page = p),
+          onNavigate: _openPage,
         ),
       OrganizerPage.events        => WebEventsPage(orgId: _orgId),
-      OrganizerPage.registrations => WebRegistrationsPage(orgId: _orgId),
+      OrganizerPage.registrations => WebRegistrationsPage(
+          orgId:         _orgId,
+          initialStatus: _reviewFirst ? 'Photo Submitted' : null,
+        ),
       OrganizerPage.announcements => WebAnnouncementsPage(orgId: _orgId),
-      OrganizerPage.settings      => WebSettingsPage(
+      OrganizerPage.profile       => WebProfilePage(
           orgId:        _orgId,
           name:         _name,
           email:        _email,
           organization: _organization,
           onPhotoUpdated: (url) => setState(() => _photoUrl = url),
-          onNavigate:     (p)   => setState(() => _page = p),
+          onNavigate:     _openPage,
         ),
     };
   }
@@ -442,7 +567,7 @@ const _kNavItems = [
   (OrganizerPage.events,        Icons.event_rounded,           'Events'),
   (OrganizerPage.registrations, Icons.how_to_reg_rounded,      'Registrations'),
   (OrganizerPage.announcements, Icons.campaign_rounded,        'Announcements'),
-  (OrganizerPage.settings,      Icons.person_rounded,          'Profile'),
+  (OrganizerPage.profile,       Icons.person_rounded,          'Profile'),
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -456,6 +581,8 @@ class _Sidebar extends StatefulWidget {
   final OrganizerPage currentPage;
   final ValueChanged<OrganizerPage> onPageChanged;
   final VoidCallback  onToggle;
+  /// Selfies waiting for review — the badge on Registrations.
+  final int           reviewCount;
 
   const _Sidebar({
     required this.theme,
@@ -464,6 +591,7 @@ class _Sidebar extends StatefulWidget {
     required this.currentPage,
     required this.onPageChanged,
     required this.onToggle,
+    this.reviewCount = 0,
   });
 
   @override
@@ -693,14 +821,17 @@ class _SidebarState extends State<_Sidebar>
         // Collapsed/minimal has no nav-label row, so items start at idx 1;
         // expanded sidebar has nav-label at idx 1, so items start at idx 2.
         final cIdx = _isCollapsed ? i + 1 : i + 2;
+        final badge = page == OrganizerPage.registrations ? widget.reviewCount : 0;
         return _cascade(
           _NavItem(
-            icon:      icon,
-            label:     label,
-            isActive:  widget.currentPage == page,
-            collapsed: _isCollapsed,
-            theme:     widget.theme,
-            onTap:     () => widget.onPageChanged(page),
+            icon:       icon,
+            label:      label,
+            isActive:   widget.currentPage == page,
+            collapsed:  _isCollapsed,
+            theme:      widget.theme,
+            badgeCount: badge,
+            badgeTip:   '$badge selfie${badge == 1 ? '' : 's'} waiting for your review',
+            onTap:      () => widget.onPageChanged(page),
           ),
           cIdx,
         );
@@ -719,6 +850,9 @@ class _NavItem extends StatefulWidget {
   final bool         isActive;
   final bool         collapsed;
   final AppTheme     theme;
+  final int          badgeCount;
+  /// What the badge counts, for its hover text.
+  final String?      badgeTip;
   final VoidCallback onTap;
 
   const _NavItem({
@@ -727,6 +861,8 @@ class _NavItem extends StatefulWidget {
     required this.isActive,
     required this.collapsed,
     required this.theme,
+    this.badgeCount = 0,
+    this.badgeTip,
     required this.onTap,
   });
 
@@ -736,6 +872,11 @@ class _NavItem extends StatefulWidget {
 
 class _NavItemState extends State<_NavItem> {
   bool _hovered = false;
+
+  // Collapsed, the label — and what the badge counts — move into the tooltip.
+  String get _collapsedTip => widget.badgeCount > 0 && widget.badgeTip != null
+      ? '${widget.label} · ${widget.badgeTip}'
+      : widget.label;
 
   @override
   Widget build(BuildContext context) {
@@ -768,7 +909,7 @@ class _NavItemState extends State<_NavItem> {
         child: GestureDetector(
           onTap: widget.onTap,
           child: Tooltip(
-            message:      widget.collapsed ? widget.label : '',
+            message:      widget.collapsed ? _collapsedTip : '',
             preferBelow:  false,
             waitDuration: const Duration(milliseconds: 500),
             child: AnimatedContainer(
@@ -782,19 +923,26 @@ class _NavItemState extends State<_NavItem> {
               ),
               child: widget.collapsed
                   ? Center(
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 170),
-                        width: 32, height: 32,
-                        decoration: BoxDecoration(
-                          color: active
-                              ? t.primaryColor.withValues(alpha: 0.16)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(9),
+                      child: Stack(clipBehavior: Clip.none, children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 170),
+                          width: 32, height: 32,
+                          decoration: BoxDecoration(
+                            color: active
+                                ? t.primaryColor.withValues(alpha: 0.16)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: Center(
+                            child: Icon(widget.icon, size: 19, color: iconColor),
+                          ),
                         ),
-                        child: Center(
-                          child: Icon(widget.icon, size: 19, color: iconColor),
-                        ),
-                      ),
+                        if (widget.badgeCount > 0)
+                          Positioned(
+                            top: -4, right: -6,
+                            child: WebNavBadge(count: widget.badgeCount),
+                          ),
+                      ]),
                     )
                   : Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -829,15 +977,21 @@ class _NavItemState extends State<_NavItem> {
                               child: Text(widget.label),
                             ),
                           ),
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            width:  active ? 6.0 : 0.0,
-                            height: active ? 6.0 : 0.0,
-                            decoration: BoxDecoration(
-                              color: t.primaryColor,
-                              shape: BoxShape.circle,
+                          if (widget.badgeCount > 0)
+                            WebNavBadge(
+                              count:   widget.badgeCount,
+                              tooltip: widget.badgeTip,
+                            )
+                          else
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              width:  active ? 6.0 : 0.0,
+                              height: active ? 6.0 : 0.0,
+                              decoration: BoxDecoration(
+                                color: t.primaryColor,
+                                shape: BoxShape.circle,
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -1026,7 +1180,7 @@ class _PageContext extends StatelessWidget {
     OrganizerPage.events:        'Events',
     OrganizerPage.registrations: 'Registrations',
     OrganizerPage.announcements: 'Announcements',
-    OrganizerPage.settings:      'Profile',
+    OrganizerPage.profile:       'Profile',
   };
 
   @override
@@ -1199,9 +1353,18 @@ class _NotificationBellState extends State<_NotificationBell> {
   bool             _fetching = false;
   bool             _again    = false;
   List<_AppNotif>  _notifs   = [];
+  /// Not read yet: gold in the panel and counted on the bell. A row is read
+  /// once the pointer rests on it or it's clicked, or with "Mark all as
+  /// read" — opening the panel doesn't read anything by itself.
   Set<String>      _unreadIds = {};
-  /// What was unread when the panel opened — highlighted while it's open.
-  Set<String>      _highlight = {};
+  /// Read ids for [_readUser], kept in memory so quick hovers can't undo
+  /// each other's saves.
+  Set<String>      _read = {};
+  String?          _readUser;
+  final Map<String, Timer> _hoverTimers = {};
+  /// How long the pointer rests on a row before it counts as read, so
+  /// sweeping across the list on the way to something else doesn't.
+  static const _readAfterHover = Duration(milliseconds: 500);
 
   String? get _uid => SupabaseService.client.auth.currentUser?.id;
 
@@ -1233,33 +1396,46 @@ class _NotificationBellState extends State<_NotificationBell> {
   void dispose() {
     _refreshTimer?.cancel();
     _debounce?.cancel();
+    for (final t in _hoverTimers.values) {
+      t.cancel();
+    }
     _unsubscribe();
     _entry?.remove();
     super.dispose();
   }
 
   // ── Live updates ───────────────────────────────────────────────────────────
-  // An admin approving or rejecting one of this organizer's events (or
-  // applying their change request) updates the event row.
+  // The admin's decisions reach the bell at once: approving or rejecting one
+  // of this organizer's events (or applying a change request) updates the
+  // event row, rejecting a change request updates event_revisions, and
+  // removing an announcement adds a notification.
 
   void _subscribe() {
     final orgId = widget.orgId;
     if (orgId == null) return;
-    _channel = SupabaseService.client.channel('org-notif-bell-$orgId')
-      ..on(
+    void soon() {
+      _debounce?.cancel();
+      _debounce = Timer(const Duration(milliseconds: 800), _load);
+    }
+
+    _channel = SupabaseService.client.channel('org-notif-bell-$orgId');
+    for (final (table, column) in const [
+      ('events', 'organizer_id'),
+      ('event_revisions', 'organizer_id'),
+      ('notifications', 'user_id'),
+    ]) {
+      _channel!.on(
         RealtimeListenTypes.postgresChanges,
         ChannelFilter(
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
-          table: 'events',
-          filter: 'organizer_id=eq.$orgId',
+          table: table,
+          filter: '$column=eq.$orgId',
         ),
-        (_, [_]) {
-          _debounce?.cancel();
-          _debounce = Timer(const Duration(milliseconds: 800), _load);
-        },
-      )
-      ..subscribe();
+        (_, [_]) => soon(),
+      );
+    }
+    _channel!.subscribe();
   }
 
   void _unsubscribe() {
@@ -1276,16 +1452,39 @@ class _NotificationBellState extends State<_NotificationBell> {
     return Set<String>.from(prefs.getStringList(_prefKey(userId)) ?? []);
   }
 
-  Future<void> _persistReadState() async {
-    final userId = _uid;
-    if (userId == null || _notifs.isEmpty) return;
-    final prefs    = await SharedPreferences.getInstance();
-    final existing = Set<String>.from(prefs.getStringList(_prefKey(userId)) ?? []);
-    existing.addAll(_notifs.map((n) => n.id));
-    final list    = existing.toList();
+  Future<void> _saveRead() async {
+    final userId = _readUser;
+    if (userId == null) return;
+    final list    = _read.toList();
     final trimmed = list.length > 200 ? list.sublist(list.length - 200) : list;
+    final prefs   = await SharedPreferences.getInstance();
     await prefs.setStringList(_prefKey(userId), trimmed);
   }
+
+  /// Marks [ids] read: their gold fades and the bell's number drops.
+  void _markRead(Iterable<String> ids) {
+    final fresh = ids.where(_unreadIds.contains).toList();
+    if (fresh.isEmpty || !mounted) return;
+    for (final id in fresh) {
+      _hoverTimers.remove(id)?.cancel();
+    }
+    setState(() {
+      _unreadIds = {..._unreadIds}..removeAll(fresh);
+      _read.addAll(fresh);
+    });
+    _entry?.markNeedsBuild();
+    _saveRead(); // fire-and-forget — survives reload/logout
+  }
+
+  void _hoverStart(String id) {
+    if (!_unreadIds.contains(id) || _hoverTimers.containsKey(id)) return;
+    _hoverTimers[id] = Timer(_readAfterHover, () {
+      _hoverTimers.remove(id);
+      _markRead([id]);
+    });
+  }
+
+  void _hoverEnd(String id) => _hoverTimers.remove(id)?.cancel();
 
   // ── Data fetch ─────────────────────────────────────────────────────────────
 
@@ -1434,22 +1633,21 @@ class _NotificationBellState extends State<_NotificationBell> {
       debugPrint('Organizer notifications failed to load: $e');
     }
 
-    final result  = [...decisions, ...reminders];
-    final readIds = userId == null ? <String>{} : await _readIds(userId);
-    final unread  = {for (final n in result) if (!readIds.contains(n.id)) n.id};
+    final result = [...decisions, ...reminders];
+    if (userId != _readUser) {
+      _readUser = userId;
+      _read = {};
+    }
+    // What's saved, plus any marks made since (their save may still be on
+    // its way).
+    if (userId != null) _read.addAll(await _readIds(userId));
     if (!mounted) return;
     setState(() {
       _notifs = result;
       _loaded = true;
-      if (_open) {
-        // Arrived while the panel is open — seen, but highlight it.
-        _highlight.addAll(unread);
-        _unreadIds = {};
-      } else {
-        _unreadIds = unread;
-      }
+      // New arrivals stay unread (gold) even while the panel is open.
+      _unreadIds = {for (final n in result) if (!_read.contains(n.id)) n.id};
     });
-    if (_open && unread.isNotEmpty) _persistReadState();
     _entry?.markNeedsBuild();
   }
 
@@ -1461,26 +1659,20 @@ class _NotificationBellState extends State<_NotificationBell> {
   }
 
   void _openPanel() {
-    setState(() {
-      _open      = true;
-      _highlight = {..._unreadIds};
-      _unreadIds = {};
-    });
+    setState(() => _open = true);
     _entry = OverlayEntry(builder: (_) => _buildOverlay());
     Overlay.of(context).insert(_entry!);
-    _persistReadState(); // fire-and-forget — survives reload/logout
     _load(); // refresh in the background; overlay repaints via markNeedsBuild
   }
 
   void _close() {
+    for (final t in _hoverTimers.values) {
+      t.cancel();
+    }
+    _hoverTimers.clear();
     _entry?.remove();
     _entry = null;
-    if (mounted) {
-      setState(() {
-        _open      = false;
-        _highlight = {};
-      });
-    }
+    if (mounted) setState(() => _open = false);
   }
 
   // ── Overlay ────────────────────────────────────────────────────────────────
@@ -1511,7 +1703,7 @@ class _NotificationBellState extends State<_NotificationBell> {
 
   Widget _buildPanel() {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final newCount = _highlight.length;
+    final newCount = _unreadIds.length;
     return Material(
       elevation: 0,
       color: Colors.transparent,
@@ -1553,6 +1745,26 @@ class _NotificationBellState extends State<_NotificationBell> {
                     color: t.sub,
                   ),
                 ),
+                if (newCount > 0) ...[
+                  const SizedBox(width: 10),
+                  Semantics(
+                    button: true,
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: () => _markRead([..._unreadIds]),
+                        child: Text('Mark all as read',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            // Darker gold on light cards for contrast.
+                            color: t.dark ? kGold : kSwalGold,
+                          )),
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(width: 8),
                 MouseRegion(
                   cursor: SystemMouseCursors.click,
@@ -1614,62 +1826,81 @@ class _NotificationBellState extends State<_NotificationBell> {
   }
 
   Widget _buildItem(_AppNotif n, WebTk t) {
-    final isNew = _highlight.contains(n.id);
-    return Container(
-      color: isNew ? kGold.withValues(alpha: t.dark ? 0.10 : 0.07) : null,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              color: n.color.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(n.icon, size: 17, color: n.color),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Expanded(
-                    child: Text(n.title,
-                      style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                        fontWeight: FontWeight.w600, color: t.text),
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ),
-                  if (n.at != null) ...[
-                    const SizedBox(width: 8),
-                    Text(noticeTimeAgo(n.at!),
+    final isNew = _unreadIds.contains(n.id);
+    final gold  = kGold.withValues(alpha: t.dark ? 0.10 : 0.07);
+    // Resting the pointer on an unread row (or clicking it) reads it.
+    return MouseRegion(
+      onEnter: (_) => _hoverStart(n.id),
+      onExit:  (_) => _hoverEnd(n.id),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _markRead([n.id]),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOut,
+          color: isNew ? gold : gold.withValues(alpha: 0),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: n.color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(n.icon, size: 17, color: n.color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Expanded(
+                        child: Text(n.title,
+                          style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                            fontWeight: FontWeight.w600, color: t.text),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ),
+                      if (n.at != null) ...[
+                        const SizedBox(width: 8),
+                        Text(noticeTimeAgo(n.at!),
+                          style: TextStyle(fontFamily: 'Poppins',
+                            fontSize: 10, color: t.sub)),
+                      ],
+                    ]),
+                    const SizedBox(height: 2),
+                    // Admin decisions carry the reason — show it in full.
+                    Text(n.subtitle,
                       style: TextStyle(fontFamily: 'Poppins',
-                        fontSize: 10, color: t.sub)),
+                        fontSize: 11, height: 1.45, color: t.sub),
+                      maxLines: n.at != null ? 5 : 1,
+                      overflow: TextOverflow.ellipsis),
                   ],
-                ]),
-                const SizedBox(height: 2),
-                // Admin decisions carry the reason — show it in full.
-                Text(n.subtitle,
-                  style: TextStyle(fontFamily: 'Poppins',
-                    fontSize: 11, height: 1.45, color: t.sub),
-                  maxLines: n.at != null ? 5 : 1,
-                  overflow: TextOverflow.ellipsis),
-              ],
-            ),
-          ),
-          if (isNew)
-            Padding(
-              padding: const EdgeInsets.only(left: 8, top: 4),
-              child: Semantics(
-                label: 'New',
-                child: Container(
-                  width: 7, height: 7,
-                  decoration: const BoxDecoration(color: kGold, shape: BoxShape.circle),
                 ),
               ),
-            ),
-        ],
+              // Kept in place once read (just faded) so the text doesn't shift.
+              Padding(
+                padding: const EdgeInsets.only(left: 8, top: 4),
+                child: ExcludeSemantics(
+                  excluding: !isNew,
+                  child: Semantics(
+                    label: 'New',
+                    child: AnimatedOpacity(
+                      opacity: isNew ? 1 : 0,
+                      duration: const Duration(milliseconds: 350),
+                      child: Container(
+                        width: 7, height: 7,
+                        decoration: const BoxDecoration(color: kGold, shape: BoxShape.circle),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

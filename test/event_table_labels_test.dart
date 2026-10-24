@@ -55,7 +55,8 @@ void main() {
     test('review state wins over the schedule', () {
       expect(label(event('pending')), 'Pending review');
       expect(label(event('rejected')), 'Rejected');
-      expect(label(event('pending', date: '2020-01-10')), 'Expired');
+      // Nobody reviewed it before it started: it counts as rejected.
+      expect(label(event('pending', date: '2020-01-10')), 'Rejected');
     });
     test('approved events show where they are in the schedule', () {
       expect(label(event('approved')), 'Upcoming');

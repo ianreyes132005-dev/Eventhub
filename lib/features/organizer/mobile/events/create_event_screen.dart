@@ -14,6 +14,7 @@ import '../../../../core/services/supabase_service.dart';
 import '../../../../shared/utils/date_utils.dart' show genUuid;
 import '../../../../shared/utils/event_form_validation.dart';
 import '../../../../shared/widgets/form_errors.dart';
+import '../../../../shared/widgets/stepped_wheel.dart';
 import '../../../../shared/widgets/web/swal.dart';
 import '../../../../shared/widgets/error_alert.dart';
 import '../../../../core/friendly_error.dart';
@@ -92,6 +93,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   String? _existingBannerUrl;            // current banner, or the one already proposed
   Map<String, dynamic>? _revision;       // latest change request (approved events)
   bool _loadingRevision = false;
+  // The admin's answer to that request shows while the form is open.
+  RealtimeChannel? _revisionChannel;
 
   // Field problems show only after the first Publish attempt, then update
   // live as the organizer fixes them.
@@ -157,6 +160,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     if (_isLive) {
       _loadingRevision = true;
       _loadChangeRequest();
+      _watchChangeRequest();
     }
     _nameCtrl.addListener(() => setState(() {}));
     _venueCtrl.addListener(() => setState(() {}));
@@ -169,6 +173,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   @override
   void dispose() {
+    if (_revisionChannel != null) {
+      Supabase.instance.client.removeChannel(_revisionChannel!);
+    }
     _nameCtrl.dispose();
     _venueCtrl.dispose();
     _descCtrl.dispose();
@@ -208,6 +215,28 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       });
     }
     setState(() { _revision = r; _loadingRevision = false; });
+  }
+
+  // Live: an approval or rejection of the request updates the notice at
+  // the top. Only the notice — what the organizer is typing stays as it is.
+  void _watchChangeRequest() {
+    final id = widget.existing!['event_id'] as String? ?? '';
+    if (id.isEmpty) return;
+    _revisionChannel = Supabase.instance.client.channel('org-form-revision-$id')
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: '*',
+          schema: 'public',
+          table: 'event_revisions',
+          filter: 'event_id=eq.$id',
+        ),
+        (_, [_]) async {
+          final r = (await EventChangeRequestService.latestFor([id]))[id];
+          if (mounted) setState(() => _revision = r);
+        },
+      )
+      ..subscribe();
   }
 
   static DateTime? _parseDate(Object? v) {
@@ -447,6 +476,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           confirmButtonText: 'Yes, submit it',
           cancelButtonText: 'Keep editing',
           confirmButtonColor: kSwalGold,
+          reverseButtons: true,
+          buttonTextStyle: const TextStyle(fontFamily: 'Poppins',
+              fontSize: 14, fontWeight: FontWeight.w700),
           preConfirm: (_) async {
             try {
               if (_selectedBanner != null) {
@@ -702,9 +734,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     final notices = <Widget>[];
     final reason  = (widget.existing!['rejection_reason'] as String?)?.trim() ?? '';
     if (_isRejected) {
+      final w = eventWindow(widget.existing!);
+      final datePassed = w != null && !DateTime.now().isBefore(w.start);
       notices.add(_notice(t, color: red, icon: Icons.block_rounded,
         title: 'Rejected by admin',
         message: '${reason.isNotEmpty ? '$reason\n' : ''}'
+            '${datePassed ? 'Its date has passed, so pick a new one. ' : ''}'
             'Saving your changes sends the event back for review.'));
     }
     if (_isLive) {
@@ -1215,14 +1250,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   // ── Venue & Capacity section ─────────────────────────────────────────────────
 
-  // Registration closes when the event starts — tell organizers up front.
+  // Registration closes 2 hours after the event starts — tell organizers up front.
   Widget _buildRegistrationNote(AppTk t) => Row(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Icon(Icons.info_outline_rounded, size: 15, color: t.muted),
       const SizedBox(width: 8),
       Expanded(
-        child: Text('Registration closes when the event starts.',
+        child: Text('Registration closes 2 hours after the event starts.',
           style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted, height: 1.4)),
       ),
     ],
@@ -1921,30 +1956,25 @@ class _TimePickerSheetState extends State<_TimePickerSheet> {
             border: Border.all(color: accent.withValues(alpha: 0.22)),
           ),
         ),
-        // Scroll wheel
-        ListWheelScrollView.useDelegate(
+        // Scroll wheel — one number per swipe / wheel notch.
+        SteppedWheel(
           controller: ctrl,
           itemExtent: itemH,
-          diameterRatio: 1.8,
-          perspective: 0.003,
-          physics: const FixedExtentScrollPhysics(),
+          childCount: count * 1000,
           onSelectedItemChanged: (_) => setState(() => _pastError = false),
-          childDelegate: ListWheelChildBuilderDelegate(
-            childCount: count * 1000,
-            builder: (_, i) {
-              final idx  = i % count;
-              final isSel = ctrl.hasClients && ctrl.selectedItem % count == idx;
-              return Center(
-                child: Text(label(idx),
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize:   isSel ? 30 : 20,
-                    fontWeight: isSel ? FontWeight.w800 : FontWeight.w400,
-                    color:      isSel ? accent : t.muted,
-                  )),
-              );
-            },
-          ),
+          itemBuilder: (_, i) {
+            final idx  = i % count;
+            final isSel = ctrl.hasClients && ctrl.selectedItem % count == idx;
+            return Center(
+              child: Text(label(idx),
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize:   isSel ? 30 : 20,
+                  fontWeight: isSel ? FontWeight.w800 : FontWeight.w400,
+                  color:      isSel ? accent : t.muted,
+                )),
+            );
+          },
         ),
         // Top fade
         Positioned(top: 0, left: 0, right: 0,

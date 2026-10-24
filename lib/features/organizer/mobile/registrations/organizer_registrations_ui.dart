@@ -85,6 +85,10 @@ class OrgRegistrationCard extends StatelessWidget {
   /// This card's selfie request is on its way.
   final bool sending;
 
+  /// The admin archived this event: the attendance is a frozen record, so
+  /// the card has no actions (and the check-in photo was deleted).
+  final bool archived;
+
   final VoidCallback onToggleSelect;
   final VoidCallback onRequestSelfie;
   final VoidCallback onCheckIn;
@@ -100,6 +104,7 @@ class OrgRegistrationCard extends StatelessWidget {
     required this.selected,
     required this.busy,
     required this.sending,
+    this.archived = false,
     required this.onToggleSelect,
     required this.onRequestSelfie,
     required this.onCheckIn,
@@ -206,7 +211,16 @@ class OrgRegistrationCard extends StatelessWidget {
                     t: t,
                   ),
                 ],
-                if (status == 'photo_submitted') ...[
+                if (archived) ...[
+                  const SizedBox(height: 6),
+                  _MetaLine(
+                    icon: Icons.inventory_2_outlined,
+                    text: 'Archived · read-only attendance record',
+                    color: readableStatusColor(kArchivedColor, t.dark),
+                    t: t,
+                  ),
+                ],
+                if (status == 'photo_submitted' && !archived) ...[
                   const SizedBox(height: 14),
                   _SelfiePreview(
                     url: selfieUrl,
@@ -221,16 +235,28 @@ class OrgRegistrationCard extends StatelessWidget {
                     t: t,
                   ),
                 ],
-                if (status == 'photo_required') ...[
+                if (status == 'photo_required' && !archived) ...[
                   const SizedBox(height: 12),
                   _WaitingStrip(t: t),
                 ],
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    Expanded(child: _nextStep(status)),
-                    const SizedBox(width: 10),
-                    _MoreButton(onDelete: onDelete, t: t),
+                    Expanded(
+                      child: archived
+                          ? OrgSecondaryButton(
+                              label: 'View Details',
+                              icon: Icons.info_outline_rounded,
+                              onPressed: onDetails,
+                              t: t,
+                            )
+                          : _nextStep(status),
+                    ),
+                    // Checked-in registrations are the attendance record.
+                    if (!archived && registrationDeletable(r)) ...[
+                      const SizedBox(width: 10),
+                      _MoreButton(onDelete: onDelete, t: t),
+                    ],
                   ],
                 ),
               ],

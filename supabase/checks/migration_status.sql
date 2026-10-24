@@ -96,7 +96,23 @@ checks (migration, what, ok) AS (
   ('202610220001_organizer_realtime', 'change requests and notices update live',
     EXISTS (SELECT 1 FROM pub WHERE tablename = 'events')
     AND EXISTS (SELECT 1 FROM pub WHERE tablename = 'event_revisions')
-    AND EXISTS (SELECT 1 FROM pub WHERE tablename = 'notifications'))
+    AND EXISTS (SELECT 1 FROM pub WHERE tablename = 'notifications')),
+  ('202610230001_registration_delete_and_counts', 'delete registrations; declined ones don''t count',
+    EXISTS (SELECT 1 FROM pol WHERE policyname = 'organizer_delete_own_event_registrations')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'maintain_participant_count'
+                                   AND prosrc ILIKE '%rejected%')),
+  ('202610230002_organizers_own_events_only', 'organizers only see their own events'' registrations',
+    EXISTS (SELECT 1 FROM fn WHERE proname = 'organizer_owns_event')
+    AND EXISTS (SELECT 1 FROM pol WHERE policyname = 'organizer_select_own_event_registrations')
+    AND NOT EXISTS (SELECT 1 FROM pol WHERE policyname IN ('organizer_select_all', 'organizer_update_status'))),
+  ('202610230003_archive_records', 'archives keep real, complete records; archive notices',
+    EXISTS (SELECT 1 FROM fn WHERE proname = 'admin_delete_unused_event')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'notify_archive_changes')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'event_archive_rules'
+                                   AND prosrc ILIKE '%nothing to archive%')),
+  ('202610230004_archive_delete_notice', 'organizer told when an archived event is deleted',
+    EXISTS (SELECT 1 FROM fn WHERE proname = 'admin_delete_archived_event'
+                               AND prosrc ILIKE '%event_deleted%'))
 )
 SELECT CASE WHEN ok THEN '✓' ELSE '✗ run it' END AS status, migration, what
 FROM checks

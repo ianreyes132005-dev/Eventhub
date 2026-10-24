@@ -53,6 +53,22 @@ serve(async (req) => {
       .from('students').select('user_id').eq('lrn', lrn).maybeSingle()
     if (!student) return errRes(404, 'Student not found.')
 
+    // ── 4b. Attendance in archived events is the school's record, so this
+    // account can only be deactivated (the database refuses the cascade too —
+    // migration 202610230003). Checked before anything is deleted. ──────────
+    if (student.user_id) {
+      const { count: archived, error: countErr } = await supabaseAdmin
+        .from('registrations')
+        .select('id, events!inner(archived_at)', { count: 'exact', head: true })
+        .eq('student_user_id', student.user_id)
+        .not('events.archived_at', 'is', null)
+      if (countErr) return errRes(400, countErr.message)
+      if ((archived ?? 0) > 0) {
+        return errRes(409, 'This student has attendance in archived events, so the account ' +
+          'can be deactivated but not deleted.')
+      }
+    }
+
     // ── 5. Delete the login credential first. If this fails, nothing else has
     // changed yet, so we never leave the profile deleted but the login still
     // working (the bug this function exists to close). ───────────────────────

@@ -64,34 +64,23 @@ class SupabaseService {
         : Map<String, dynamic>.from(res as Map);
   }
 
-  static Future<bool> updateProfile(Map<String, dynamic> fields) async {
-    await ensureInitialized();
-    final user = currentUser;
-    final id = user?.id ?? fields['user_id'] as String?;
-    if (id == null) {
-      return Future.error('No authenticated user; cannot update profile.');
-    }
-    final payload = {'user_id': id, ...fields};
-    await client.from('students').upsert(payload).select();
-    return true;
-  }
-
   // ── Events ────────────────────────────────────────────────────────────────
 
   static Future<List<Map<String, dynamic>>> getEvents({int limit = 100}) async {
     await ensureInitialized();
+    // Archived events are hidden from the Events tab — left out by the query,
+    // so they don't use up the limit either.
     final res = await client
         .from('events')
         .select()
         .eq('approval_status', 'approved')
+        .is_('archived_at', null)
         .order('created_at', ascending: false)
         .limit(limit);
     if (res is List) {
-      // Archived events are hidden from the Events tab (filtered here rather
-      // than in the query so it works before the archives migration is run).
       return List<Map<String, dynamic>>.from(
         res.map((e) => Map<String, dynamic>.from(e as Map)),
-      ).where((e) => e['archived_at'] == null).toList();
+      );
     }
     return [];
   }

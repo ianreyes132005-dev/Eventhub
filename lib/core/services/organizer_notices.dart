@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../app_colors.dart' show organizerCanEditEvent;
+import '../app_colors.dart'
+    show approvalStatusOf, eventWindow, organizerCanEditEvent, pendingPastStart, rejectionReasonOf;
 import 'supabase_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -11,6 +12,8 @@ import 'supabase_service.dart';
 //   • event approved / rejected     events.approval_status + reviewed_at
 //   • changes approved / rejected   event_revisions (edits to a live event)
 //   • announcement removed          notifications (admin_delete_announcement)
+//   • events archived / restored    notifications (notify_archive_changes)
+//   • event deleted (nothing kept)  notifications (admin_delete_unused_event)
 //
 // Announcements don't go through approval — they're live as soon as they're
 // posted; the admin's only decision is removing one, with a reason.
@@ -22,6 +25,9 @@ enum OrgNoticeKind {
   changesApproved,
   changesRejected,
   announcementRemoved,
+  eventArchived,
+  eventRestored,
+  eventDeleted,
 }
 
 /// One admin decision, ready for the organizer's notification list.
@@ -51,9 +57,16 @@ class OrgNotice {
         OrgNoticeKind.changesApproved => Icons.published_with_changes_rounded,
         OrgNoticeKind.changesRejected => Icons.edit_off_rounded,
         OrgNoticeKind.announcementRemoved => Icons.campaign_outlined,
+        OrgNoticeKind.eventArchived => Icons.inventory_2_outlined,
+        OrgNoticeKind.eventRestored => Icons.unarchive_outlined,
+        OrgNoticeKind.eventDeleted => Icons.delete_outline_rounded,
       };
 
-  Color get color => isApproval ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+  Color get color => switch (kind) {
+        OrgNoticeKind.eventArchived || OrgNoticeKind.eventRestored =>
+          const Color(0xFF6366F1), // the Archives indigo
+        _ => isApproval ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+      };
 }
 
 class OrganizerNotices {
@@ -95,16 +108,16 @@ class OrganizerNotices {
     try {
       final rows = await client
           .from('notifications')
-          .select('id, title, message, created_at')
+          .select('id, title, message, created_at, notification_type')
           .eq('user_type', 'organizer')
           .eq('user_id', organizerId)
-          .eq('notification_type', 'announcement_deleted')
+          .in_('notification_type', _adminNoticeTypes.keys.toList())
           .gte('created_at', since)
           .order('created_at', ascending: false)
           .limit(maxItems);
-      notices.addAll(announcementRemovals(List<Map<String, dynamic>>.from(rows as List)));
+      notices.addAll(adminNotices(List<Map<String, dynamic>>.from(rows as List)));
     } catch (e) {
-      debugPrint('Announcement-removal notices failed to load: $e');
+      debugPrint('Admin notices failed to load: $e');
     }
 
     return newestFirst(notices);
@@ -118,9 +131,12 @@ class OrganizerNotices {
     final cutoff = now.subtract(window);
     final out = <OrgNotice>[];
     for (final e in events) {
-      final status = e['approval_status'] as String?;
+      final status = approvalStatusOf(e, now: now);
       if (status != 'approved' && status != 'rejected') continue;
-      final at = _time(e['reviewed_at']);
+      // Nobody reviewed it before it started: rejected at its start time,
+      // the same time the database saves (reject_unreviewed_events).
+      final at = _time(e['reviewed_at']) ??
+          (pendingPastStart(e, now: now) ? eventWindow(e)?.start : null);
       if (at == null || at.isBefore(cutoff)) continue;
       final name = _quoted(e['title'], or: 'Your event');
       final id = '${e['event_id']}_${at.millisecondsSinceEpoch}';
@@ -133,15 +149,20 @@ class OrganizerNotices {
           at: at,
         ));
       } else {
-        // Point to the fix only while the event can still be edited.
-        final next = organizerCanEditEvent(e)
-            ? ' Edit the event and resubmit it for review.'
-            : '';
+        // Point to the fix while the event can be edited (a rejected one
+        // always can, unless archived) — with a new date once the old one
+        // has passed.
+        final start = eventWindow(e)?.start;
+        final next = !organizerCanEditEvent(e)
+            ? ''
+            : start != null && !now.isBefore(start)
+                ? ' Edit it with a new date and resubmit it for review.'
+                : ' Edit the event and resubmit it for review.';
         out.add(OrgNotice(
           id: 'event_rejected_$id',
           kind: OrgNoticeKind.eventRejected,
           title: 'Event rejected',
-          message: '$name was rejected.${_reason(e['rejection_reason'])}$next',
+          message: '$name was rejected.${_reason(rejectionReasonOf(e, now: now))}$next',
           at: at,
         ));
       }
@@ -186,19 +207,39 @@ class OrganizerNotices {
     return out;
   }
 
-  /// Announcements an admin removed (the reason is in the message).
-  static List<OrgNotice> announcementRemovals(List<Map<String, dynamic>> rows) => [
+  /// The notifications rows the bell shows: notification_type → (kind, id
+  /// prefix, fallback title, fallback message). The database writes the
+  /// title and message.
+  static const _adminNoticeTypes = <String, (OrgNoticeKind, String, String, String)>{
+    'announcement_deleted': (OrgNoticeKind.announcementRemoved, 'announcement_removed',
+        'Announcement removed', 'An administrator removed one of your announcements.'),
+    'event_archived': (OrgNoticeKind.eventArchived, 'event_archived',
+        'Event archived', 'The administrator moved one of your events to Archives.'),
+    'event_restored': (OrgNoticeKind.eventRestored, 'event_restored',
+        'Event restored', 'The administrator restored one of your events from Archives.'),
+    'event_deleted': (OrgNoticeKind.eventDeleted, 'event_deleted',
+        'Event deleted', 'The administrator deleted one of your events.'),
+  };
+
+  /// Admin actions saved as notifications: announcement removals (with the
+  /// reason), events archived, restored, or deleted with nothing to keep.
+  static List<OrgNotice> adminNotices(List<Map<String, dynamic>> rows) => [
         for (final r in rows)
           if (_time(r['created_at']) case final at?)
-            OrgNotice(
-              id: 'announcement_removed_${r['id']}',
-              kind: OrgNoticeKind.announcementRemoved,
-              title: _text(r['title']) ?? 'Announcement removed',
-              message: _text(r['message']) ??
-                  'An administrator removed one of your announcements.',
-              at: at,
-            ),
+            if (_adminNoticeTypes[r['notification_type'] ?? 'announcement_deleted']
+                case (final kind, final prefix, final title, final message))
+              OrgNotice(
+                id: '${prefix}_${r['id']}',
+                kind: kind,
+                title: _text(r['title']) ?? title,
+                message: _text(r['message']) ?? message,
+                at: at,
+              ),
       ];
+
+  /// Announcements an admin removed (the reason is in the message).
+  static List<OrgNotice> announcementRemovals(List<Map<String, dynamic>> rows) =>
+      adminNotices([for (final r in rows) {...r, 'notification_type': 'announcement_deleted'}]);
 
   static List<OrgNotice> newestFirst(List<OrgNotice> notices) =>
       (List<OrgNotice>.of(notices)..sort((a, b) => b.at.compareTo(a.at)))

@@ -17,8 +17,10 @@
 // view isn't installed yet, the panel still works from the registration row.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/registration_service.dart';
 import '../../../core/services/supabase_service.dart';
@@ -55,6 +57,7 @@ Future<bool?> showStudentRegistrationPanel(
   required Map<String, dynamic> registration,
   String? organizerId,
   Map<String, dynamic>? profile,
+  bool archived = false,
 }) {
   return showGeneralDialog<bool>(
     context: context,
@@ -65,7 +68,8 @@ Future<bool?> showStudentRegistrationPanel(
     pageBuilder: (_, _, _) => Align(
       alignment: Alignment.centerRight,
       child: StudentRegistrationPanel(
-        registration: registration, organizerId: organizerId, profile: profile),
+        registration: registration, organizerId: organizerId, profile: profile,
+        archived: archived),
     ),
     transitionBuilder: (_, anim, _, child) => SlideTransition(
       position: Tween(begin: const Offset(1, 0), end: Offset.zero)
@@ -79,8 +83,11 @@ class StudentRegistrationPanel extends StatefulWidget {
   final Map<String, dynamic>  registration;
   final String?               organizerId;
   final Map<String, dynamic>? profile;
+  /// The admin archived the event: read-only, and the photo was deleted.
+  final bool                  archived;
   const StudentRegistrationPanel({
-    super.key, required this.registration, this.organizerId, this.profile});
+    super.key, required this.registration, this.organizerId, this.profile,
+    this.archived = false});
 
   @override
   State<StudentRegistrationPanel> createState() => _StudentRegistrationPanelState();
@@ -95,8 +102,15 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
   bool _busy = false;
   bool _changed = false;
 
+  // Live: the student's check-in steps (a selfie arriving, a check-in or a
+  // rejection from another screen or the app) show while the panel is open.
+  RealtimeChannel? _channel;
+  Timer? _historyDebounce;
+  bool _closing = false;
+
   String? get _uid    => _reg['student_user_id'] as String?;
   String  get _status => _reg['status'] as String? ?? 'pending';
+  String  get _regId  => _reg['id'] as String? ?? '';
 
   @override
   void initState() {
@@ -106,6 +120,83 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
     if (_profile == null && _uid != null) _loadProfile();
     _loadSelfie();
     _loadHistory();
+    _subscribe();
+  }
+
+  @override
+  void dispose() {
+    _historyDebounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
+    super.dispose();
+  }
+
+  void _subscribe() {
+    final uid = _uid;
+    if (uid == null || _regId.isEmpty) return;
+    _channel = SupabaseService.client.channel('org-student-panel-$_regId')
+      // This student's registrations: this one (its status and selfie) and
+      // the others listed under "With your events".
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: '*',
+          schema: 'public',
+          table: 'registrations',
+          filter: 'student_user_id=eq.$uid',
+        ),
+        (payload, [_]) {
+          final row = (payload['new'] as Map?) ?? const {};
+          if (row['id'] == _regId) _registrationChanged(Map<String, dynamic>.from(row));
+          _reloadHistorySoon();
+        },
+      )
+      // A delete carries only the row id, and can't be filtered.
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: 'DELETE', schema: 'public', table: 'registrations'),
+        (payload, [_]) {
+          final id = (payload['old'] as Map?)?['id'];
+          if (id == _regId) {
+            _registrationRemoved();
+          } else if (_history?.any((h) => h['id'] == id) ?? false) {
+            _reloadHistorySoon();
+          }
+        },
+      )
+      ..subscribe();
+  }
+
+  void _registrationChanged(Map<String, dynamic> row) {
+    if (!mounted || row.isEmpty) return;
+    final oldPath   = _reg['selfie_url'] as String?;
+    final oldStatus = _status;
+    setState(() => _reg = {..._reg, ...row});
+    // A new selfie (a re-taken one keeps the same file path, so a status
+    // change to "submitted" counts too): a new link, or the old photo shows.
+    final path = _reg['selfie_url'] as String?;
+    if (path != null &&
+        path.isNotEmpty &&
+        (path != oldPath || (_status == 'photo_submitted' && oldStatus != 'photo_submitted'))) {
+      _loadSelfie();
+    }
+  }
+
+  void _reloadHistorySoon() {
+    _historyDebounce?.cancel();
+    _historyDebounce = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) _loadHistory();
+    });
+  }
+
+  // Deleted elsewhere (e.g. on the app): nothing left to show here.
+  void _registrationRemoved() {
+    if (!mounted || _closing) return;
+    _closing = true;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    Navigator.of(context).pop(true);
+    messenger?.showSnackBar(const SnackBar(
+      content: Text('That registration was deleted, so its details were closed.'),
+    ));
   }
 
   Future<void> _loadProfile() async {
@@ -404,7 +495,9 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
         label: 'Check-in selfie',
         sub: _selfieUrl != null ? 'Submitted' : null,
         url: _selfieUrl, loading: _selfieLoading,
-        emptyText: _status == 'photo_required' ? 'Waiting for selfie' : 'No selfie',
+        emptyText: widget.archived
+            ? 'Deleted when archived'
+            : _status == 'photo_required' ? 'Waiting for selfie' : 'No selfie',
         name: _displayName)),
     ]);
   }
@@ -488,9 +581,13 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
           fontSize: 12, color: t.sub, height: 1.4))),
     ]);
 
-    final Widget content = switch (_status) {
+    final Widget content = widget.archived
+        ? info(Icons.inventory_2_outlined,
+            'The admin archived this event. Its attendance is kept as a record and can’t be changed.',
+            kArchivedColor)
+        : switch (_status) {
       'pending' => info(Icons.qr_code_scanner_rounded,
-          'Scan the student’s QR code at the venue to start check-in.', t.muted),
+          'Scan the student’s QR code with the EventHub app to start check-in.', t.muted),
       'qr_scanned' => Row(children: [
           Expanded(child: info(Icons.check_circle_outline_rounded,
               'QR scanned. Ask for a selfie to verify identity.', webStatusColor('qr_scanned'))),

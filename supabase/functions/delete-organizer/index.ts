@@ -53,6 +53,20 @@ serve(async (req) => {
       .from('organizers').select('user_id').eq('organizer_id', organizer_id).maybeSingle()
     if (!organizer) return errRes(404, 'Organizer not found.')
 
+    // ── 4b. Archived events keep the school's attendance records, so this
+    // account can only be deactivated (the database refuses the cascade too —
+    // migration 202610230003). Checked before anything is deleted. ──────────
+    const { count: archived, error: countErr } = await supabaseAdmin
+      .from('events')
+      .select('event_id', { count: 'exact', head: true })
+      .eq('organizer_id', organizer_id)
+      .not('archived_at', 'is', null)
+    if (countErr) return errRes(400, countErr.message)
+    if ((archived ?? 0) > 0) {
+      return errRes(409, 'This organizer has archived events, so the account can be ' +
+        'deactivated but not deleted.')
+    }
+
     // ── 5. Delete the login credential first. If this fails, nothing else has
     // changed yet, so we never leave the profile deleted but the login still
     // working (the bug this function exists to close). ───────────────────────

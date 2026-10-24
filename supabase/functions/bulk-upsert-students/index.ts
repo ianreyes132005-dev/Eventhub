@@ -2,7 +2,10 @@
 // Bulk create / update student accounts from a registrar list (admin only).
 //
 // Body: { rows: [{ action: 'create' | 'update', lrn, first_name, last_name,
-//                  year_level, strand?, section?, password? (create only) }] }
+//                  middle_name?, year_level, strand?, section?,
+//                  password? (create only) }] }
+// middle_name is only written when the row includes it (null clears it), so
+// a list without middle names never erases ones already saved.
 // Max 50 rows per call — the admin dashboard sends the import in batches so
 // one call stays well inside the edge-function time limit.
 //
@@ -96,6 +99,7 @@ serve(async (req) => {
         strand:     isShs ? r.strand : null,
         section:    String(r.section ?? '').trim() || null,
       }
+      if ('middle_name' in r) fields.middle_name = String(r.middle_name ?? '').trim() || null
       const formatted = formatLrn(raw)
 
       try {

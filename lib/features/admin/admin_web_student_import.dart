@@ -394,6 +394,11 @@ class ImportRow {
   String lrn = ''; // 12 digits
   String first = '';
   String last = '';
+  String? middle; // null = none
+  // The file says what the middle name is (its own column, or one found in a
+  // combined name). Only then is it saved, so a list without middle names
+  // never erases ones already in EventHub.
+  bool middleKnown = false;
   int? grade;
   String? strand;
   String? section;
@@ -520,11 +525,16 @@ bool _isParticle(String w) =>
   return (last, first, note);
 }
 
-/// "DELA CRUZ, JUAN PEREZ" → (Dela Cruz, Juan) — SF1 lists one combined
-/// "Last, First Middle" name. Without a separate middle-name column the last
-/// word after the comma is taken as the middle name and left out.
-/// Names without a comma are split by [order] (see [_splitNoComma]).
-(String last, String first, String? note) _splitFullName(
+/// "DELA CRUZ, JUAN PEREZ" → (Dela Cruz, Juan, Perez) — SF1 lists one
+/// combined "Last, First Middle" name. Without a separate middle-name column
+/// the last word after the comma, with any surname particle before it
+/// ("Juan De Leon" → De Leon), is read as the middle name — noted, since a
+/// two-word first name ("Maria Clara") reads the same way.
+/// "Last, First, Middle" splits exactly; with a middle-name column the cell
+/// holds "Last, First" and the middle name comes from that column.
+/// Names without a comma are split by [order] (see [_splitNoComma]); their
+/// middle name can't be told apart, so it stays unknown (null).
+(String last, String first, String? middle, String? note) _splitFullName(
   String raw, {
   required bool hasMiddleCol,
   required NameOrder order,
@@ -534,20 +544,31 @@ bool _isParticle(String w) =>
       .map((p) => p.trim())
       .where((p) => p.isNotEmpty)
       .toList();
-  if (parts.isEmpty) return ('', '', null);
-  if (parts.length == 1) return _splitNoComma(parts.first, order);
+  if (parts.isEmpty) return ('', '', null, null);
+  if (parts.length == 1) {
+    final (last, first, note) = _splitNoComma(parts.first, order);
+    return (last, first, null, note);
+  }
   final last = parts[0];
-  if (parts.length >= 3 || hasMiddleCol)
-    return (last, parts[1], null); // "Last, First, Middle"
-  final words = parts[1].split(RegExp(r'\s+'));
+  if (hasMiddleCol) return (last, parts[1], null, null);
+  if (parts.length >= 3) {
+    return (last, parts[1], parts.sublist(2).join(' '), null); // "Last, First, Middle"
+  }
+  final words = parts[1].split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
   if (words.length >= 2) {
+    var m = words.length - 1;
+    while (m > 1 && _isParticle(words[m - 1])) {
+      m--;
+    }
+    final middle = adminCleanName(words.sublist(m).join(' '));
     return (
       last,
-      words.sublist(0, words.length - 1).join(' '),
-      'Middle name “${adminCleanName(words.last)}” left out',
+      words.sublist(0, m).join(' '),
+      middle,
+      'Middle name read as “$middle” — check it',
     );
   }
-  return (last, parts[1], null);
+  return (last, parts[1], null, null);
 }
 
 StudentImportPlan buildImportPlan({
@@ -609,14 +630,28 @@ StudentImportPlan buildImportPlan({
     } else {
       final full = cell(r, ImportField.fullName);
       if (full.isNotEmpty && !full.contains(',')) namesWithoutComma++;
-      final (l, f, note) = _splitFullName(
+      final (l, f, m, note) = _splitFullName(
         full,
         hasMiddleCol: columns.containsKey(ImportField.middleName),
         order: overrides.nameOrder,
       );
       row.last = adminCleanName(l);
       row.first = adminCleanName(f);
+      if (m != null) {
+        row.middle = _cleanOpt(m);
+        row.middleKnown = true;
+      }
       if (note != null) row.notes.add(note);
+    }
+    // Middle name column (blank cell = no middle name).
+    if (columns.containsKey(ImportField.middleName)) {
+      row.middle = _cleanOpt(cell(r, ImportField.middleName));
+      row.middleKnown = true;
+      // A "First Middle" first-name cell next to it: keep the middle name once.
+      final m = row.middle;
+      if (m != null && row.first.toLowerCase().endsWith(' ${m.toLowerCase()}')) {
+        row.first = row.first.substring(0, row.first.length - m.length).trim();
+      }
     }
     if (row.last.isEmpty) row.errors.add('Missing last name');
     if (row.first.isEmpty) row.errors.add('Missing first name');
@@ -690,7 +725,13 @@ StudentImportPlan buildImportPlan({
     final nameSame = exFirst.isNotEmpty && exLast.isNotEmpty
         ? exFirst == row.first.toLowerCase() && exLast == row.last.toLowerCase()
         : exFull == '${row.first} ${row.last}'.toLowerCase();
-    if (!nameSame) diffs.add('Name');
+    final exMiddle = (ex['middle_name'] as String? ?? '').trim();
+    if (!nameSame) {
+      diffs.add('Name');
+    } else if (row.middleKnown &&
+        exMiddle.toLowerCase() != (row.middle ?? '').toLowerCase()) {
+      diffs.add('Middle name ${exMiddle.isEmpty ? '—' : exMiddle} → ${row.middle ?? '—'}');
+    }
     if (ex['is_active'] != true) row.notes.add('Account is deactivated');
 
     row.action = diffs.isEmpty ? ImportAction.unchanged : ImportAction.update;
@@ -746,9 +787,9 @@ String _fmtLrn(String d) => d.length == 12
 
 void downloadStudentImportTemplate() => downloadCsv(
   _csv([
-    ['LRN', 'Last Name', 'First Name', 'Grade Level', 'Strand', 'Section'],
-    ['123456260001', 'Dela Cruz', 'Juan', '7', '', 'Sampaguita'],
-    ['123456240015', 'Santos', 'Maria', '11', 'STEM', 'Einstein'],
+    ['LRN', 'Last Name', 'First Name', 'Middle Name', 'Grade Level', 'Strand', 'Section'],
+    ['123456260001', 'Dela Cruz', 'Juan', 'Reyes', '7', '', 'Sampaguita'],
+    ['123456240015', 'Santos', 'Maria', '', '11', 'STEM', 'Einstein'],
   ]),
   'eventhub_student_import_template',
 );
@@ -977,6 +1018,8 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
                   'lrn': r.lrn,
                   'first_name': r.first,
                   'last_name': r.last,
+                  // Only when the file says — never erase a saved one.
+                  if (r.middleKnown) 'middle_name': r.middle,
                   'year_level': r.grade,
                   'strand': r.strand,
                   'section': r.section,
@@ -1075,6 +1118,7 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
           'LRN (username)',
           'Last Name',
           'First Name',
+          'Middle Name',
           'Grade',
           'Strand',
           'Section',
@@ -1085,6 +1129,7 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
             _fmtLrn(r.row.lrn),
             r.row.last,
             r.row.first,
+            r.row.middle ?? '',
             '${r.row.grade}',
             r.row.strand ?? '',
             r.row.section ?? '',
@@ -1103,6 +1148,7 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
           'LRN',
           'Last Name',
           'First Name',
+          'Middle Name',
           'Grade',
           'Strand',
           'Section',
@@ -1114,6 +1160,7 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
             r.lrn,
             r.last,
             r.first,
+            r.middle ?? '',
             '${r.grade ?? ''}',
             r.strand ?? '',
             r.section ?? '',
@@ -1125,6 +1172,7 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
             r.row.lrn,
             r.row.last,
             r.row.first,
+            r.row.middle ?? '',
             '${r.row.grade ?? ''}',
             r.row.strand ?? '',
             r.row.section ?? '',
@@ -1352,6 +1400,8 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
         ImportField.firstName,
       ] else
         ImportField.fullName,
+      if (hasNameCols || _columns.containsKey(ImportField.middleName))
+        ImportField.middleName,
       ImportField.grade,
       ImportField.strand,
       ImportField.section,
@@ -1987,9 +2037,12 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
                       Expanded(
                         flex: 4,
                         child: Text(
+                          // Roster order: "Last, First Middle".
                           [
                             r.last,
-                            r.first,
+                            [r.first, r.middle ?? '']
+                                .where((s) => s.isNotEmpty)
+                                .join(' '),
                           ].where((s) => s.isNotEmpty).join(', ').ifEmpty('—'),
                           style: body.copyWith(fontWeight: FontWeight.w600),
                           overflow: TextOverflow.ellipsis,

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../../core/services/registration_service.dart';
+import '../../../../core/services/scan_feedback.dart';
 import '../../../../core/app_colors.dart';
 import '../../../../core/friendly_error.dart';
 import '../../../../shared/widgets/error_alert.dart';
+import 'check_in_countdown.dart';
 
 /// Shown after the organizer scans a student's QR code.
 /// Handles all status transitions including re-triggering the selfie camera
@@ -22,6 +24,9 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
   bool _confirming = false;
   String? _error;
   bool    _windowClosed = false;   // valid ticket, but check-in isn't open
+  DateTime? _opensAt;              // …yet — when it opens (counted down to)
+  bool    _opened = false;         // that countdown has reached zero
+  String  _who = '';               // "Student · Event", for the open message
 
   AppTk get _t => AppTk(Theme.of(context).brightness == Brightness.dark);
 
@@ -35,20 +40,25 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     try {
       final reg = await RegistrationService.getByQRCode(widget.qrCode);
       if (reg == null) {
-        setState(() { _error = 'No registration found for this QR code.'; _loading = false; });
+        ScanFeedback.blocked();
+        // Organizers only see their own events' tickets (RLS).
+        setState(() { _error = 'This QR code isn’t a ticket for any of your events.'; _loading = false; });
         return;
       }
       // Check-in only runs inside the event's window (1 h before start →
       // 2 h after end) and never for a cancelled event. Finished
       // registrations (submitted / checked in / rejected) can still be viewed.
       if (const {'pending', 'qr_scanned', 'photo_required'}.contains(reg['status'])) {
-        final problem = await RegistrationService.checkInProblem(reg['event_id'] as String?);
-        if (problem != null) {
+        final window = await RegistrationService.checkInWindow(reg['event_id'] as String?);
+        if (window.problem != null) {
+          ScanFeedback.blocked();
           if (!mounted) return;
           setState(() {
             _windowClosed = true;
-            _error = '${reg['student_name'] ?? 'This student'} · '
-                '${reg['event_title'] ?? 'this event'}\n\n$problem';
+            _opensAt = window.opensAt;
+            _who = '${reg['student_name'] ?? 'This student'} · '
+                '${reg['event_title'] ?? 'this event'}';
+            _error = '$_who\n\n${window.problem}';
             _loading = false;
           });
           return;
@@ -59,9 +69,12 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
         await RegistrationService.updateStatus(reg['id'] as String, 'qr_scanned');
         reg['status'] = 'qr_scanned';
       }
+      // Vibrate once the ticket is checked (see ScanFeedback).
+      ScanFeedback.forStatus(reg['status'] as String?);
       setState(() { _reg = reg; _loading = false; });
     } catch (e) {
       debugPrint('QR check failed: $e');
+      ScanFeedback.blocked();
       if (!mounted) return;
       setState(() {
         _error = friendlyError(e,
@@ -73,7 +86,20 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
-  /// First-time confirm: sets status â†’ photo_required, opening student camera.
+  /// The countdown reached zero — check the same code again, as a re-scan would.
+  void _recheck() {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _windowClosed = false;
+      _opensAt = null;
+      _opened = false;
+    });
+    _load();
+  }
+
+  /// First-time confirm: sets status → photo_required. The student's phone
+  /// asks them to allow a check-in photo, then opens the camera.
   Future<void> _confirm() async {
     if (_reg == null) return;
     HapticFeedback.mediumImpact();
@@ -81,7 +107,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     try {
       await RegistrationService.updateStatus(_reg!['id'] as String, 'photo_required');
       if (mounted) {
-        _showSnack("Student's camera has been opened — waiting for selfie.", Colors.green);
+        _showSnack('Request sent — waiting for the student to allow the photo.', Colors.green);
         Navigator.of(context).pop(true);
       }
     } catch (e) {
@@ -91,9 +117,9 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     }
   }
 
-  /// Re-trigger: student dismissed the camera. Writing photo_required again
-  /// fires a Supabase realtime UPDATE on the student's device and re-opens
-  /// their front camera immediately.
+  /// Re-trigger: no photo yet (the student tapped "Not now" or closed the
+  /// camera). Writing photo_required again fires a Supabase realtime UPDATE
+  /// on the student's device, which asks them again.
   Future<void> _retriggerCamera() async {
     if (_reg == null) return;
     HapticFeedback.lightImpact();
@@ -101,7 +127,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     try {
       await RegistrationService.updateStatus(_reg!['id'] as String, 'photo_required');
       if (mounted) {
-        _showSnack("Camera re-opened on student's device.", Colors.green);
+        _showSnack('Request sent again.', Colors.green);
         Navigator.of(context).pop(true);
       }
     } catch (e) {
@@ -159,26 +185,64 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
           children: [
             Container(
               width: 80, height: 80,
-              decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(24)),
-              child: Icon(Icons.qr_code_2, size: 40, color: Colors.red.shade400),
+              decoration: BoxDecoration(
+                  color: _opened ? Colors.green.shade50 : Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(24)),
+              child: _opened
+                  ? Icon(Icons.lock_open_rounded, size: 40, color: Colors.green.shade600)
+                  : Icon(Icons.qr_code_2, size: 40, color: Colors.red.shade400),
             ),
             const SizedBox(height: 20),
-            Text(_windowClosed ? 'Check-in isn’t open' : 'Invalid QR Code',
+            Text(
+                !_windowClosed
+                    ? 'Invalid QR Code'
+                    : _opened
+                        ? 'Check-in is open'
+                        : _opensAt != null ? 'Check-in isn’t open yet' : 'Check-in isn’t open',
                 style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 18, color: _t.text)),
             const SizedBox(height: 8),
-            Text(_error!, textAlign: TextAlign.center,
+            Text(_opened ? '$_who\n\n$kCheckInJustOpened' : _error!, textAlign: TextAlign.center,
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: _t.sub, height: 1.5)),
-            const SizedBox(height: 28),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kGold, foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+            if (_opensAt != null && !_opened) ...[
+              const SizedBox(height: 20),
+              CheckInCountdown(
+                opensAt: _opensAt!,
+                onOpened: () => setState(() => _opened = true),
+                textColor: _t.text,
+                accentColor: _t.dark ? kGold : const Color(0xFF8A6516),
               ),
-              child: const Text('Scan Again',
-                  style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
-            ),
+            ],
+            const SizedBox(height: 28),
+            if (_opened) ...[
+              ElevatedButton.icon(
+                onPressed: _recheck,
+                icon: const Icon(Icons.how_to_reg_rounded, size: 20),
+                label: const Text('Continue Check-In',
+                    style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green, foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                  elevation: 0,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Scan Again',
+                    style: TextStyle(fontFamily: 'Poppins', color: kGold, fontWeight: FontWeight.w600)),
+              ),
+            ] else
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kGold, foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                ),
+                child: const Text('Scan Again',
+                    style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+              ),
           ],
         ),
       ),
@@ -191,9 +255,9 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     final reg    = _reg!;
     final status = reg['status'] as String? ?? '';
 
-    // photo_required  â†’ student dismissed camera, can re-trigger
-    // photo_submitted â†’ selfie received, awaiting organizer approval
-    // checked_in      â†’ fully done
+    // photo_required  → photo requested, none yet: can ask again
+    // photo_submitted → selfie received, awaiting organizer approval
+    // checked_in      → fully done
     final canRetrigger = status == 'photo_required';
     final isFinal      = status == 'photo_submitted' || status == 'checked_in' || status == 'rejected';
 
@@ -262,7 +326,8 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                 const SizedBox(height: 14),
                 _row(Icons.event_rounded,     'Event',    reg['event_title'] as String? ?? '—'),
                 const SizedBox(height: 10),
-                _row(Icons.badge_rounded,     'Reg ID',   _short(reg['id'] as String? ?? '—')),
+                _row(Icons.confirmation_num_rounded, 'Ticket ID',
+                    reg['ticket_code'] as String? ?? '—'),
                 const SizedBox(height: 10),
                 _row(Icons.circle_outlined,   'Status',   _statusLabel(status)),
               ],
@@ -283,7 +348,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
             _buildInfoBanner(
               icon: Icons.camera_alt_outlined,
               color: Colors.green,
-              message: "Tap Confirm to open the student's front camera for a selfie verification.",
+              message: "Tap Confirm to ask the student for a check-in photo. Their phone asks them to allow it, then opens the camera.",
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -292,13 +357,19 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                   ? const SizedBox(width: 18, height: 18,
                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : const Icon(Icons.camera_alt_rounded, size: 20),
-              label: Text(
-                _confirming ? 'Opening camera…' : 'Confirm — Open Student Camera',
-                style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 15),
-              ),
+              // "Confirm — request to open student camera", on two lines.
+              label: _confirming
+                  ? const Text('Sending request…',
+                      style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 15))
+                  : const Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text('Confirm',
+                          style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 15)),
+                      Text('Request to open student camera',
+                          style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w500, fontSize: 12)),
+                    ]),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green, foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 elevation: 0,
               ),
@@ -348,7 +419,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Student dismissed the camera',
+                      'Waiting for the student’s photo',
                       style: TextStyle(
                         fontFamily: 'Poppins', fontSize: 13,
                         fontWeight: FontWeight.w700, color: Colors.amber.shade800,
@@ -356,7 +427,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'The selfie request was sent but the student closed the camera before taking a photo. Tap the button below to re-open it on their device.',
+                      'The photo request was sent, but no photo has arrived yet — the student may have tapped “Not now” or closed the camera. Tap below to ask again.',
                       style: TextStyle(
                         fontFamily: 'Poppins', fontSize: 12,
                         color: Colors.amber.shade700, height: 1.5,
@@ -379,7 +450,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
                   child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
               : const Icon(Icons.refresh_rounded, size: 20),
           label: Text(
-            _confirming ? 'Re-opening camera…' : 'Re-open Student Camera',
+            _confirming ? 'Sending request…' : 'Request Photo Again',
             style: const TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 15),
           ),
           style: ElevatedButton.styleFrom(
@@ -393,7 +464,7 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
 
         const SizedBox(height: 10),
         Text(
-          'This instantly re-opens the front camera on the student\'s device.',
+          'Their phone asks them again to allow the photo.',
           textAlign: TextAlign.center,
           style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: _t.sub),
         ),
@@ -504,8 +575,6 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
     if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
     return parts.isNotEmpty && parts[0].isNotEmpty ? parts[0][0].toUpperCase() : '?';
   }
-
-  String _short(String id) => id.length > 12 ? '…${id.substring(id.length - 8)}' : id;
 
   String _statusLabel(String s) {
     const labels = {

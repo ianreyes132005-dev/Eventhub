@@ -3,50 +3,74 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/services/registration_service.dart';
+import '../../../core/services/selfie_links.dart';
 import 'web_shared.dart';
 import 'student_registration_panel.dart';
 
 class WebRegistrationsPage extends StatefulWidget {
   final String? orgId;
-  const WebRegistrationsPage({super.key, this.orgId});
+
+  /// The status filter to open on, e.g. 'Photo Submitted' when the organizer
+  /// comes from the sidebar's "waiting for your review" badge.
+  final String? initialStatus;
+
+  const WebRegistrationsPage({super.key, this.orgId, this.initialStatus});
 
   @override
   State<WebRegistrationsPage> createState() => _WebRegistrationsPageState();
 }
 
-class _WebRegistrationsPageState extends State<WebRegistrationsPage> with SingleTickerProviderStateMixin {
-  bool   _loading      = true;
+class _WebRegistrationsPageState extends State<WebRegistrationsPage>
+    with SingleTickerProviderStateMixin {
+  bool _loading = true;
   String _statusFilter = 'All';
-  String _eventFilter  = 'All';
-  final  _search       = TextEditingController();
+  String _eventFilter = 'All';
+  final _search = TextEditingController();
 
-  List<Map<String, dynamic>> _all          = [];
-  List<Map<String, dynamic>> _displayed   = [];
-  List<String>               _eventTitles = [];
-  final Map<String, String>  _selfieUrls  = {};
-  Map<String, Map<String, dynamic>> _profiles = {};   // student_user_id → profile
-  final Set<String>          _processingIds = {};
-  final Set<String>          _selectedIds = {};
+  List<Map<String, dynamic>> _all = [];
+  List<Map<String, dynamic>> _displayed = [];
+  List<Map<String, dynamic>> _events = [];
+  // Selfie links — a new one for every new submission, and renewed when
+  // the organizer opens a photo after the link got old (see SelfieLinks).
+  final _selfies = SelfieLinks();
+  Map<String, Map<String, dynamic>> _profiles = {}; // student_user_id → profile
+  final Set<String> _processingIds = {};
+  final Set<String> _selectedIds = {};
 
-  // Realtime subscription — scoped to this organizer's events.
+  // Realtime subscription — scoped to this organizer's events. Set up once;
+  // the set is refilled by every load, and events created while the page is
+  // open join it through the subscription.
   RealtimeChannel? _channel;
-  List<String>     _orgEventIds = [];
+  final Set<String> _orgEventIds = {};
+  // Events the admin archived: their registrations are read-only records.
+  final Set<String> _archivedEventIds = {};
+  bool _fetching = false; // a load is running…
+  bool _refetch = false; // …and a change arrived meanwhile
 
   final _statusFilters = [
-    'All', 'Pending', 'QR Scanned', 'Awaiting Selfie',
-    'Photo Submitted', 'Checked In',
+    'All',
+    'Pending',
+    'QR Scanned',
+    'Awaiting Selfie',
+    'Photo Submitted',
+    'Checked In',
+    'Rejected',
   ];
-
-  String? _hoveredTab;   // tracks which status chip the cursor is over
 
   late final AnimationController _staggerCtrl;
 
   @override
   void initState() {
     super.initState();
-    _staggerCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+    final start = widget.initialStatus;
+    if (start != null && _statusFilters.contains(start)) _statusFilter = start;
+    _staggerCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
     _search.addListener(_applyFilter);
     _load();
+    _subscribeRealtime();
   }
 
   @override
@@ -61,8 +85,11 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
     return AnimatedBuilder(
       animation: _staggerCtrl,
       builder: (_, c) {
-        final raw = ((_staggerCtrl.value - start) / (end - start)).clamp(0.0, 1.0);
-        final t  = Curves.easeOut.transform(raw);
+        final raw = ((_staggerCtrl.value - start) / (end - start)).clamp(
+          0.0,
+          1.0,
+        );
+        final t = Curves.easeOut.transform(raw);
         final ts = Curves.easeOutCubic.transform(raw);
         return Opacity(
           opacity: t,
@@ -78,20 +105,43 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
 
   // ── Data loading ─────────────────────────────────────────────────────────────
 
-  Future<void> _load() async {
+  /// [silent]: refresh in place (a change that arrived mid-load) — no
+  /// loading skeleton.
+  Future<void> _load({bool silent = false}) async {
     if (widget.orgId == null) return;
-    setState(() => _loading = true);
+    if (_fetching) {
+      _refetch = true;
+      return;
+    }
+    _fetching = true;
+    if (!silent) setState(() => _loading = true);
     try {
       final eventsRaw = await SupabaseService.client
           .from('events')
-          .select('event_id, title')
+          .select('event_id, title, event_date, archived_at')
           .eq('organizer_id', widget.orgId!);
-      final events   = List<Map<String, dynamic>>.from(eventsRaw as List);
+      final events = List<Map<String, dynamic>>.from(eventsRaw as List);
       final eventIds = events.map((e) => e['event_id'] as String).toList();
+      _archivedEventIds
+        ..clear()
+        ..addAll([
+          for (final e in events)
+            if (eventIsArchived(e)) e['event_id'] as String,
+        ]);
+      // Live changes are kept to these events (see _subscribeRealtime).
+      _orgEventIds
+        ..clear()
+        ..addAll(eventIds);
 
       if (eventIds.isEmpty) {
         if (mounted) {
-          setState(() { _all = []; _displayed = []; _loading = false; });
+          setState(() {
+            _all = [];
+            _displayed = [];
+            _events = [];
+            _eventFilter = 'All';
+            _loading = false;
+          });
           _staggerCtrl.forward(from: 0);
         }
         return;
@@ -104,83 +154,85 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           .order('registered_at', ascending: false);
       final regs = List<Map<String, dynamic>>.from(regsRaw as List);
 
-      final titles = {'All', ...regs.map((r) => r['event_title'] as String? ?? '—').toSet()};
-      _eventTitles = titles.toList()..sort((a, b) => a == 'All' ? -1 : a.compareTo(b));
-
-      // Store event IDs for realtime filtering, then (re)start the subscription.
-      _orgEventIds = eventIds;
-      _subscribeRealtime();
-
       final profiles = await loadRegistrantProfiles(
-          regs.map((r) => r['student_user_id'] as String?));
+        regs.map((r) => r['student_user_id'] as String?),
+      );
 
       if (!mounted) return;
       _all = regs;
+      _events = events
+        ..sort((a, b) {
+          final titleOrder = (a['title'] as String? ?? '').compareTo(
+            b['title'] as String? ?? '',
+          );
+          if (titleOrder != 0) return titleOrder;
+          return (a['event_date'] as String? ?? '').compareTo(
+            b['event_date'] as String? ?? '',
+          );
+        });
+      if (_eventFilter != 'All' &&
+          !_events.any((event) => event['event_id'] == _eventFilter)) {
+        _eventFilter = 'All';
+      }
       _profiles = profiles;
       _applyFilter();
       _fetchSelfieUrls(regs);
       setState(() => _loading = false);
-      _staggerCtrl.forward(from: 0);
+      if (!silent) _staggerCtrl.forward(from: 0);
     } catch (_) {
       if (mounted) {
         setState(() => _loading = false);
-        _staggerCtrl.forward(from: 0);
+        if (!silent) _staggerCtrl.forward(from: 0);
+      }
+    } finally {
+      _fetching = false;
+      if (_refetch && mounted) {
+        _refetch = false;
+        _load(silent: true);
       }
     }
   }
 
-  Future<void> _fetchSelfieUrls(List<Map<String, dynamic>> rows) async {
-    final toFetch = <String, String>{};
-    for (final r in rows) {
-      final path = r['selfie_url'] as String?;
-      final id   = r['id']        as String?;
-      if (path != null && path.isNotEmpty && id != null &&
-          !_selfieUrls.containsKey(id)) {
-        toFetch[id] = path;
-      }
-    }
-    if (toFetch.isEmpty) return;
-    final entries = await Future.wait(
-      toFetch.entries.map((e) async {
-        try {
-          final url = await RegistrationService.getSelfieSignedUrl(e.value);
-          return MapEntry(e.key, url);
-        } catch (_) { return null; }
-      }),
-    );
-    if (!mounted) return;
-    final newUrls = <String, String>{};
-    for (final entry in entries) {
-      if (entry != null) newUrls[entry.key] = entry.value;
-    }
-    if (newUrls.isNotEmpty) setState(() => _selfieUrls.addAll(newUrls));
+  /// Links for the rows with a selfie that don't have one yet (or a link
+  /// that's getting old); [fresh] makes new ones regardless — a just-
+  /// submitted selfie keeps the old one's file path.
+  Future<void> _fetchSelfieUrls(
+    List<Map<String, dynamic>> rows, {
+    bool fresh = false,
+  }) async {
+    final paths = {
+      for (final r in rows)
+        if ((r['selfie_url'] as String?)?.isNotEmpty == true && r['id'] != null)
+          r['id'] as String: r['selfie_url'] as String,
+    };
+    if (await _selfies.fetch(paths, fresh: fresh) && mounted) setState(() {});
   }
 
   void _subscribeRealtime() {
-    // Cancel any existing channel before creating a new one (called on each
-    // _load so the event-ID whitelist stays current after a refresh).
-    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
-
-    if (_orgEventIds.isEmpty) return;
+    final orgId = widget.orgId;
+    if (orgId == null) return;
 
     _channel = RegistrationService.subscribeToAllRegistrations(
       (eventType, record) {
         if (!mounted) return;
         final id = record['id'] as String?;
         if (id == null) return;
+        // A load is running and may not include this change — load again
+        // once it's done.
+        if (_fetching) {
+          _refetch = true;
+          return;
+        }
+        // A delete only carries the row id: ignore other organizers' rows.
+        if (eventType == 'DELETE' && !_all.any((r) => r['id'] == id)) return;
 
         setState(() {
           if (eventType == 'DELETE') {
             _all.removeWhere((r) => r['id'] == id);
-            _selfieUrls.remove(id);
+            _selfies.remove(id);
+            _selectedIds.remove(id);
           } else if (eventType == 'INSERT') {
             _all.insert(0, record);
-            // Keep event titles list up to date for the filter chips.
-            final title = record['event_title'] as String?;
-            if (title != null && !_eventTitles.contains(title)) {
-              _eventTitles = ['All', ...(_eventTitles..remove('All')), title]
-                ..sort((a, b) => a == 'All' ? -1 : a.compareTo(b));
-            }
           } else {
             final idx = _all.indexWhere((r) => r['id'] == id);
             if (idx >= 0) {
@@ -192,42 +244,77 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           _applyFilter();
         });
 
-        // Fetch a signed URL when a new selfie arrives.
+        // A new selfie gets a new link (see _fetchSelfieUrls).
         if (eventType != 'DELETE' &&
             record['status'] == 'photo_submitted' &&
             record['selfie_url'] != null) {
-          _fetchSelfieUrls([record]);
+          _fetchSelfieUrls([record], fresh: true);
         }
       },
-      channelSuffix:   widget.orgId,
+      channelSuffix: orgId,
       allowedEventIds: _orgEventIds,
+      organizerId: orgId,
+      // The admin archiving or restoring an event makes its rows read-only
+      // or editable again.
+      onEventRow: (event) {
+        final id = event['event_id'];
+        if (id is! String || !mounted) return;
+        final archived = eventIsArchived(event);
+        if (archived == _archivedEventIds.contains(id)) return;
+        setState(() {
+          archived ? _archivedEventIds.add(id) : _archivedEventIds.remove(id);
+          if (archived) {
+            _selectedIds.removeWhere(
+              (rid) => _all.any((r) => r['id'] == rid && r['event_id'] == id),
+            );
+          }
+          _applyFilter();
+        });
+      },
     );
   }
 
+  // Its event is archived: a read-only record (no selection, no actions).
+  bool _isArchived(Map<String, dynamic> r) =>
+      _archivedEventIds.contains(r['event_id']);
+
+  Iterable<String> get _selectableVisibleIds => _displayed
+      .where((r) => !_isArchived(r))
+      .map((r) => r['id'] as String? ?? '')
+      .where((id) => id.isNotEmpty);
+
+  // Renews the link first when it's getting old, so the photo always opens.
+  Future<void> _openSelfie(String id, String path, String name, WebTk t) async {
+    final url = await _selfies.linkFor(id, path) ?? _selfies[id];
+    if (!mounted || url == null) return;
+    _viewSelfie(url, name, t);
+  }
+
   void _applyFilter() {
-    final q         = _search.text.toLowerCase();
+    final q = _search.text.toLowerCase();
     final statusKey = _statusKeyMap[_statusFilter];
     setState(() {
       _displayed = _all.where((r) {
         final matchStatus = statusKey == null || r['status'] == statusKey;
-        final matchEvent  = _eventFilter == 'All' ||
-            (r['event_title'] as String? ?? '') == _eventFilter;
-        final name  = (r['student_name']     as String? ?? '').toLowerCase();
-        final event = (r['event_title']      as String? ?? '').toLowerCase();
-        final sid   = (r['student_school_id'] as String? ?? '').toLowerCase();
-        final matchSearch = q.isEmpty ||
-            name.contains(q) || event.contains(q) || sid.contains(q);
+        final matchEvent =
+            _eventFilter == 'All' ||
+            (r['event_id'] as String? ?? '') == _eventFilter;
+        final name = (r['student_name'] as String? ?? '').toLowerCase();
+        final event = (r['event_title'] as String? ?? '').toLowerCase();
+        final sid = (r['student_school_id'] as String? ?? '').toLowerCase();
+        final matchSearch =
+            q.isEmpty ||
+            name.contains(q) ||
+            event.contains(q) ||
+            sid.contains(q);
         return matchStatus && matchEvent && matchSearch;
       }).toList();
     });
   }
 
   bool get _allVisibleSelected =>
-      _displayed.isNotEmpty &&
-      _displayed.every((r) {
-        final id = r['id'] as String? ?? '';
-        return id.isNotEmpty && _selectedIds.contains(id);
-      });
+      _selectableVisibleIds.isNotEmpty &&
+      _selectableVisibleIds.every(_selectedIds.contains);
 
   void _toggleSelection(String id) {
     setState(() {
@@ -240,10 +327,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
   }
 
   void _toggleSelectAllVisible() {
-    final visibleIds = _displayed
-        .map((r) => r['id'] as String? ?? '')
-        .where((id) => id.isNotEmpty)
-        .toSet();
+    final visibleIds = _selectableVisibleIds.toSet();
 
     setState(() {
       if (visibleIds.every(_selectedIds.contains)) {
@@ -277,7 +361,9 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
             ),
             backgroundColor: const Color(0xFF10B981),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
@@ -292,7 +378,11 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
       await _load();
     } catch (e) {
       if (mounted) {
-        showErrorAlert(context, e, title: 'Couldn’t check in every selected student');
+        showErrorAlert(
+          context,
+          e,
+          title: 'Couldn’t check in every selected student',
+        );
         _load(); // some may have gone through before the failure
       }
     } finally {
@@ -314,7 +404,11 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
 
     try {
       for (final id in ids) {
-        await RegistrationService.updateStatus(id, 'rejected', rejectionReason: reason);
+        await RegistrationService.updateStatus(
+          id,
+          'rejected',
+          rejectionReason: reason,
+        );
       }
 
       if (mounted) {
@@ -326,7 +420,9 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
             ),
             backgroundColor: const Color(0xFFEF4444),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
@@ -341,7 +437,11 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
       await _load();
     } catch (e) {
       if (mounted) {
-        showErrorAlert(context, e, title: 'Couldn’t reject every selected student');
+        showErrorAlert(
+          context,
+          e,
+          title: 'Couldn’t reject every selected student',
+        );
         _load(); // some may have gone through before the failure
       }
     } finally {
@@ -352,19 +452,27 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
   }
 
   static const _statusKeyMap = {
-    'All':             null,
-    'Pending':         'pending',
-    'QR Scanned':      'qr_scanned',
+    'All': null,
+    'Pending': 'pending',
+    'QR Scanned': 'qr_scanned',
     'Awaiting Selfie': 'photo_required',
     'Photo Submitted': 'photo_submitted',
-    'Checked In':      'checked_in',
-    'Rejected':        'rejected',
+    'Checked In': 'checked_in',
+    'Rejected': 'rejected',
   };
 
-  Future<void> _updateStatus(String id, String newStatus, {String? rejectionReason}) async {
+  Future<void> _updateStatus(
+    String id,
+    String newStatus, {
+    String? rejectionReason,
+  }) async {
     setState(() => _processingIds.add(id));
     try {
-      await RegistrationService.updateStatus(id, newStatus, rejectionReason: rejectionReason);
+      await RegistrationService.updateStatus(
+        id,
+        newStatus,
+        rejectionReason: rejectionReason,
+      );
     } catch (e) {
       if (mounted) {
         setState(() => _processingIds.remove(id));
@@ -379,9 +487,10 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
 
   Future<void> _delete(String id) async {
     final ok = await WebAlert.confirm(
-      context:      context,
-      title:        'Delete Registration?',
-      message:      'This registration will be permanently removed. This action cannot be undone.',
+      context: context,
+      title: 'Delete Registration?',
+      message:
+          'This registration will be permanently removed. This action cannot be undone.',
       confirmLabel: 'Delete',
     );
     if (ok != true) return;
@@ -402,18 +511,22 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
   // ── Selfie dialog ─────────────────────────────────────────────────────────────
 
   Future<void> _openDetails(Map<String, dynamic> reg) async {
-    final changed = await showStudentRegistrationPanel(context,
-        registration: reg,
-        organizerId: widget.orgId,
-        profile: _profiles[reg['student_user_id'] as String? ?? '']);
+    final changed = await showStudentRegistrationPanel(
+      context,
+      registration: reg,
+      organizerId: widget.orgId,
+      profile: _profiles[reg['student_user_id'] as String? ?? ''],
+      archived: _isArchived(reg),
+    );
     if (changed == true && mounted) _load();
   }
 
   Future<void> _sendSelfieRequest(String id, String studentName) async {
     final ok = await WebAlert.confirm(
-      context:      context,
-      title:        'Send Selfie Request?',
-      message:      '$studentName will be prompted to submit a selfie photo to complete their check-in.',
+      context: context,
+      title: 'Send Selfie Request?',
+      message:
+          '$studentName will be prompted to submit a selfie photo to complete their check-in.',
       confirmLabel: 'Send Request',
     );
     if (ok != true) return;
@@ -449,149 +562,200 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
                   borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                   border: Border(bottom: BorderSide(color: t.border)),
                 ),
-                child: Row(children: [
-                  Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF8B5CF6).withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.photo_camera_rounded,
-                      size: 18, color: Color(0xFF8B5CF6)),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Check-in Selfie',
-                          style: TextStyle(
-                            fontFamily: 'Poppins', fontSize: 14,
-                            fontWeight: FontWeight.w700, color: t.text,
-                          )),
-                        Text(studentName,
-                          style: TextStyle(
-                            fontFamily: 'Poppins', fontSize: 11, color: t.sub,
-                          )),
-                      ],
-                    ),
-                  ),
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: () => Navigator.of(context).pop(),
-                      child: Container(
-                        width: 32, height: 32,
-                        decoration: BoxDecoration(
-                          color: t.divider,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(Icons.close_rounded, size: 16, color: t.sub),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF8B5CF6).withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.photo_camera_rounded,
+                        size: 18,
+                        color: Color(0xFF8B5CF6),
                       ),
                     ),
-                  ),
-                ]),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Check-in Selfie',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: t.text,
+                            ),
+                          ),
+                          Text(
+                            studentName,
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 11,
+                              color: t.sub,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: () => Navigator.of(context).pop(),
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: t.divider,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 16,
+                            color: t.sub,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               // Selfie image — Flexible so it fills available space without overflowing
               Flexible(
                 child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: Image.network(
-                    url,
-                    fit: BoxFit.contain,
-                    width: double.infinity,
-                    loadingBuilder: (_, child, progress) => progress == null
-                      ? child
-                      : Container(
-                          height: 240,
-                          decoration: BoxDecoration(
-                            color: t.inputBg,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const CircularProgressIndicator(color: kGold, strokeWidth: 2),
-                                const SizedBox(height: 12),
-                                Text('Loading selfie…',
-                                  style: TextStyle(
-                                    fontFamily: 'Poppins', fontSize: 12,
-                                    color: t.muted,
-                                  )),
-                              ],
-                            ),
-                          ),
-                        ),
-                    errorBuilder: (_, _, _) => Container(
-                      height: 160,
-                      decoration: BoxDecoration(
-                        color: t.inputBg,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 44, height: 44,
+                  padding: const EdgeInsets.all(20),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.network(
+                      url,
+                      fit: BoxFit.contain,
+                      width: double.infinity,
+                      loadingBuilder: (_, child, progress) => progress == null
+                          ? child
+                          : Container(
+                              height: 240,
                               decoration: BoxDecoration(
-                                color: t.divider,
-                                borderRadius: BorderRadius.circular(12),
+                                color: t.inputBg,
+                                borderRadius: BorderRadius.circular(14),
                               ),
-                              child: Icon(Icons.broken_image_outlined,
-                                size: 22, color: t.muted),
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const CircularProgressIndicator(
+                                      color: kGold,
+                                      strokeWidth: 2,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'Loading selfie…',
+                                      style: TextStyle(
+                                        fontFamily: 'Poppins',
+                                        fontSize: 12,
+                                        color: t.muted,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                            const SizedBox(height: 10),
-                            Text('Could not load image',
-                              style: TextStyle(
-                                fontFamily: 'Poppins', fontSize: 12, color: t.muted,
-                              )),
-                          ],
+                      errorBuilder: (_, _, _) => Container(
+                        height: 160,
+                        decoration: BoxDecoration(
+                          color: t.inputBg,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: t.divider,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  size: 22,
+                                  color: t.muted,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                'Could not load image',
+                                style: TextStyle(
+                                  fontFamily: 'Poppins',
+                                  fontSize: 12,
+                                  color: t.muted,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
               // Avatar + name footer
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: t.inputBg,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: t.border),
                   ),
-                  child: Row(children: [
-                    Container(
-                      width: 32, height: 32,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF8B5CF6).withValues(alpha: 0.10),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: const Color(0xFF8B5CF6).withValues(alpha: 0.25)),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: const Color(
+                            0xFF8B5CF6,
+                          ).withValues(alpha: 0.10),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: const Color(
+                              0xFF8B5CF6,
+                            ).withValues(alpha: 0.25),
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            initials,
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF8B5CF6),
+                            ),
+                          ),
+                        ),
                       ),
-                      child: Center(
-                        child: Text(initials,
-                          style: const TextStyle(
-                            fontFamily: 'Poppins', fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF8B5CF6),
-                          )),
+                      const SizedBox(width: 10),
+                      Text(
+                        studentName,
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: t.text,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(studentName,
-                      style: TextStyle(
-                        fontFamily: 'Poppins', fontSize: 13,
-                        fontWeight: FontWeight.w600, color: t.text,
-                      )),
-                  ]),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -618,7 +782,9 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
             decoration: BoxDecoration(
               color: const Color(0xFF8B5CF6).withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: 0.22)),
+              border: Border.all(
+                color: const Color(0xFF8B5CF6).withValues(alpha: 0.22),
+              ),
             ),
             child: Text(
               '${_selectedIds.length} selected',
@@ -634,31 +800,53 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           OutlinedButton.icon(
             onPressed: _bulkApproveSelected,
             icon: const Icon(Icons.check_circle_rounded, size: 16),
-            label: const Text('Approve', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+            label: const Text(
+              'Approve',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(0xFF10B981),
               side: const BorderSide(color: Color(0xFF10B981), width: 1.2),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
           ),
           const SizedBox(width: 10),
           OutlinedButton.icon(
             onPressed: _bulkRejectSelected,
             icon: const Icon(Icons.block_rounded, size: 16),
-            label: const Text('Reject', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+            label: const Text(
+              'Reject',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(0xFFEF4444),
               side: const BorderSide(color: Color(0xFFEF4444), width: 1.2),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
           ),
           const SizedBox(width: 10),
           TextButton.icon(
             onPressed: () => setState(() => _selectedIds.clear()),
             icon: const Icon(Icons.close_rounded, size: 16),
-            label: const Text('Clear', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600)),
+            label: const Text(
+              'Clear',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
@@ -679,7 +867,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           _buildPageHeader(t),
           const SizedBox(height: 20),
           _stagger(_buildFilterBar(t), start: 0.36, end: 0.66),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           if (_selectedIds.isNotEmpty) ...[
             _buildBulkActionsBar(t),
             const SizedBox(height: 12),
@@ -687,19 +875,20 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           WebCard(
             padding: EdgeInsets.zero,
             child: _displayed.isEmpty
-              ? _stagger(
-                  WebEmptyState(
-                    icon: Icons.how_to_reg_rounded,
-                    title: _all.isEmpty
-                      ? 'No registrations yet'
-                      : 'No results match your filter',
-                    subtitle: _all.isEmpty
-                      ? 'Registrations will appear once students sign up for your events.'
-                      : 'Try adjusting your search or filters.',
-                  ),
-                  start: 0.50, end: 0.85,
-                )
-              : _buildTable(t),
+                ? _stagger(
+                    WebEmptyState(
+                      icon: Icons.how_to_reg_rounded,
+                      title: _all.isEmpty
+                          ? 'No registrations yet'
+                          : 'No results match your filter',
+                      subtitle: _all.isEmpty
+                          ? 'Registrations will appear once students sign up for your events.'
+                          : 'Try adjusting your search or filters.',
+                    ),
+                    start: 0.50,
+                    end: 0.85,
+                  )
+                : _buildTable(t),
           ),
           const SizedBox(height: 24),
         ],
@@ -717,213 +906,112 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Registrations',
+              Text(
+                'Registrations',
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
                   color: t.text,
                   height: 1.1,
-                )),
+                ),
+              ),
             ],
           ),
           const Spacer(),
         ],
       ),
-      start: 0.00, end: 0.35,
+      start: 0.00,
+      end: 0.35,
     );
   }
 
   // ── Filter bar ────────────────────────────────────────────────────────────────
 
   Widget _buildFilterBar(WebTk t) {
-    // Counts per status — shown as live badges on each filter chip so the
-    // organizer sees at a glance how many registrations are in each state
-    // without having to click through each filter.
+    // Counts per status and per event, shown in the filter menus so the
+    // organizer sees how many are in each state without clicking through.
     final counts = <String, int>{
-      'All':             _all.length,
-      'Pending':         _all.where((r) => r['status'] == 'pending').length,
-      'QR Scanned':      _all.where((r) => r['status'] == 'qr_scanned').length,
-      'Awaiting Selfie': _all.where((r) => r['status'] == 'photo_required').length,
-      'Photo Submitted': _all.where((r) => r['status'] == 'photo_submitted').length,
-      'Checked In':      _all.where((r) => r['status'] == 'checked_in').length,
+      'All': _all.length,
+      for (final f in _statusFilters.skip(1))
+        f: _all.where((r) => r['status'] == _statusKeyMap[f]).length,
     };
+    final events = _events;
+    final titleCounts = <String, int>{};
+    for (final event in events) {
+      final title = event['title'] as String? ?? 'Untitled event';
+      titleCounts[title] = (titleCounts[title] ?? 0) + 1;
+    }
+    String eventLabel(Map<String, dynamic> event) {
+      final title = event['title'] as String? ?? 'Untitled event';
+      if (titleCounts[title] == 1) return title;
+      final date = event['event_date'] as String?;
+      return date == null || date.isEmpty ? title : '$title · $date';
+    }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    // Two compact menus instead of a row of status chips plus a row of event
+    // chips: the status chips ran off narrower screens (and laptops at 125%
+    // zoom), and the event chips grew with every event.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Status pill chips + search
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: _statusFilters.map((f) => Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: _statusTab(f, counts[f] ?? 0, t),
-                  )).toList(),
-                ),
+        WebFilterMenu<String>(
+          icon: Icons.filter_list_rounded,
+          label: 'Status',
+          options: [
+            for (final f in _statusFilters)
+              WebFilterOption(
+                value: f,
+                label: f,
+                count: counts[f] ?? 0,
+                color: f == 'All' ? kGold : webStatusColor(_statusKeyMap[f]),
               ),
-            ),
-            const SizedBox(width: 16),
-            WebSearchField(
-              controller: _search,
-              hint: 'Search name, event, ID…',
-              onChanged: (_) {},
-            ),
           ],
+          selected: _statusFilter,
+          onSelect: (f) {
+            setState(() => _statusFilter = f);
+            _applyFilter();
+          },
         ),
-        // Event filter grid — shown only when there are multiple events.
-        // Uses Wrap so chips automatically reflow into additional rows on
-        // narrower viewports instead of scrolling off-screen horizontally.
-        if (_eventTitles.length > 2) ...[
-          const SizedBox(height: 16),
-          // Section label
-          Row(
-            children: [
-              Container(
-                width: 3, height: 14,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF8B5CF6),
-                  borderRadius: BorderRadius.circular(2),
-                ),
+        // Only worth a menu when there's more than one event to choose from.
+        if (events.length > 1) ...[
+          const SizedBox(width: 8),
+          WebFilterMenu<String>(
+            icon: Icons.event_rounded,
+            label: 'Event',
+            accent: const Color(0xFF8B5CF6),
+            menuWidth: 320,
+            searchable: events.length > 8,
+            searchHint: 'Search events…',
+            options: [
+              WebFilterOption(
+                value: 'All',
+                label: 'All events',
+                count: _all.length,
               ),
-              const SizedBox(width: 8),
-              Text(
-                'Filter by Event',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize:   11,
-                  fontWeight: FontWeight.w700,
-                  color:      t.sub,
-                  letterSpacing: 0.3,
+              for (final event in events)
+                WebFilterOption(
+                  value: event['event_id'] as String,
+                  label: eventLabel(event),
+                  count: _all
+                      .where((r) => r['event_id'] == event['event_id'])
+                      .length,
                 ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '(${_eventTitles.length - 1})',   // -1 for the "All" entry
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize:   10,
-                  color:      t.muted,
-                ),
-              ),
             ],
-          ),
-          const SizedBox(height: 10),
-          // Chip grid — Wrap reflows into a new row when the row is full
-          Wrap(
-            spacing:    8,
-            runSpacing: 8,
-            children: _eventTitles.map((t) {
-              final count = t == 'All'
-                  ? _all.length
-                  : _all.where((r) => r['event_title'] == t).length;
-              return WebFilterChip(
-                label:         t.length > 30 ? '${t.substring(0, 30)}…' : t,
-                selected:      _eventFilter == t,
-                selectedColor: const Color(0xFF8B5CF6),
-                count:         count,
-                onTap: () {
-                  setState(() => _eventFilter = t);
-                  _applyFilter();
-                },
-              );
-            }).toList(),
+            selected: _eventFilter,
+            onSelect: (eventId) {
+              setState(() => _eventFilter = eventId);
+              _applyFilter();
+            },
           ),
         ],
-      ],
-    );
-  }
-
-  Widget _statusTab(String f, int count, WebTk t) {
-    final selected    = _statusFilter == f;
-    final hovered     = _hoveredTab == f;
-    final accent      = f == 'All' ? kGold : webStatusColor(_statusKeyMap[f]);
-
-    final unselectedBg = hovered
-        ? (t.dark ? t.divider : const Color(0xFFEEF2F7))
-        : t.inputBg;
-    final unselectedBorder = hovered
-        ? (t.dark ? const Color(0xFF2A3040) : const Color(0xFFD1D5DB))
-        : t.border;
-    final unselectedCountBg = t.dark ? const Color(0xFF20252E) : const Color(0xFFE5E7EB);
-
-    return MouseRegion(
-      cursor:  SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hoveredTab = f),
-      onExit:  (_) => setState(() => _hoveredTab = null),
-      child: GestureDetector(
-        onTap: () {
-          setState(() { _statusFilter = f; _hoveredTab = null; });
-          _applyFilter();
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve:    Curves.easeOut,
-          padding:  const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: selected
-                ? accent.withValues(alpha: 0.08)
-                : unselectedBg,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: selected
-                  ? accent.withValues(alpha: 0.35)
-                  : unselectedBorder,
-              width: selected ? 1.5 : 1.0,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Status dot — visible only when selected
-              if (selected) ...[
-                Container(
-                  width: 6, height: 6,
-                  decoration: BoxDecoration(
-                    color: accent, shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                f,
-                style: TextStyle(
-                  fontFamily:  'Poppins',
-                  fontSize:    12,
-                  fontWeight:  selected ? FontWeight.w700 : FontWeight.w500,
-                  color:       selected ? accent : t.sub,
-                  letterSpacing: selected ? 0.1 : 0,
-                ),
-              ),
-              const SizedBox(width: 7),
-              // Live count badge
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                decoration: BoxDecoration(
-                  color: selected
-                      ? accent.withValues(alpha: 0.15)
-                      : unselectedCountBg,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '$count',
-                  style: TextStyle(
-                    fontFamily:  'Poppins',
-                    fontSize:    10,
-                    fontWeight:  FontWeight.w700,
-                    color:       selected ? accent : t.muted,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        const Spacer(),
+        WebSearchField(
+          controller: _search,
+          hint: 'Search name, event, ID…',
+          onChanged: (_) {},
         ),
-      ),
+      ],
     );
   }
 
@@ -942,37 +1030,40 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
               border: Border(bottom: BorderSide(color: t.border)),
             ),
-            child: Row(children: [
-              SizedBox(
-                width: 36,
-                child: Checkbox(
-                  value: _allVisibleSelected && _displayed.isNotEmpty,
-                  onChanged: (_) => _toggleSelectAllVisible(),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  activeColor: const Color(0xFF8B5CF6),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 36,
+                  child: Checkbox(
+                    value: _allVisibleSelected && _displayed.isNotEmpty,
+                    onChanged: (_) => _toggleSelectAllVisible(),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    activeColor: const Color(0xFF8B5CF6),
+                  ),
                 ),
-              ),
-              Expanded(flex: 4, child: WebColHeader('STUDENT')),
-              Expanded(flex: 3, child: WebColHeader('EVENT')),
-              Expanded(flex: 2, child: WebColHeader('STATUS')),
-              Expanded(flex: 2, child: WebColHeader('REGISTERED')),
-              const SizedBox(width: 146, child: WebColHeader('ACTIONS')),
-            ]),
+                Expanded(flex: 4, child: WebColHeader('STUDENT')),
+                Expanded(flex: 3, child: WebColHeader('EVENT')),
+                Expanded(flex: 2, child: WebColHeader('STATUS')),
+                Expanded(flex: 2, child: WebColHeader('REGISTERED')),
+                const SizedBox(width: 146, child: WebColHeader('ACTIONS')),
+              ],
+            ),
           ),
-          start: 0.48, end: 0.68,
+          start: 0.48,
+          end: 0.68,
         ),
         // Data rows
         ...(_displayed.asMap().entries.map((entry) {
-          final i      = entry.key;
-          final reg    = entry.value;
-          final id     = reg['id']     as String? ?? '';
+          final i = entry.key;
+          final reg = entry.value;
+          final id = reg['id'] as String? ?? '';
           final status = reg['status'] as String?;
-          final sc     = webStatusColor(status);
+          final sc = webStatusColor(status);
           final isLast = i == _displayed.length - 1;
 
-          final name     = reg['student_name']     as String? ?? '—';
-          final lrn      = reg['student_school_id'] as String? ?? '—';
-          final selfieUrl = _selfieUrls[id];
+          final name = reg['student_name'] as String? ?? '—';
+          final lrn = reg['student_school_id'] as String? ?? '—';
+          final selfieUrl = _selfies[id];
 
           final initials = name
               .split(' ')
@@ -981,231 +1072,318 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage> with Single
               .take(2)
               .join();
 
-          final regAt        = reg['registered_at'] as String?;
+          final regAt = reg['registered_at'] as String?;
           final isProcessing = _processingIds.contains(id);
-          final isSelected   = _selectedIds.contains(id);
-          final s            = 0.55 + (i * 0.07).clamp(0.0, 0.27);
+          final isSelected = _selectedIds.contains(id);
+          final archived = _isArchived(reg);
+          final s = 0.55 + (i * 0.07).clamp(0.0, 0.27);
 
           return _stagger(
             _RegHoverRow(
               isLast: isLast,
               onTap: () => _openDetails(reg),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 13,
+                ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     SizedBox(
                       width: 36,
-                      child: Checkbox(
-                        value: isSelected,
-                        onChanged: (_) => _toggleSelection(id),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        activeColor: const Color(0xFF8B5CF6),
-                      ),
+                      child: archived
+                          ? null
+                          : Checkbox(
+                              value: isSelected,
+                              onChanged: (_) => _toggleSelection(id),
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              activeColor: const Color(0xFF8B5CF6),
+                            ),
                     ),
 
                     // ── Student (avatar + name + LRN) ──
                     Expanded(
                       flex: 4,
-                      child: Row(children: [
-                        Container(
-                          width: 38, height: 38,
-                          decoration: BoxDecoration(
-                            color: sc.withValues(alpha: 0.10),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: sc.withValues(alpha: 0.28)),
-                          ),
-                          child: Center(
-                            child: Text(initials,
-                              style: TextStyle(
-                                fontFamily: 'Poppins', fontSize: 12.5,
-                                fontWeight: FontWeight.w700, color: sc,
-                              )),
-                          ),
-                        ),
-                        const SizedBox(width: 11),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(name,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              color: sc.withValues(alpha: 0.10),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: sc.withValues(alpha: 0.28),
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                initials,
                                 style: TextStyle(
-                                  fontFamily: 'Poppins', fontSize: 13,
-                                  fontWeight: FontWeight.w600, color: t.text,
-                                ),
-                                maxLines: 1, overflow: TextOverflow.ellipsis),
-                              const SizedBox(height: 2),
-                              Row(children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: t.inputBg,
-                                    borderRadius: BorderRadius.circular(5),
-                                  ),
-                                  child: Text(lrn,
-                                    style: TextStyle(
-                                      fontFamily: 'Courier',
-                                      fontSize: 10.5,
-                                      color: t.sub,
-                                      letterSpacing: 0.3,
-                                    )),
-                                ),
-                              ]),
-                            ],
-                          ),
-                        ),
-                      ]),
-                    ),
-
-                  // ── Event ──
-                  Expanded(
-                    flex: 3,
-                    child: Row(children: [
-                      Container(
-                        width: 4, height: 30,
-                        margin: const EdgeInsets.only(right: 10),
-                        decoration: BoxDecoration(
-                          color: kGold.withValues(alpha: 0.50),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(reg['event_title'] as String? ?? '—',
-                          style: TextStyle(
-                            fontFamily: 'Poppins', fontSize: 12.5,
-                            fontWeight: FontWeight.w500, color: t.text,
-                          ),
-                          maxLines: 2, overflow: TextOverflow.ellipsis),
-                      ),
-                    ]),
-                  ),
-
-                  // ── Status ──
-                  Expanded(
-                    flex: 2,
-                    child: WebStatusBadge(
-                      label: webStatusLabel(status),
-                      color: sc,
-                    ),
-                  ),
-
-                  // ── Registered ──
-                  Expanded(
-                    flex: 2,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(webTimeAgo(regAt),
-                          style: TextStyle(
-                            fontFamily: 'Poppins', fontSize: 12,
-                            fontWeight: FontWeight.w600, color: t.text,
-                          )),
-                        const SizedBox(height: 2),
-                        Text(webFmtDate(regAt),
-                          style: TextStyle(
-                            fontFamily: 'Poppins', fontSize: 10.5, color: t.muted,
-                          )),
-                      ],
-                    ),
-                  ),
-
-                  // Actions - 4 fixed slots
-                  // Slot 0: selfie request  |  Slot 1: selfie view
-                  // Slot 2: status          |  Slot 3: delete
-                  SizedBox(
-                    width: 146,
-                    child: isProcessing
-                      ? const Center(
-                          child: SizedBox(
-                            width: 18, height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2, color: kGold),
-                          ),
-                        )
-                      : Row(
-                          children: [
-                            // Slot 0 - Send selfie request
-                            if (status == 'qr_scanned')
-                              _RegAction(
-                                icon:    Icons.add_a_photo_rounded,
-                                color:   const Color(0xFFF97316),
-                                tooltip: 'Send selfie request',
-                                onTap:   () => _sendSelfieRequest(id, name),
-                              )
-                            else if (status == 'pending')
-                              _RegAction(
-                                icon:    Icons.add_a_photo_rounded,
-                                color:   const Color(0xFF9CA3AF),
-                                tooltip: "Scan the student's QR code before requesting a selfie",
-                                onTap:   null,
-                              )
-                            else
-                              const SizedBox(width: 32),
-                            const SizedBox(width: 6),
-                            // Slot 1 - Selfie viewer
-                            if (selfieUrl != null)
-                              _RegAction(
-                                icon:    Icons.photo_camera_rounded,
-                                color:   const Color(0xFF8B5CF6),
-                                tooltip: 'View selfie',
-                                onTap:   () => _viewSelfie(selfieUrl, name, t),
-                              )
-                            else
-                              Tooltip(
-                                message: status == 'photo_required'
-                                    ? 'Awaiting selfie from student'
-                                    : 'No selfie submitted yet',
-                                child: Opacity(
-                                  opacity: 0.25,
-                                  child: Container(
-                                    width: 32, height: 32,
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF8B5CF6)
-                                          .withValues(alpha: 0.06),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(
-                                      Icons.photo_camera_outlined,
-                                      size: 15,
-                                      color: Color(0xFF8B5CF6),
-                                    ),
-                                  ),
+                                  fontFamily: 'Poppins',
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: sc,
                                 ),
                               ),
-                            const SizedBox(width: 6),
-                            // Slot 2 - Status advance / lock
-                            _StatusMenu(
-                              currentStatus: status,
-                              onSelect: (s) async {
-                                if (s == 'rejected') {
-                                  final reason = await _promptRejectReason(context, name);
-                                  if (reason == null) return;
-                                  await _updateStatus(id, s, rejectionReason: reason);
-                                } else {
-                                  await _updateStatus(id, s);
-                                }
-                              },
                             ),
-                            const SizedBox(width: 6),
-                            // Slot 3 - Delete
-                            _RegAction(
-                              icon:    Icons.delete_outline_rounded,
-                              color:   const Color(0xFFEF4444),
-                              tooltip: 'Delete registration',
-                              onTap:   () => _delete(id),
+                          ),
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  name,
+                                  style: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: t.text,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 1,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: t.inputBg,
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                      child: Text(
+                                        lrn,
+                                        style: TextStyle(
+                                          fontFamily: 'Courier',
+                                          fontSize: 10.5,
+                                          color: t.sub,
+                                          letterSpacing: 0.3,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                  ),
-                ],
-              ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // ── Event ──
+                    Expanded(
+                      flex: 3,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 4,
+                            height: 30,
+                            margin: const EdgeInsets.only(right: 10),
+                            decoration: BoxDecoration(
+                              color: kGold.withValues(alpha: 0.50),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              reg['event_title'] as String? ?? '—',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w500,
+                                color: t.text,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // ── Status ──
+                    Expanded(
+                      flex: 2,
+                      child: WebStatusBadge(
+                        label: webStatusLabel(status),
+                        color: sc,
+                      ),
+                    ),
+
+                    // ── Registered ──
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            webTimeAgo(regAt),
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: t.text,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            webFmtDate(regAt),
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 10.5,
+                              color: t.muted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Actions - 4 fixed slots
+                    // Slot 0: selfie request  |  Slot 1: selfie view
+                    // Slot 2: status          |  Slot 3: delete
+                    SizedBox(
+                      width: 146,
+                      child: archived
+                          ? const Align(
+                              alignment: Alignment.centerRight,
+                              child: Tooltip(
+                                message:
+                                    'The admin archived this event. Its attendance '
+                                    'is kept as a record and can’t be changed.',
+                                child: WebStatusBadge(
+                                  label: 'Archived',
+                                  color: kArchivedColor,
+                                ),
+                              ),
+                            )
+                          : isProcessing
+                          ? const Center(
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: kGold,
+                                ),
+                              ),
+                            )
+                          : Row(
+                              children: [
+                                // Slot 0 - Send selfie request
+                                if (status == 'qr_scanned')
+                                  _RegAction(
+                                    icon: Icons.add_a_photo_rounded,
+                                    color: const Color(0xFFF97316),
+                                    tooltip: 'Send selfie request',
+                                    onTap: () => _sendSelfieRequest(id, name),
+                                  )
+                                else if (status == 'pending')
+                                  _RegAction(
+                                    icon: Icons.add_a_photo_rounded,
+                                    color: const Color(0xFF9CA3AF),
+                                    tooltip:
+                                        "Scan the student's QR code with the EventHub app before requesting a selfie",
+                                    onTap: null,
+                                  )
+                                else
+                                  const SizedBox(width: 32),
+                                const SizedBox(width: 6),
+                                // Slot 1 - Selfie viewer
+                                if (selfieUrl != null)
+                                  _RegAction(
+                                    icon: Icons.photo_camera_rounded,
+                                    color: const Color(0xFF8B5CF6),
+                                    tooltip: 'View selfie',
+                                    onTap: () => _openSelfie(
+                                      id,
+                                      reg['selfie_url'] as String? ?? '',
+                                      name,
+                                      t,
+                                    ),
+                                  )
+                                else
+                                  Tooltip(
+                                    message: status == 'photo_required'
+                                        ? 'Awaiting selfie from student'
+                                        : 'No selfie submitted yet',
+                                    child: Opacity(
+                                      opacity: 0.25,
+                                      child: Container(
+                                        width: 32,
+                                        height: 32,
+                                        decoration: BoxDecoration(
+                                          color: const Color(
+                                            0xFF8B5CF6,
+                                          ).withValues(alpha: 0.06),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: const Icon(
+                                          Icons.photo_camera_outlined,
+                                          size: 15,
+                                          color: Color(0xFF8B5CF6),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                const SizedBox(width: 6),
+                                // Slot 2 - Status advance / lock
+                                _StatusMenu(
+                                  currentStatus: status,
+                                  onSelect: (s) async {
+                                    if (s == 'rejected') {
+                                      final reason = await _promptRejectReason(
+                                        context,
+                                        name,
+                                      );
+                                      if (reason == null) return;
+                                      await _updateStatus(
+                                        id,
+                                        s,
+                                        rejectionReason: reason,
+                                      );
+                                    } else {
+                                      await _updateStatus(id, s);
+                                    }
+                                  },
+                                ),
+                                const SizedBox(width: 6),
+                                // Slot 3 - Delete (not once checked in:
+                                // that's the attendance record)
+                                if (registrationDeletable(reg))
+                                  _RegAction(
+                                    icon: Icons.delete_outline_rounded,
+                                    color: const Color(0xFFEF4444),
+                                    tooltip: 'Delete registration',
+                                    onTap: () => _delete(id),
+                                  )
+                                else
+                                  const _RegAction(
+                                    icon: Icons.delete_outline_rounded,
+                                    color: Color(0xFF9CA3AF),
+                                    tooltip:
+                                        'Checked-in registrations are kept as the attendance record',
+                                    onTap: null,
+                                  ),
+                              ],
+                            ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            start: s, end: (s + 0.20).clamp(0.0, 1.0),
+            start: s,
+            end: (s + 0.20).clamp(0.0, 1.0),
           );
         })),
       ],
@@ -1233,71 +1411,132 @@ Future<String?> _promptRejectReason(BuildContext context, String studentName) {
               decoration: BoxDecoration(
                 color: t.card,
                 borderRadius: BorderRadius.circular(20),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.14),
-                    blurRadius: 40, offset: const Offset(0, 14))],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.14),
+                    blurRadius: 40,
+                    offset: const Offset(0, 14),
+                  ),
+                ],
               ),
               padding: const EdgeInsets.all(24),
-              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Container(
-                    width: 38, height: 38,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEF4444).withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.block_rounded, size: 19, color: Color(0xFFEF4444)),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text('Reject $studentName?',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 16,
-                        fontWeight: FontWeight.w800, color: t.text))),
-                ]),
-                const SizedBox(height: 8),
-                Text('This student will not be checked in. Give a reason so they know what to fix.',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub, height: 1.5)),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: ctrl,
-                  autofocus: true,
-                  maxLines: 3,
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.text),
-                  decoration: webInputDeco('e.g. Selfie doesn\'t match student ID photo', dark: t.dark),
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 20),
-                Row(children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(dialogCtx).pop(),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: t.border),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        padding: const EdgeInsets.symmetric(vertical: 13),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: const Color(
+                            0xFFEF4444,
+                          ).withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.block_rounded,
+                          size: 19,
+                          color: Color(0xFFEF4444),
+                        ),
                       ),
-                      child: Text('Cancel', style: TextStyle(fontFamily: 'Poppins',
-                          fontWeight: FontWeight.w600, color: t.sub)),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: ctrl.text.trim().isEmpty
-                          ? null
-                          : () => Navigator.of(dialogCtx).pop(ctrl.text.trim()),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFEF4444),
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.35),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        padding: const EdgeInsets.symmetric(vertical: 13),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Reject $studentName?',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: t.text,
+                          ),
+                        ),
                       ),
-                      child: const Text('Confirm Reject',
-                          style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'This student will not be checked in. Give a reason so they know what to fix.',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 12,
+                      color: t.sub,
+                      height: 1.5,
                     ),
                   ),
-                ]),
-              ]),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    maxLines: 3,
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 12.5,
+                      color: t.text,
+                    ),
+                    decoration: webInputDeco(
+                      'e.g. Selfie doesn\'t match student ID photo',
+                      dark: t.dark,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(dialogCtx).pop(),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: t.border),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                          ),
+                          child: Text(
+                            'Cancel',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontWeight: FontWeight.w600,
+                              color: t.sub,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: ctrl.text.trim().isEmpty
+                              ? null
+                              : () => Navigator.of(
+                                  dialogCtx,
+                                ).pop(ctrl.text.trim()),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEF4444),
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: const Color(
+                              0xFFEF4444,
+                            ).withValues(alpha: 0.35),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                          ),
+                          child: const Text(
+                            'Confirm Reject',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -1321,7 +1560,13 @@ Future<String?> _promptBulkRejectReason(BuildContext context, int count) {
               decoration: BoxDecoration(
                 color: t.card,
                 borderRadius: BorderRadius.circular(20),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.14), blurRadius: 40, offset: const Offset(0, 14))],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.14),
+                    blurRadius: 40,
+                    offset: const Offset(0, 14),
+                  ),
+                ],
               ),
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -1331,31 +1576,58 @@ Future<String?> _promptBulkRejectReason(BuildContext context, int count) {
                   Row(
                     children: [
                       Container(
-                        width: 38, height: 38,
+                        width: 38,
+                        height: 38,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEF4444).withValues(alpha: 0.10),
+                          color: const Color(
+                            0xFFEF4444,
+                          ).withValues(alpha: 0.10),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(Icons.block_rounded, size: 19, color: Color(0xFFEF4444)),
+                        child: const Icon(
+                          Icons.block_rounded,
+                          size: 19,
+                          color: Color(0xFFEF4444),
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text('Reject $count selected?',
-                          style: TextStyle(fontFamily: 'Poppins', fontSize: 16,
-                              fontWeight: FontWeight.w800, color: t.text)),
+                        child: Text(
+                          'Reject $count selected?',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: t.text,
+                          ),
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text('This will reject the selected registrations and record the same reason for every student.',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub, height: 1.5)),
+                  Text(
+                    'This will reject the selected registrations and record the same reason for every student.',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 12,
+                      color: t.sub,
+                      height: 1.5,
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: ctrl,
                     autofocus: true,
                     maxLines: 3,
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.text),
-                    decoration: webInputDeco('e.g. Attendance criteria not met', dark: t.dark),
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 12.5,
+                      color: t.text,
+                    ),
+                    decoration: webInputDeco(
+                      'e.g. Attendance criteria not met',
+                      dark: t.dark,
+                    ),
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 20),
@@ -1366,10 +1638,19 @@ Future<String?> _promptBulkRejectReason(BuildContext context, int count) {
                           onPressed: () => Navigator.of(dialogCtx).pop(),
                           style: OutlinedButton.styleFrom(
                             side: BorderSide(color: t.border),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                             padding: const EdgeInsets.symmetric(vertical: 13),
                           ),
-                          child: Text('Cancel', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, color: t.sub)),
+                          child: Text(
+                            'Cancel',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontWeight: FontWeight.w600,
+                              color: t.sub,
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1377,16 +1658,28 @@ Future<String?> _promptBulkRejectReason(BuildContext context, int count) {
                         child: ElevatedButton(
                           onPressed: ctrl.text.trim().isEmpty
                               ? null
-                              : () => Navigator.of(dialogCtx).pop(ctrl.text.trim()),
+                              : () => Navigator.of(
+                                  dialogCtx,
+                                ).pop(ctrl.text.trim()),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFFEF4444),
                             foregroundColor: Colors.white,
-                            disabledBackgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.35),
+                            disabledBackgroundColor: const Color(
+                              0xFFEF4444,
+                            ).withValues(alpha: 0.35),
                             elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                             padding: const EdgeInsets.symmetric(vertical: 13),
                           ),
-                          child: const Text('Reject Selected', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
+                          child: const Text(
+                            'Reject Selected',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
                       ),
                     ],
@@ -1404,7 +1697,7 @@ Future<String?> _promptBulkRejectReason(BuildContext context, int count) {
 // ── Status advance menu ───────────────────────────────────────────────────────
 
 class _StatusMenu extends StatefulWidget {
-  final String?              currentStatus;
+  final String? currentStatus;
   final ValueChanged<String> onSelect;
   const _StatusMenu({this.currentStatus, required this.onSelect});
 
@@ -1416,49 +1709,49 @@ class _StatusMenuState extends State<_StatusMenu> {
   bool _hovered = false;
 
   static const _statuses = [
-    ('pending',         'Pending'),
-    ('qr_scanned',      'QR Scanned'),
-    ('photo_required',  'Awaiting Selfie'),
+    ('pending', 'Pending'),
+    ('qr_scanned', 'QR Scanned'),
+    ('photo_required', 'Awaiting Selfie'),
     ('photo_submitted', 'Photo Submitted'),
-    ('checked_in',      'Check In'),
-    ('rejected',        'Reject'),
+    ('checked_in', 'Check In'),
+    ('rejected', 'Reject'),
   ];
 
   // Forward-only state machine. checked_in and rejected are both terminal —
   // rejected is only reachable from photo_submitted (the same point admin's
   // now-removed dialog used to decide from).
   static const _allowed = <String, Set<String>>{
-    'pending':         {'photo_submitted', 'checked_in'},
-    'qr_scanned':      {'photo_required', 'photo_submitted', 'checked_in'},
-    'photo_required':  {'photo_submitted', 'checked_in'},
+    'pending': {'photo_submitted', 'checked_in'},
+    'qr_scanned': {'photo_required', 'photo_submitted', 'checked_in'},
+    'photo_required': {'photo_submitted', 'checked_in'},
     'photo_submitted': {'checked_in', 'rejected'},
-    'checked_in':      {},
-    'rejected':        {},
+    'checked_in': {},
+    'rejected': {},
   };
 
   static IconData _statusIcon(String key) => switch (key) {
-    'pending'         => Icons.hourglass_empty_rounded,
-    'qr_scanned'      => Icons.qr_code_scanner_rounded,
-    'photo_required'  => Icons.photo_camera_rounded,
+    'pending' => Icons.hourglass_empty_rounded,
+    'qr_scanned' => Icons.qr_code_scanner_rounded,
+    'photo_required' => Icons.photo_camera_rounded,
     'photo_submitted' => Icons.check_circle_outline_rounded,
-    'checked_in'      => Icons.how_to_reg_rounded,
-    'rejected'        => Icons.block_rounded,
-    _                 => Icons.circle_outlined,
+    'checked_in' => Icons.how_to_reg_rounded,
+    'rejected' => Icons.block_rounded,
+    _ => Icons.circle_outlined,
   };
 
   static String _statusDesc(String key) => switch (key) {
-    'qr_scanned'      => 'Student\'s QR code has been scanned',
-    'photo_required'  => 'Request a selfie from the student',
+    'qr_scanned' => 'Student\'s QR code has been scanned',
+    'photo_required' => 'Request a selfie from the student',
     'photo_submitted' => 'Selfie received, awaiting review',
-    'checked_in'      => 'Confirm and finalise attendance',
-    'rejected'        => 'Deny attendance — requires a reason',
-    _                 => '',
+    'checked_in' => 'Confirm and finalise attendance',
+    'rejected' => 'Deny attendance — requires a reason',
+    _ => '',
   };
 
   @override
   Widget build(BuildContext context) {
-    final t            = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final current      = widget.currentStatus;
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final current = widget.currentStatus;
     final currentColor = webStatusColor(current);
 
     // Terminal states — locked, no menu.
@@ -1470,7 +1763,8 @@ class _StatusMenuState extends State<_StatusMenu> {
             ? 'Rejected — status cannot be changed'
             : 'Check-in is final — status cannot be changed',
         child: Container(
-          width: 32, height: 32,
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
             color: c.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(8),
@@ -1481,8 +1775,8 @@ class _StatusMenuState extends State<_StatusMenu> {
       );
     }
 
-    final allowedSet   = _allowed[current] ?? {};
-    final items        = _statuses.where((s) => allowedSet.contains(s.$1)).toList();
+    final allowedSet = _allowed[current] ?? {};
+    final items = _statuses.where((s) => allowedSet.contains(s.$1)).toList();
     if (items.isEmpty) return const SizedBox(width: 32);
 
     final currentLabel = _statuses
@@ -1490,9 +1784,9 @@ class _StatusMenuState extends State<_StatusMenu> {
         .$2;
 
     return MouseRegion(
-      cursor:  SystemMouseCursors.click,
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit:  (_) => setState(() => _hovered = false),
+      onExit: (_) => setState(() => _hovered = false),
       child: PopupMenuButton<String>(
         tooltip: '',
         constraints: const BoxConstraints(minWidth: 252),
@@ -1501,7 +1795,7 @@ class _StatusMenuState extends State<_StatusMenu> {
           widget.onSelect(s);
         },
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        color:     t.card,
+        color: t.card,
         elevation: 8,
         shadowColor: t.shadow,
         itemBuilder: (_) => [
@@ -1509,52 +1803,81 @@ class _StatusMenuState extends State<_StatusMenu> {
           PopupMenuItem<String>(
             enabled: false,
             padding: EdgeInsets.zero,
-            height:  58,
+            height: 58,
             child: Container(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(children: [
-                    Icon(Icons.arrow_circle_right_rounded,
-                        size: 13, color: t.text),
-                    const SizedBox(width: 6),
-                    Text('Advance Status',
-                      style: TextStyle(
-                        fontFamily: 'Poppins', fontSize: 12,
-                        fontWeight: FontWeight.w700, color: t.text,
-                      )),
-                  ]),
-                  const SizedBox(height: 6),
-                  Row(children: [
-                    Text('Current: ',
-                      style: TextStyle(
-                        fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color:        currentColor.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(20),
-                        border:       Border.all(
-                            color: currentColor.withValues(alpha: 0.25)),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.arrow_circle_right_rounded,
+                        size: 13,
+                        color: t.text,
                       ),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Container(
-                          width: 5, height: 5,
-                          decoration: BoxDecoration(
-                              color: currentColor, shape: BoxShape.circle),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Advance Status',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: t.text,
                         ),
-                        const SizedBox(width: 5),
-                        Text(currentLabel,
-                          style: TextStyle(
-                            fontFamily: 'Poppins', fontSize: 10,
-                            fontWeight: FontWeight.w600, color: currentColor,
-                          )),
-                      ]),
-                    ),
-                  ]),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Text(
+                        'Current: ',
+                        style: TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 10,
+                          color: t.muted,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: currentColor.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: currentColor.withValues(alpha: 0.25),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 5,
+                              height: 5,
+                              decoration: BoxDecoration(
+                                color: currentColor,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              currentLabel,
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: currentColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -1564,80 +1887,99 @@ class _StatusMenuState extends State<_StatusMenu> {
           // ── Selectable status items ────────────────────────────────────
           ...items.map((s) {
             final (key, label) = s;
-            final c          = webStatusColor(key);
-            final icon       = _statusIcon(key);
-            final desc       = _statusDesc(key);
+            final c = webStatusColor(key);
+            final icon = _statusIcon(key);
+            final desc = _statusDesc(key);
             final isTerminal = key == 'checked_in' || key == 'rejected';
 
             return PopupMenuItem<String>(
-              value:   key,
+              value: key,
               padding: EdgeInsets.zero,
-              height:  60,
+              height: 60,
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
-                child: Row(children: [
-                  // Status icon in a tinted circle
-                  Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(
-                      color:  c.withValues(alpha: 0.10),
-                      shape:  BoxShape.circle,
-                      border: Border.all(color: c.withValues(alpha: 0.22)),
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    // Status icon in a tinted circle
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: c.withValues(alpha: 0.10),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: c.withValues(alpha: 0.22)),
+                      ),
+                      child: Icon(icon, size: 17, color: c),
                     ),
-                    child: Icon(icon, size: 17, color: c),
-                  ),
-                  const SizedBox(width: 12),
-                  // Label + short description
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(children: [
-                          Text(label,
-                            style: TextStyle(
-                              fontFamily: 'Poppins', fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
-                              color: isTerminal ? c : t.text,
-                            )),
-                          if (isTerminal) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 1.5),
-                              decoration: BoxDecoration(
-                                color: c.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text('FINAL',
+                    const SizedBox(width: 12),
+                    // Label + short description
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                label,
                                 style: TextStyle(
-                                  fontFamily:    'Poppins',
-                                  fontSize:      8,
-                                  fontWeight:    FontWeight.w800,
-                                  color:         c,
-                                  letterSpacing: 0.5,
-                                )),
+                                  fontFamily: 'Poppins',
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: isTerminal ? c : t.text,
+                                ),
+                              ),
+                              if (isTerminal) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 1.5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: c.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'FINAL',
+                                    style: TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w800,
+                                      color: c,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          if (desc.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              desc,
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 10.5,
+                                color: t.muted,
+                              ),
                             ),
                           ],
-                        ]),
-                        if (desc.isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(desc,
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize:   10.5,
-                              color:      t.muted,
-                            )),
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  // Forward arrow in the status color
-                  Icon(Icons.arrow_forward_ios_rounded,
-                      size: 10, color: c.withValues(alpha: 0.55)),
-                ]),
+                    const SizedBox(width: 8),
+                    // Forward arrow in the status color
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 10,
+                      color: c.withValues(alpha: 0.55),
+                    ),
+                  ],
+                ),
               ),
             );
           }),
@@ -1646,7 +1988,8 @@ class _StatusMenuState extends State<_StatusMenu> {
         // ── Trigger button ─────────────────────────────────────────────────
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          width: 32, height: 32,
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
             color: _hovered
                 ? currentColor.withValues(alpha: 0.16)
@@ -1673,8 +2016,8 @@ class _StatusMenuState extends State<_StatusMenu> {
 
 class _RegHoverRow extends StatefulWidget {
   final Widget child;
-  final bool   isLast;
-  final VoidCallback? onTap;   // opens the Student details panel
+  final bool isLast;
+  final VoidCallback? onTap; // opens the Student details panel
   const _RegHoverRow({required this.child, required this.isLast, this.onTap});
 
   @override
@@ -1690,9 +2033,11 @@ class _RegHoverRowState extends State<_RegHoverRow> {
     // Buttons inside the row (checkbox, status menu, actions) win the tap —
     // only a click on the row's empty space / text opens the details panel.
     return MouseRegion(
-      cursor: widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
+      cursor: widget.onTap != null
+          ? SystemMouseCursors.click
+          : MouseCursor.defer,
       onEnter: (_) => setState(() => _h = true),
-      onExit:  (_) => setState(() => _h = false),
+      onExit: (_) => setState(() => _h = false),
       child: GestureDetector(
         onTap: widget.onTap,
         behavior: HitTestBehavior.opaque,
@@ -1701,11 +2046,11 @@ class _RegHoverRowState extends State<_RegHoverRow> {
           decoration: BoxDecoration(
             color: _h ? t.divider : t.card,
             borderRadius: widget.isLast
-              ? const BorderRadius.vertical(bottom: Radius.circular(16))
-              : BorderRadius.zero,
+                ? const BorderRadius.vertical(bottom: Radius.circular(16))
+                : BorderRadius.zero,
             border: widget.isLast
-              ? null
-              : Border(bottom: BorderSide(color: t.border)),
+                ? null
+                : Border(bottom: BorderSide(color: t.border)),
           ),
           child: widget.child,
         ),
@@ -1717,9 +2062,9 @@ class _RegHoverRowState extends State<_RegHoverRow> {
 // ── Icon action button ────────────────────────────────────────────────────────
 
 class _RegAction extends StatefulWidget {
-  final IconData     icon;
-  final Color        color;
-  final String       tooltip;
+  final IconData icon;
+  final Color color;
+  final String tooltip;
   final VoidCallback? onTap;
   const _RegAction({
     required this.icon,
@@ -1741,23 +2086,24 @@ class _RegActionState extends State<_RegAction> {
         ? SystemMouseCursors.basic
         : SystemMouseCursors.click,
     onEnter: (_) => setState(() => _h = widget.onTap != null),
-    onExit:  (_) => setState(() => _h = false),
+    onExit: (_) => setState(() => _h = false),
     child: GestureDetector(
       onTap: widget.onTap,
       child: Tooltip(
         message: widget.tooltip,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 130),
-          width: 32, height: 32,
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
             color: _h
-              ? widget.color.withValues(alpha: 0.15)
-              : widget.color.withValues(alpha: 0.07),
+                ? widget.color.withValues(alpha: 0.15)
+                : widget.color.withValues(alpha: 0.07),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: _h
-                ? widget.color.withValues(alpha: 0.30)
-                : Colors.transparent,
+                  ? widget.color.withValues(alpha: 0.30)
+                  : Colors.transparent,
             ),
           ),
           child: Icon(widget.icon, size: 15, color: widget.color),

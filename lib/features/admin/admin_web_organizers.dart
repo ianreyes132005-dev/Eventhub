@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/app_colors.dart';
 import '../../core/friendly_error.dart';
+import '../../core/services/event_archive_service.dart';
 import '../../core/services/supabase_service.dart';
 import '../organizer/web/web_shared.dart';
 import 'admin_shared.dart';
@@ -106,8 +107,10 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
         setState(() {
           _loading = false;
           _error = true;
-          _errorMsg = friendlyError(e,
-              fallback: 'The organizers couldn’t be loaded. Please try again.');
+          _errorMsg = friendlyError(
+            e,
+            fallback: 'The organizers couldn’t be loaded. Please try again.',
+          );
         });
     }
   }
@@ -229,8 +232,9 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
           .toSet();
       if (updatedIds.isEmpty) {
         throw const FriendlyException(
-            'None of the selected organizers could be updated. They may have '
-            'been removed, or you don’t have permission to change them.');
+          'None of the selected organizers could be updated. They may have '
+          'been removed, or you don’t have permission to change them.',
+        );
       }
 
       for (final organizer in _all) {
@@ -252,14 +256,24 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
                 '${updatedIds.length} organizer accounts have been deactivated.',
           );
         } else {
-          adminErrorAlert(context,
-              FriendlyException('${updatedIds.length} organizers were deactivated, but '
-                  '$failedCount couldn’t be updated. Please try those again.'),
-              title: 'Some organizers weren’t updated', icon: SwalIcon.warning);
+          adminErrorAlert(
+            context,
+            FriendlyException(
+              '${updatedIds.length} organizers were deactivated, but '
+              '$failedCount couldn’t be updated. Please try those again.',
+            ),
+            title: 'Some organizers weren’t updated',
+            icon: SwalIcon.warning,
+          );
         }
       }
     } catch (e) {
-      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t deactivate the organizers');
+      if (mounted)
+        adminErrorAlert(
+          context,
+          e,
+          title: 'Couldn’t deactivate the organizers',
+        );
     } finally {
       if (mounted) setState(() => _bulkWorking = false);
     }
@@ -293,8 +307,9 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
           .toSet();
       if (updatedIds.isEmpty) {
         throw const FriendlyException(
-            'None of the selected organizers could be updated. They may have '
-            'been removed, or you don’t have permission to change them.');
+          'None of the selected organizers could be updated. They may have '
+          'been removed, or you don’t have permission to change them.',
+        );
       }
 
       for (final organizer in _all) {
@@ -316,22 +331,47 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
                 '${updatedIds.length} organizer accounts are active again.',
           );
         } else {
-          adminErrorAlert(context,
-              FriendlyException('${updatedIds.length} organizers were activated, but '
-                  '$failedCount couldn’t be updated. Please try those again.'),
-              title: 'Some organizers weren’t updated', icon: SwalIcon.warning);
+          adminErrorAlert(
+            context,
+            FriendlyException(
+              '${updatedIds.length} organizers were activated, but '
+              '$failedCount couldn’t be updated. Please try those again.',
+            ),
+            title: 'Some organizers weren’t updated',
+            icon: SwalIcon.warning,
+          );
         }
       }
     } catch (e) {
-      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t activate the organizers');
+      if (mounted)
+        adminErrorAlert(context, e, title: 'Couldn’t activate the organizers');
     } finally {
       if (mounted) setState(() => _bulkWorking = false);
     }
   }
 
   Future<void> _bulkDeleteOrganizers() async {
-    final ids = _selectedOrganizerIds.toList();
+    var ids = _selectedOrganizerIds.toList();
     if (ids.isEmpty || _bulkWorking) return;
+
+    // Organizers with archived events can only be deactivated.
+    final Set<String> kept;
+    try {
+      kept = await _withArchivedEvents(ids);
+    } catch (e) {
+      if (mounted)
+        adminErrorAlert(context, e, title: 'Couldn’t delete the organizers');
+      return;
+    }
+    if (!mounted) return;
+    if (kept.length == ids.length) {
+      await _offerDeactivate(ids);
+      return;
+    }
+    ids = [
+      for (final id in ids)
+        if (!kept.contains(id)) id,
+    ];
 
     final totalEvents = ids.fold<int>(
       0,
@@ -339,13 +379,18 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
     );
     final ok = await WebAlert.confirm(
       context: context,
-      title: 'Delete ${ids.length} Organizers?',
+      title: kept.isEmpty
+          ? 'Delete ${ids.length} Organizers?'
+          : 'Delete ${ids.length} of the Selected Organizers?',
       message:
-          'This permanently removes the selected profiles and revokes '
+          '${kept.isEmpty ? '' : '${kept.length} of the selected organizers '
+                    '${kept.length == 1 ? 'has' : 'have'} archived events, so they can only be '
+                    'deactivated — they stay selected. '}'
+          'This permanently removes the ${kept.isEmpty ? 'selected' : 'other'} profiles and revokes '
           'their login access. Their $totalEvents event${totalEvents == 1 ? '' : 's'} '
           'and associated student registrations will also be deleted. '
           'This cannot be undone.',
-      confirmLabel: 'Delete Organizers',
+      confirmLabel: kept.isEmpty ? 'Delete Organizers' : 'Delete ${ids.length}',
       confirmColor: const Color(0xFFEF4444),
       iconColor: const Color(0xFFEF4444),
       iconBg: const Color(0xFFFEF2F2),
@@ -367,7 +412,9 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
               ? Map<String, dynamic>.from(response.data as Map)
               : null;
           if (response.status != 200) {
-            failures.add('$id: ${friendlyError(body?['message'], fallback: 'It couldn’t be deleted.')}');
+            failures.add(
+              '$id: ${friendlyError(body?['message'], fallback: 'It couldn’t be deleted.')}',
+            );
           } else {
             deletedIds.add(id);
           }
@@ -395,10 +442,15 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
                 'associated student registrations have been removed.',
           );
         } else {
-          adminErrorAlert(context,
-              FriendlyException('${deletedIds.length} organizers were deleted, but '
-                  '${failures.length} couldn’t be and are still selected. ${failures.first}'),
-              title: 'Some organizers weren’t deleted', icon: SwalIcon.warning);
+          adminErrorAlert(
+            context,
+            FriendlyException(
+              '${deletedIds.length} organizers were deleted, but '
+              '${failures.length} couldn’t be and are still selected. ${failures.first}',
+            ),
+            title: 'Some organizers weren’t deleted',
+            icon: SwalIcon.warning,
+          );
         }
       }
     } finally {
@@ -441,8 +493,13 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
           .select();
       if ((updated as List).isEmpty) {
         if (mounted) {
-          adminErrorAlert(context, _notUpdated,
-              title: cur ? 'Couldn’t deactivate the organizer' : 'Couldn’t activate the organizer');
+          adminErrorAlert(
+            context,
+            _notUpdated,
+            title: cur
+                ? 'Couldn’t deactivate the organizer'
+                : 'Couldn’t activate the organizer',
+          );
         }
         return;
       }
@@ -466,15 +523,21 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
       }
     } catch (e) {
       if (mounted) {
-        adminErrorAlert(context, e,
-            title: cur ? 'Couldn’t deactivate the organizer' : 'Couldn’t activate the organizer');
+        adminErrorAlert(
+          context,
+          e,
+          title: cur
+              ? 'Couldn’t deactivate the organizer'
+              : 'Couldn’t activate the organizer',
+        );
       }
     }
   }
 
   static const _notUpdated = FriendlyException(
-      'This organizer couldn’t be updated — the account may have been removed, '
-      'or you don’t have permission to change it.');
+    'This organizer couldn’t be updated — the account may have been removed, '
+    'or you don’t have permission to change it.',
+  );
 
   Future<void> _editOrganizer(Map<String, dynamic> org) async {
     final result = await showDialog<Map<String, dynamic>?>(
@@ -490,7 +553,12 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
           .eq('organizer_id', org['organizer_id'] as String)
           .select();
       if ((updated as List).isEmpty) {
-        if (mounted) adminErrorAlert(context, _notUpdated, title: 'Couldn’t save the organizer');
+        if (mounted)
+          adminErrorAlert(
+            context,
+            _notUpdated,
+            title: 'Couldn’t save the organizer',
+          );
         return;
       }
       final idx = _all.indexWhere(
@@ -509,9 +577,14 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
         );
         if (err != null) {
           if (mounted) {
-            adminErrorAlert(context,
-                FriendlyException('The profile was saved, but the password wasn’t reset. $err'),
-                title: 'Password not reset', icon: SwalIcon.warning);
+            adminErrorAlert(
+              context,
+              FriendlyException(
+                'The profile was saved, but the password wasn’t reset. $err',
+              ),
+              title: 'Password not reset',
+              icon: SwalIcon.warning,
+            );
           }
           return;
         }
@@ -527,7 +600,8 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
         );
       }
     } catch (e) {
-      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t save the organizer');
+      if (mounted)
+        adminErrorAlert(context, e, title: 'Couldn’t save the organizer');
     }
   }
 
@@ -554,14 +628,18 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
                 ? Map<String, dynamic>.from(res.data as Map)
                 : null;
             if (res.status != 200) {
-              return friendlyError(body?['message'],
-                  fallback: 'The account couldn’t be created. Please try again.');
+              return friendlyError(
+                body?['message'],
+                fallback: 'The account couldn’t be created. Please try again.',
+              );
             }
             return null; // success
           } catch (e) {
             debugPrint('create-organizer failed: $e');
-            return friendlyError(e,
-                fallback: 'The account couldn’t be created. Please try again.');
+            return friendlyError(
+              e,
+              fallback: 'The account couldn’t be created. Please try again.',
+            );
           }
         },
       ),
@@ -595,7 +673,118 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
     }
   }
 
+  // ── Archived events: deactivate, don't delete ───────────────────────────────
+  // Deleting an organizer deletes their events — archived ones would take the
+  // school's attendance records with them — so those accounts are deactivated
+  // instead (the database refuses the delete too — migration 202610230003).
+
+  String _organizerName(String id) {
+    final o = _all.firstWhere(
+      (o) => o['organizer_id'] == id,
+      orElse: () => const {},
+    );
+    final name = (o['full_name'] as String? ?? '').trim();
+    return name.isEmpty ? id : name;
+  }
+
+  /// The organizer ids in [ids] that have archived events.
+  Future<Set<String>> _withArchivedEvents(List<String> ids) async {
+    final counts = await EventArchiveService.archivedEventsByOrganizer(ids);
+    return {
+      for (final id in ids)
+        if ((counts[id] ?? 0) > 0) id,
+    };
+  }
+
+  /// Says why [ids] can't be deleted, and offers to deactivate the ones that
+  /// are still active.
+  Future<void> _offerDeactivate(List<String> ids) async {
+    final active = [
+      for (final id in ids)
+        if (_all.any((o) => o['organizer_id'] == id && o['is_active'] == true))
+          id,
+    ];
+    final one = ids.length == 1;
+    final who = one ? _organizerName(ids.first) : '${ids.length} organizers';
+    final r = await Swal.fire(
+      context,
+      icon: SwalIcon.info,
+      title: one
+          ? 'This organizer can’t be deleted'
+          : 'These organizers can’t be deleted',
+      text:
+          '$who ${one ? 'has' : 'have'} archived events. Archived events keep the '
+          'school’s attendance records, so ${one ? 'this account' : 'these accounts'} can be '
+          'deactivated but not deleted. '
+          '${active.isEmpty ? (one ? 'It’s already deactivated.' : 'They’re already deactivated.') : 'A deactivated organizer can’t sign in or manage events, and the records stay complete.'}',
+      showCancelButton: active.isNotEmpty,
+      confirmButtonText: active.isEmpty
+          ? 'OK'
+          : one
+          ? 'Deactivate instead'
+          : 'Deactivate ${active.length}',
+      confirmButtonColor: active.isEmpty
+          ? kSwalConfirmColor
+          : const Color(0xFFB45309),
+      cancelButtonText: 'Close',
+      preConfirm: active.isEmpty
+          ? null
+          : (_) async {
+              try {
+                final done = await _deactivate(active);
+                return done.isEmpty
+                    ? 'Nothing was changed. Please try again.'
+                    : null;
+              } catch (e) {
+                return friendlyError(e);
+              }
+            },
+    );
+    if (!r.isConfirmed || active.isEmpty || !mounted) return;
+    await WebAlert.success(
+      context: context,
+      title: active.length == 1
+          ? 'Organizer Deactivated'
+          : 'Organizers Deactivated',
+      message: active.length == 1
+          ? 'The organizer can no longer log in. Their events and attendance records are kept.'
+          : '${active.length} organizer accounts have been deactivated. Their events and '
+                'attendance records are kept.',
+    );
+  }
+
+  /// Deactivates [ids] — the caller has already asked.
+  Future<Set<String>> _deactivate(List<String> ids) async {
+    final updated = await SupabaseService.client
+        .from('organizers')
+        .update({'is_active': false})
+        .in_('organizer_id', ids)
+        .select('organizer_id');
+    final done = {
+      for (final r in updated as List)
+        (r as Map<String, dynamic>)['organizer_id'] as String,
+    };
+    for (final o in _all) {
+      if (done.contains(o['organizer_id'])) o['is_active'] = false;
+    }
+    if (mounted) _applyFilter();
+    return done;
+  }
+
   Future<void> _deleteOrganizer(String id, String name) async {
+    // Archived events are the school's record: deactivate instead.
+    try {
+      final kept = await _withArchivedEvents([id]);
+      if (!mounted) return;
+      if (kept.isNotEmpty) {
+        await _offerDeactivate([id]);
+        return;
+      }
+    } catch (e) {
+      if (mounted)
+        adminErrorAlert(context, e, title: 'Couldn’t delete the organizer');
+      return;
+    }
     final eventCount = _eventCounts[id] ?? 0;
     final message = eventCount > 0
         ? 'This will permanently delete $name\'s profile, their $eventCount event${eventCount == 1 ? '' : 's'}, and all student registrations for those events.'
@@ -617,9 +806,12 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
           : null;
       if (res.status != 200) {
         if (mounted) {
-          adminErrorAlert(context, body?['message'],
-              title: 'Couldn’t delete the organizer',
-              fallback: 'The organizer couldn’t be deleted. Please try again.');
+          adminErrorAlert(
+            context,
+            body?['message'],
+            title: 'Couldn’t delete the organizer',
+            fallback: 'The organizer couldn’t be deleted. Please try again.',
+          );
         }
         return;
       }
@@ -633,7 +825,8 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
           message: 'Organizer removed and login access revoked.',
         );
     } catch (e) {
-      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t delete the organizer');
+      if (mounted)
+        adminErrorAlert(context, e, title: 'Couldn’t delete the organizer');
     }
   }
 
@@ -735,43 +928,41 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
                   width: 200,
                 ),
                 const SizedBox(width: 14),
-                Container(width: 1, height: 18, color: t.border),
-                const SizedBox(width: 14),
-                Text(
-                  'Status:',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: t.text,
-                  ),
+                WebFilterMenu<String>(
+                  icon: Icons.filter_list_rounded,
+                  label: 'Status',
+                  menuWidth: 220,
+                  selected: _statusFilter,
+                  options: [
+                    WebFilterOption(
+                      value: 'All',
+                      label: 'All',
+                      count: totalCount,
+                    ),
+                    WebFilterOption(
+                      value: 'Active',
+                      label: 'Active',
+                      count: activeCount,
+                      color: const Color(0xFF10B981),
+                    ),
+                    WebFilterOption(
+                      value: 'Inactive',
+                      label: 'Inactive',
+                      count: inactiveCount,
+                      color: t.muted,
+                    ),
+                    WebFilterOption(
+                      value: '0 Events',
+                      label: '0 Events',
+                      count: noEventsCount,
+                      color: kAdminAccent,
+                    ),
+                  ],
+                  onSelect: (status) {
+                    _statusFilter = status;
+                    _applyFilter(resetPage: true);
+                  },
                 ),
-                const SizedBox(width: 8),
-                for (final f in ['All', 'Active', 'Inactive', '0 Events']) ...[
-                  WebFilterChip(
-                    label: f,
-                    selected: _statusFilter == f,
-                    onTap: () {
-                      _statusFilter = f;
-                      _applyFilter(resetPage: true);
-                    },
-                    count: f == 'All'
-                        ? totalCount
-                        : f == 'Active'
-                        ? activeCount
-                        : f == 'Inactive'
-                        ? inactiveCount
-                        : noEventsCount,
-                    selectedColor: f == '0 Events'
-                        ? kAdminAccent
-                        : f == 'Inactive'
-                        ? t.muted
-                        : f == 'Active'
-                        ? const Color(0xFF10B981)
-                        : kGold,
-                  ),
-                  const SizedBox(width: 6),
-                ],
                 if (hasFilter) ...[
                   const Spacer(),
                   MouseRegion(
@@ -1393,6 +1584,7 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
   final _idCtrl = TextEditingController(); // 4 digits after "Org"
   final _lastCtrl = TextEditingController();
   final _firstCtrl = TextEditingController();
+  final _middleCtrl = TextEditingController(); // optional
   // True when an older organizer (saved before name parts existed) was split
   // from full_name by guesswork — the admin is asked to double-check it.
   bool _nameGuessed = false;
@@ -1403,7 +1595,6 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
   bool _resetPw = false; // edit mode: "Reset password" opened
   String _suggestedDigits = '';
   Map<String, String> _errors = {};
-
 
   bool get _isEdit => widget.organizer != null;
   // Edit mode: only accounts with a login have a password to reset.
@@ -1448,6 +1639,7 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
           _nameGuessed = true;
         }
       }
+      _middleCtrl.text = (o['middle_name'] as String? ?? '').trim();
       _orgCtrl.text = widget.organizer!['organization'] as String? ?? '';
     } else {
       final d = _digitsOf(widget.suggestedId);
@@ -1462,6 +1654,7 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
     _idCtrl.dispose();
     _lastCtrl.dispose();
     _firstCtrl.dispose();
+    _middleCtrl.dispose();
     _orgCtrl.dispose();
     _pwCtrl.dispose();
     super.dispose();
@@ -1489,13 +1682,16 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
     if (errs.isNotEmpty) return;
 
     final first = adminCleanName(_firstCtrl.text);
+    final middle = adminCleanName(_middleCtrl.text);
     final last = adminCleanName(_lastCtrl.text);
     // Organization is kept as typed (acronyms like "SSG" must stay uppercase).
     final org = _orgCtrl.text.trim().replaceAll(RegExp(r'\s+'), ' ');
     final nameFields = <String, dynamic>{
       'first_name': first,
+      'middle_name': middle.isEmpty ? null : middle,
       'last_name': last,
       // Display value, natural order — event cards, logs, dashboards read this.
+      // The middle name is kept separately and not added here.
       'full_name': '$first $last',
     };
 
@@ -1522,7 +1718,11 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
     if (err != null) {
       setState(() => _saving = false);
       // [err] is already in plain words (friendlyError in onCreate).
-      adminErrorAlert(context, FriendlyException(err), title: 'Couldn’t create the account');
+      adminErrorAlert(
+        context,
+        FriendlyException(err),
+        title: 'Couldn’t create the account',
+      );
       return;
     }
     Navigator.of(context).pop(true); // true = success
@@ -1560,7 +1760,6 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
               body: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-
                   // ── Organizer ──────────────────────────────────────────────
                   adminFormSection('ORGANIZER', t),
                   adminFormLabel('Organizer ID', t),
@@ -1604,6 +1803,9 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
                       ),
                     ],
                   ),
+                  const SizedBox(height: 14),
+                  adminFormLabel('Middle name', t, hint: 'Optional'),
+                  _nameField(_middleCtrl, 'middle', 'e.g. Reyes', t),
                   if (_nameGuessed) ...[
                     const SizedBox(height: 8),
                     Row(
@@ -1617,8 +1819,8 @@ class _OrganizerDialogState extends State<_OrganizerDialog>
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            'Split automatically from the saved name — check that the '
-                            'last and first names are correct before saving.',
+                            'Split automatically from the saved name — check the last, '
+                            'first and middle names before saving.',
                             style: TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 11,

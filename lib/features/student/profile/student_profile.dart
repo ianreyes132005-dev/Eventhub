@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,6 +10,7 @@ import 'package:eventhub/shared/widgets/app_loader.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/theme_store.dart';
 import '../../../shared/widgets/error_alert.dart';
+import '../../../shared/widgets/web/swal.dart';
 import '../../../core/services/app_lang_prefs.dart';
 import '../../../core/services/student_notif_prefs.dart';
 
@@ -17,8 +20,7 @@ import '../../../core/services/student_notif_prefs.dart';
 // ══════════════════════════════════════════════════════════════════════════════
 
 class ProfileBody extends StatefulWidget {
-  final bool showAsEmbedded;
-  const ProfileBody({this.showAsEmbedded = false, super.key});
+  const ProfileBody({super.key});
 
   @override
   State<ProfileBody> createState() => _ProfileBodyState();
@@ -45,19 +47,79 @@ class _ProfileBodyState extends State<ProfileBody> {
   String get _levelName => _year == null
       ? ''
       : _isShs ? 'Senior High' : (_year! >= 7 && _year! <= 10 ? 'Junior High' : '');
-  String  role            = 'Student';
-  String  email           = '';
   String  memberSince     = '';
   String? profilePhotoUrl;
-  int     registeredEvents = 0;
-  int     checkedIn        = 0;
+  /// The student's registrations with their events — the stats card counts
+  /// them as it builds, so the clock can move events into "finished".
+  List<Map<String, dynamic>> _regs = [];
+  int get registeredEvents => _regs.length;
+  int get checkedIn => _regs.where((r) => r['status'] == 'checked_in').length;
 
   String _langCode = AppLangPrefs.english;
+  /// From the installed build (pubspec version), not typed by hand.
+  String _version = '';
+
+  // Live: registering, every check-in step, an admin editing the student's
+  // name, grade or section, and event changes all refresh the tab.
+  RealtimeChannel? _channel;
+  Timer? _debounce;
+  Timer? _clock;
 
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    _subscribe();
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) setState(() => _version = info.version);
+    }).catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    _debounce?.cancel();
+    if (_channel != null) SupabaseService.client.removeChannel(_channel!);
+    super.dispose();
+  }
+
+  void _subscribe() {
+    final uid = SupabaseService.currentUser?.id;
+    if (uid == null) return;
+    void soon() {
+      _debounce?.cancel();
+      _debounce = Timer(const Duration(milliseconds: 600), () {
+        if (mounted) _loadProfile();
+      });
+    }
+
+    // registrations and events aren't filtered: RLS limits them to what the
+    // student can see, and a filtered channel never hears deletes.
+    _channel = SupabaseService.client.channel('student-profile-$uid')
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: 'registrations'),
+        (_, [_]) => soon(),
+      )
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: 'events'),
+        (_, [_]) => soon(),
+      )
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'students',
+          filter: 'user_id=eq.$uid',
+        ),
+        (_, [_]) => soon(),
+      )
+      ..subscribe();
   }
 
   Future<void> _loadProfile() async {
@@ -69,7 +131,7 @@ class _ProfileBodyState extends State<ProfileBody> {
 
       final regs = await SupabaseService.client
           .from('registrations')
-          .select('status')
+          .select('status, events(*)')
           .eq('student_user_id', user.id);
 
       final langCode = await AppLangPrefs.code(user.id);
@@ -92,13 +154,9 @@ class _ProfileBodyState extends State<ProfileBody> {
         _strand          = st is String && _strandNames.containsKey(st) ? st : null;
         final sec        = (studentRow?['section'] as String?)?.trim();
         _section         = sec == null || sec.isEmpty ? null : sec;
-        email            = user.email ?? '—';
         memberSince      = dt != null ? '${mos[dt.month - 1]} ${dt.year}' : '—';
         profilePhotoUrl  = studentRow?['profile_image_url'] as String?;
-        registeredEvents = regs.length;
-        checkedIn        = (regs as List)
-            .where((r) => r['status'] == 'checked_in')
-            .length;
+        _regs            = List<Map<String, dynamic>>.from(regs as List);
         _loading = false;
       });
     } catch (e) {
@@ -362,7 +420,15 @@ class _ProfileBodyState extends State<ProfileBody> {
       );
     }
 
-    final attendancePct = (checkedIn / registeredEvents * 100).round();
+    // Same as Home: attended ÷ events that are over (check-in closed, not
+    // cancelled) — an event still ahead can't have been attended yet.
+    final now      = DateTime.now();
+    final finished = _regs.where((r) => registrationIsFinished(r, now: now)).toList();
+    final attendancePct = finished.isEmpty
+        ? null
+        : (finished.where((r) => r['status'] == 'checked_in').length /
+                finished.length * 100)
+            .round();
     return Container(
       decoration: BoxDecoration(
         color: t.card,
@@ -376,7 +442,7 @@ class _ProfileBodyState extends State<ProfileBody> {
           _vertDivider(t),
           _statTile(Icons.check_circle_rounded, checkedIn.toString(),        'Attended',   const Color(0xFF10B981), t),
           _vertDivider(t),
-          _statTile(Icons.insights_rounded,     '$attendancePct%',           'Attendance', const Color(0xFF3B82F6), t),
+          _statTile(Icons.insights_rounded,     attendancePct == null ? '—' : '$attendancePct%',           'Attendance', const Color(0xFF3B82F6), t),
         ],
       ),
     );
@@ -1187,7 +1253,7 @@ class _ProfileBodyState extends State<ProfileBody> {
   Widget _buildAboutTile(AppTk t) => _prefTile(t,
       icon:     Icons.info_rounded,
       title:    'About EventHub',
-      trailing: 'v1.0.0',
+      trailing: _version.isEmpty ? null : 'v$_version',
       onTap:    _showAboutDialog);
 
   // ── Logout button ─────────────────────────────────────────────────────────
@@ -1269,8 +1335,9 @@ class _ProfileBodyState extends State<ProfileBody> {
                 Text('EventHub',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: t.text)),
                 const SizedBox(height: 4),
-                const Text('Version 1.0.0',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kGold, fontWeight: FontWeight.w600)),
+                if (_version.isNotEmpty)
+                  Text('Version $_version',
+                    style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kGold, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 12),
                 Text(
                   'J-Jireh Learning Center\'s official event management platform. Browse and register for school events, track your attendance, and scan in with your personal QR code — all in one place.',
@@ -1326,535 +1393,52 @@ class _ProfileBodyState extends State<ProfileBody> {
   );
 
   void _showLogoutDialog() {
+    Swal.fire(
+      context,
+      icon: SwalIcon.warning,
+      title: 'Log out?',
+      text: 'Are you sure you want to sign out of your account?',
+      showCancelButton: true,
+      confirmButtonText: 'Log Out',
+      confirmButtonColor: const Color(0xFFDC3741),
+      cancelButtonText: 'Stay',
+      reverseButtons: true,
+    ).then((result) {
+      if (result.isConfirmed) _performLogout();
+    });
+  }
+
+  Future<void> _performLogout() async {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Log out?',
-          style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
-        content: const Text('Are you sure you want to sign out of your account?',
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 13, height: 1.5)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(fontFamily: 'Poppins')),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              showDialog(
-                context: context, barrierDismissible: false,
-                builder: (_) => const Center(child: CircularProgressIndicator(color: kGold)),
-              );
-              try { await SupabaseService.signOut(); } catch (e) { debugPrint('Sign out error: $e'); }
-              if (mounted) {
-                Navigator.of(context).pop();
-                Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
-              }
-            },
-            child: const Text('Log Out',
-              style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700,
-                  color: Color(0xFFEF4444))),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (_) =>
+          const Center(child: CircularProgressIndicator(color: kGold)),
     );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// ProfileScreen — full-screen standalone wrapper (kept for compat)
-// ══════════════════════════════════════════════════════════════════════════════
-
-class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
-    return Scaffold(
-      backgroundColor: t.bg,
-      body: const ProfileBody(),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// EditProfileInfoScreen
-// ══════════════════════════════════════════════════════════════════════════════
-
-class EditProfileInfoScreen extends StatefulWidget {
-  final String? fullName;
-  final String? gradeSection;
-  final String? studentId;
-  final String? contactNumber;
-  final String? email;
-  final bool    showAsEmbedded;
-
-  const EditProfileInfoScreen({
-    super.key,
-    this.fullName,
-    this.gradeSection,
-    this.studentId,
-    this.contactNumber,
-    this.email,
-    this.showAsEmbedded = false,
-  });
-
-  @override
-  State<EditProfileInfoScreen> createState() => _EditProfileInfoScreenState();
-}
-
-class _EditProfileInfoScreenState extends State<EditProfileInfoScreen> {
-  late final TextEditingController _nameCtrl;
-  bool _saving     = false;
-  bool _hasChanges = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameCtrl = TextEditingController(text: widget.fullName ?? '');
-    _nameCtrl.addListener(_onFieldChanged);
-  }
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    super.dispose();
-  }
-
-  void _onFieldChanged() {
-    final changed = _nameCtrl.text != (widget.fullName ?? '');
-    if (changed != _hasChanges) setState(() => _hasChanges = changed);
-  }
-
-  String _initials(String name) {
-    final t = name.trim();
-    if (t.isEmpty) return 'S';
-    final parts = t.split(RegExp(r'\s+'));
-    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    return t[0].toUpperCase();
-  }
-
-  Future<bool> _confirmDiscard() async {
-    if (!_hasChanges) return true;
-    final result = await showDialog<bool>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        title: const Text('Discard changes?',
-          style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700, fontSize: 17)),
-        content: const Text('You have unsaved changes. Are you sure you want to leave?',
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 13, height: 1.55)),
-        actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: kGold, side: const BorderSide(color: kGold),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            ),
-            child: const Text('Keep Editing',
-              style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, fontSize: 13)),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.10),
-              foregroundColor: const Color(0xFFEF4444),
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            ),
-            child: const Text('Discard',
-              style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600, fontSize: 13)),
-          ),
-        ],
-      ),
-    );
-    return result ?? false;
-  }
-
-  Future<void> _save() async {
-    if (!_hasChanges || _saving) return;
-    if (_nameCtrl.text.trim().isEmpty) {
-      _snack('Full name cannot be empty.', isError: true);
+    try {
+      await SupabaseService.signOut();
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        showErrorAlert(context, e, title: 'Couldn’t sign out');
+      }
       return;
     }
-    setState(() => _saving = true);
-    HapticFeedback.mediumImpact();
-    try {
-      final ok = await SupabaseService.updateProfile({'full_name': _nameCtrl.text.trim()});
-      if (!mounted) return;
-      if (ok) {
-        _snack('Profile updated!', isError: false);
-        Navigator.of(context).pop(true);
-      } else {
-        showErrorAlert(context, null,
-            title: 'Couldn’t update your profile',
-            fallback: 'Your profile couldn’t be updated. Please try again.');
-      }
-    } catch (e) {
-      if (!mounted) return;
-      showErrorAlert(context, e, title: 'Couldn’t update your profile');
-    } finally {
-      if (mounted) setState(() => _saving = false);
+    if (mounted) {
+      Navigator.of(context).pop();
+      await Swal.fire(
+        context,
+        icon: SwalIcon.success,
+        title: 'Signed out',
+        text: 'You have been signed out successfully.',
+        showConfirmButton: false,
+        timer: const Duration(milliseconds: 1200),
+        timerProgressBar: true,
+        allowOutsideClick: false,
+      );
+    }
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
     }
   }
-
-  void _snack(String msg, {required bool isError}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Row(children: [
-        Icon(isError ? Icons.error_rounded : Icons.check_circle_rounded,
-            color: Colors.white, size: 18),
-        const SizedBox(width: 10),
-        Expanded(child: Text(msg,
-            style: const TextStyle(fontFamily: 'Poppins', fontSize: 13))),
-      ]),
-      backgroundColor: isError ? const Color(0xFFEF4444) : const Color(0xFF16A34A),
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      duration: const Duration(seconds: 3),
-    ));
-  }
-
-  // ── Build ─────────────────────────────────────────────────────────────────
-
-  @override
-  Widget build(BuildContext context) {
-    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
-    return PopScope(
-      canPop: !_hasChanges && !_saving,
-      onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) return;
-        final nav = Navigator.of(context);
-        final ok = await _confirmDiscard();
-        if (ok && mounted) nav.pop();
-      },
-      child: Scaffold(
-        backgroundColor: t.bg,
-        body: SingleChildScrollView(
-          child: Column(children: [_buildHero(), _buildBody(t)]),
-        ),
-        bottomNavigationBar: _buildSaveBar(t),
-      ),
-    );
-  }
-
-  Widget _buildHero() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF1C1814), Color(0xFF2D2318), Color(0xFF3A2F1E)],
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-        ),
-      ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(top: -30, right: -20, child: _decCircle(160, Colors.white.withValues(alpha: 0.04))),
-          Positioned(bottom: 10, left: -40, child: _decCircle(110, Colors.white.withValues(alpha: 0.03))),
-          Positioned(top: 50, left: 60,    child: _decCircle(60,  kGold.withValues(alpha: 0.07))),
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 68),
-              child: Column(children: [
-                Row(children: [
-                  _backBtn(),
-                  const Spacer(),
-                  AnimatedOpacity(
-                    opacity: _hasChanges ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 300),
-                    child: _unsavedBadge(),
-                  ),
-                ]),
-                const SizedBox(height: 18),
-                const Text('Edit Profile',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
-                      fontWeight: FontWeight.w800, color: Colors.white, height: 1.1)),
-                const SizedBox(height: 4),
-                const Text('Update your personal information',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: Colors.white60)),
-              ]),
-            ),
-          ),
-          Positioned(
-            bottom: -48, left: 0, right: 0,
-            child: Center(
-              child: ListenableBuilder(
-                listenable: _nameCtrl,
-                builder: (_, _) => _avatarCircle(_initials(_nameCtrl.text)),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _avatarCircle(String initials) => Container(
-    width: 96, height: 96,
-    decoration: BoxDecoration(
-      shape: BoxShape.circle, gradient: kGoldGradient,
-      border: Border.all(color: Colors.white, width: 3.5),
-      boxShadow: [BoxShadow(color: kGold.withValues(alpha: 0.45), blurRadius: 22, offset: const Offset(0, 8))],
-    ),
-    child: Center(child: Text(initials,
-      style: const TextStyle(fontFamily: 'Poppins', fontSize: 34,
-          fontWeight: FontWeight.w800, color: Colors.white))),
-  );
-
-  Widget _buildBody(AppTk t) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 64, 20, 24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _sectionLabel('Editable', Icons.edit_rounded, kGold, t),
-        const SizedBox(height: 10),
-        _formCard(t: t, children: [
-          _editField(ctrl: _nameCtrl, label: 'Full Name', hint: 'e.g. Maria Santos',
-              icon: Icons.badge_outlined, maxLength: 60, isFirst: true, isLast: true, t: t),
-        ]),
-        const SizedBox(height: 20),
-        _sectionLabel('Set by Administrator', Icons.admin_panel_settings_rounded, t.muted, t),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: kGold.withValues(alpha: 0.07),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: kGold.withValues(alpha: 0.20)),
-          ),
-          child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(Icons.info_rounded, size: 16, color: kGold),
-            SizedBox(width: 10),
-            Expanded(child: Text(
-              'These fields are provisioned by your school administrator and cannot be changed through the app.',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 11, height: 1.55),
-            )),
-          ]),
-        ),
-        _formCard(t: t, children: [
-          _lockedField(label: 'Grade / Section', value: widget.gradeSection ?? '—',
-              icon: Icons.school_outlined, isFirst: true, t: t),
-          _cardDivider(t),
-          _lockedField(label: 'Student ID (LRN)', value: formatLrn(widget.studentId ?? '—'),
-              icon: Icons.badge_outlined, isId: true, isLast: true, t: t),
-        ]),
-        const SizedBox(height: 24),
-      ]),
-    );
-  }
-
-  Widget _buildSaveBar(AppTk t) {
-    return SafeArea(
-      top: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        decoration: BoxDecoration(
-          color: t.card,
-          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 16, offset: const Offset(0, -4))],
-        ),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          transitionBuilder: (child, anim) => FadeTransition(
-            opacity: anim,
-            child: ScaleTransition(
-                scale: Tween<double>(begin: 0.97, end: 1.0).animate(anim), child: child),
-          ),
-          child: _hasChanges
-              ? _saveBtn(key: const ValueKey('save'))
-              : _noChangeBtn(key: const ValueKey('noop'), t: t),
-        ),
-      ),
-    );
-  }
-
-  Widget _saveBtn({Key? key}) => DecoratedBox(
-    key: key,
-    decoration: BoxDecoration(
-      gradient: kGoldGradient, borderRadius: BorderRadius.circular(14),
-      boxShadow: [BoxShadow(color: kGold.withValues(alpha: 0.40), blurRadius: 16, offset: const Offset(0, 6))],
-    ),
-    child: SizedBox(
-      width: double.infinity, height: 52,
-      child: ElevatedButton.icon(
-        onPressed: _saving ? null : _save,
-        icon: _saving
-            ? const SizedBox(width: 18, height: 18,
-                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0))
-            : const Icon(Icons.check_rounded, size: 20),
-        label: Text(_saving ? 'Saving…' : 'Save Changes',
-          style: const TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700)),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.transparent, foregroundColor: Colors.white,
-          elevation: 0, shadowColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        ),
-      ),
-    ),
-  );
-
-  Widget _noChangeBtn({Key? key, required AppTk t}) => SizedBox(
-    key: key, width: double.infinity, height: 52,
-    child: OutlinedButton.icon(
-      onPressed: () => Navigator.of(context).pop(),
-      icon: const Icon(Icons.arrow_back_rounded, size: 18),
-      label: const Text('Go Back',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w600)),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: t.muted,
-        side: BorderSide(color: t.border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      ),
-    ),
-  );
-
-  // ── Field widgets ─────────────────────────────────────────────────────────
-
-  Widget _editField({
-    required TextEditingController ctrl,
-    required String label,
-    required String hint,
-    required IconData icon,
-    required AppTk t,
-    int?  maxLength,
-    TextInputType keyboard = TextInputType.text,
-    bool isFirst = false,
-    bool isLast  = false,
-  }) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(14, isFirst ? 14 : 6, 14, isLast ? 14 : 6),
-      child: TextFormField(
-        controller: ctrl, keyboardType: keyboard, maxLength: maxLength,
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
-            color: t.text, fontWeight: FontWeight.w500),
-        decoration: InputDecoration(
-          labelText: label, hintText: hint,
-          labelStyle: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.sub),
-          hintStyle: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.muted),
-          prefixIcon: Icon(icon, color: kGold, size: 20),
-          counterStyle: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
-          filled: true, fillColor: t.inputBg,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(13)),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(13),
-            borderSide: BorderSide(color: kGold.withValues(alpha: 0.25), width: 1.2),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(13),
-            borderSide: const BorderSide(color: kGold, width: 2),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _lockedField({
-    required String label, required String value,
-    required IconData icon, required AppTk t,
-    bool isId = false, bool isFirst = false, bool isLast = false,
-  }) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(14, isFirst ? 14 : 10, 14, isLast ? 14 : 10),
-      child: Row(children: [
-        Container(
-          width: 34, height: 34,
-          decoration: BoxDecoration(color: t.border, borderRadius: BorderRadius.circular(9)),
-          child: Icon(icon, color: t.muted, size: 17),
-        ),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted)),
-          const SizedBox(height: 3),
-          isId
-              ? Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: kGold.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(value,
-                    style: const TextStyle(fontFamily: 'Courier', fontSize: 12,
-                        fontWeight: FontWeight.w700, color: Color(0xFFB8861C))),
-                )
-              : Text(value,
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                      fontWeight: FontWeight.w500, color: t.sub)),
-        ])),
-        Icon(Icons.lock_rounded, size: 13, color: t.border),
-      ]),
-    );
-  }
-
-  Widget _cardDivider(AppTk t) => Divider(
-    height: 1, thickness: 0.8, indent: 60, endIndent: 14, color: t.divider,
-  );
-
-  Widget _formCard({required List<Widget> children, required AppTk t}) => Container(
-    decoration: BoxDecoration(
-      color: t.card, borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: t.border),
-      boxShadow: [BoxShadow(color: t.shadow, blurRadius: 12, offset: const Offset(0, 4))],
-    ),
-    child: Column(children: children),
-  );
-
-  Widget _sectionLabel(String title, IconData icon, Color color, AppTk t) => Row(children: [
-    Container(
-      width: 26, height: 26,
-      decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(7)),
-      child: Icon(icon, size: 13, color: color),
-    ),
-    const SizedBox(width: 8),
-    Text(title.toUpperCase(),
-      style: TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700,
-          letterSpacing: 1.0, color: color)),
-    const SizedBox(width: 8),
-    Expanded(child: Divider(height: 1, color: color.withValues(alpha: 0.15))),
-  ]);
-
-  Widget _backBtn() => GestureDetector(
-    onTap: () async {
-      final nav = Navigator.of(context);
-      final ok = await _confirmDiscard();
-      if (ok && mounted) nav.pop();
-    },
-    child: Container(
-      width: 40, height: 40,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12), shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
-      ),
-      child: const Icon(Icons.arrow_back_ios_new_rounded, size: 16, color: Colors.white),
-    ),
-  );
-
-  Widget _unsavedBadge() => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-    decoration: BoxDecoration(
-      color: kGold.withValues(alpha: 0.18), borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: kGold.withValues(alpha: 0.40)),
-    ),
-    child: const Row(mainAxisSize: MainAxisSize.min, children: [
-      Icon(Icons.edit_rounded, size: 10, color: kGold),
-      SizedBox(width: 5),
-      Text('Unsaved changes',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-            fontWeight: FontWeight.w600, color: kGold)),
-    ]),
-  );
-
-  Widget _decCircle(double size, Color color) => Container(
-    width: size, height: size,
-    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-  );
 }

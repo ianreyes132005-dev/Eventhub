@@ -8,8 +8,10 @@ import '../events/my_registered_events_page.dart';
 import '../profile/student_profile.dart';
 import '../notifications/notifications_screen.dart';
 import '../notifications/student_feed.dart';
+import '../check_in/photo_consent.dart';
 import '../check_in/selfie_screen.dart';
 import 'package:eventhub/core/services/registration_service.dart';
+import 'package:eventhub/core/services/scan_feedback.dart';
 import 'package:eventhub/core/services/notif_read_store.dart';
 import 'package:eventhub/core/services/account_session_guard.dart';
 import 'package:eventhub/shared/widgets/ai_chat_fab.dart';
@@ -84,16 +86,25 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   List<Map<String, dynamic>> _announcements         = [];
   List<Map<String, dynamic>> _upcomingRegistrations = [];
+  /// Every registration from the last load, so the clock can re-sort them
+  /// into upcoming / finished without a new fetch.
+  List<Map<String, dynamic>> _allRegistrations      = [];
 
   RealtimeChannel? _regChannel;
   RealtimeChannel? _homeRegChannel;
   RealtimeChannel? _annChannel;
+  RealtimeChannel? _eventsChannel;
   RealtimeChannel? _accountChannel;
   Timer?           _annDebounce;
   Timer?           _regDebounce;
+  Timer?           _eventsDebounce;
+  // Once a minute: an event whose check-in closed leaves "My upcoming
+  // events" and counts toward the attendance rate.
+  Timer?           _clock;
   Future<void>?    _inFlight;
   bool             _refreshAgain = false;
   final Set<String> _selfiePrompted = {};
+  final Set<String> _scanConfirmed = {}; // tickets already chimed for
 
   // ── Init / dispose ────────────────────────────────────────────────────────
 
@@ -117,6 +128,10 @@ class _StudentDashboardState extends State<StudentDashboard>
     _subscribeToCheckInRequests();
     _subscribeToMyRegistrations();
     _subscribeAnnouncements();
+    _subscribeEvents();
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted && !_homeLoading) setState(_applyClock);
+    });
     NotifReadStore.unreadNotifier.addListener(_onNotifCountChanged);
   }
 
@@ -129,11 +144,14 @@ class _StudentDashboardState extends State<StudentDashboard>
     WidgetsBinding.instance.removeObserver(this);
     _annDebounce?.cancel();
     _regDebounce?.cancel();
+    _eventsDebounce?.cancel();
+    _clock?.cancel();
     _staggerCtrl.dispose();
     NotifReadStore.unreadNotifier.removeListener(_onNotifCountChanged);
     if (_regChannel != null) Supabase.instance.client.removeChannel(_regChannel!);
     if (_homeRegChannel != null) Supabase.instance.client.removeChannel(_homeRegChannel!);
     if (_annChannel != null) Supabase.instance.client.removeChannel(_annChannel!);
+    if (_eventsChannel != null) Supabase.instance.client.removeChannel(_eventsChannel!);
     if (_accountChannel != null) {
       Supabase.instance.client.removeChannel(_accountChannel!);
     }
@@ -163,8 +181,29 @@ class _StudentDashboardState extends State<StudentDashboard>
     _annChannel!.subscribe();
   }
 
-  // Registering (Events tab), every check-in step and a decline all change
-  // the student's own registrations — Home follows along.
+  // A cancellation, a new time or venue, or a renamed event changes the
+  // event's row, not the registration — Home (and the bell's "Event
+  // cancelled" / "Event updated") follow along. RLS keeps it to events the
+  // student can see.
+  void _subscribeEvents() {
+    _eventsChannel = Supabase.instance.client.channel('student-home-events')
+      ..on(
+        RealtimeListenTypes.postgresChanges,
+        ChannelFilter(event: '*', schema: 'public', table: 'events'),
+        (_, [_]) {
+          _eventsDebounce?.cancel();
+          _eventsDebounce = Timer(const Duration(milliseconds: 600), () {
+            if (mounted) _loadHomeData(silent: true);
+          });
+        },
+      )
+      ..subscribe();
+  }
+
+  // Registering (Events tab), every check-in step, a decline and an
+  // organizer deleting the registration all change the student's own
+  // registrations — Home follows along. Not filtered by student: RLS already
+  // limits it to their rows, and a filtered channel never hears deletes.
   void _subscribeToMyRegistrations() {
     final uid = Supabase.instance.client.auth.currentUser?.id;
     if (uid == null) return;
@@ -175,7 +214,6 @@ class _StudentDashboardState extends State<StudentDashboard>
           event: '*',
           schema: 'public',
           table: 'registrations',
-          filter: 'student_user_id=eq.$uid',
         ),
         (_, [_]) {
           _regDebounce?.cancel();
@@ -255,26 +293,14 @@ class _StudentDashboardState extends State<StudentDashboard>
         isActive: profile['is_active'] == true,
       )) return null;
 
-      final regs = feed.registrations;
-      final now  = DateTime.now();
-      // One rule for the Upcoming number and the list (app_colors.dart):
-      // not cancelled, not declined, until check-in closes.
-      final upcoming = regs.where((r) => registrationIsUpcoming(r, now: now)).toList()
-        ..sort((a, b) => _startOf(a).compareTo(_startOf(b)));
-      final finished = regs.where((r) => registrationIsFinished(r, now: now)).toList();
-      bool attended(Map<String, dynamic> r) => r['status'] == 'checked_in';
-
       NotifReadStore.setAll(feed.notifications.map((n) => n.id));
 
       final recovering = _homeError != null;
       setState(() {
         _studentName           = profile?['full_name'] as String? ?? 'Student';
-        _totalRegistrations    = regs.length;
-        _attendedCount         = regs.where(attended).length;
-        _finishedCount         = finished.length;
-        _finishedAttended      = finished.where(attended).length;
+        _allRegistrations      = feed.registrations;
+        _applyClock();
         _announcements         = feed.announcements.take(3).toList();
-        _upcomingRegistrations = upcoming;
         _notificationCount     = NotifReadStore.unreadNotifier.value;
         _homeLoading           = false;
         _homeRefreshing        = false;
@@ -297,6 +323,22 @@ class _StudentDashboardState extends State<StudentDashboard>
     }
   }
 
+  /// Sorts [_allRegistrations] by the clock. One rule for the Upcoming number
+  /// and the list (app_colors.dart): not cancelled, not declined, until
+  /// check-in closes. Call inside setState.
+  void _applyClock() {
+    final regs = _allRegistrations;
+    final now  = DateTime.now();
+    bool attended(Map<String, dynamic> r) => r['status'] == 'checked_in';
+    final finished = regs.where((r) => registrationIsFinished(r, now: now)).toList();
+    _totalRegistrations    = regs.length;
+    _attendedCount         = regs.where(attended).length;
+    _finishedCount         = finished.length;
+    _finishedAttended      = finished.where(attended).length;
+    _upcomingRegistrations = regs.where((r) => registrationIsUpcoming(r, now: now)).toList()
+      ..sort((a, b) => _startOf(a).compareTo(_startOf(b)));
+  }
+
   // When a registration's event starts — orders "My upcoming events".
   static DateTime _startOf(Map<String, dynamic> reg) {
     final ev = reg['events'];
@@ -311,10 +353,36 @@ class _StudentDashboardState extends State<StudentDashboard>
       if (!mounted) return;
       final status = record['status'] as String?;
       final regId  = record['id']     as String?;
+      // Their ticket was just scanned at the door: chime + vibrate, and an
+      // open ticket shows "Ticket scanned".
+      if (status == 'qr_scanned' && regId != null && _scanConfirmed.add(regId)) {
+        QRCodeDialog.markScanned(regId);
+        ScanFeedback.ticketScanned();
+      }
       if (status == 'photo_required' && regId != null && !_selfiePrompted.contains(regId)) {
-        _openSelfieScreen(regId);
+        _askToTakeSelfie(regId, record['event_title'] as String?);
       }
     });
+  }
+
+  // The organizer asked for a check-in photo: ask first (SweetAlert2), then
+  // open the camera. "Not now" keeps the request open — My Registrations has
+  // the Upload Attendance Photo button, and the organizer can ask again.
+  Future<void> _askToTakeSelfie(String registrationId, String? eventTitle) async {
+    // Remembered right away, so a second request can't stack a second popup.
+    _selfiePrompted.add(registrationId);
+    final allowed = await askCheckInPhotoConsent(context, eventTitle: eventTitle);
+    if (!mounted) return;
+    if (allowed) {
+      _openSelfieScreen(registrationId);
+      return;
+    }
+    _selfiePrompted.remove(registrationId);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('No problem. When you’re ready, open My Registrations '
+          'and tap Upload Attendance Photo.'),
+      behavior: SnackBarBehavior.floating,
+    ));
   }
 
   void _openSelfieScreen(String registrationId) {
@@ -433,14 +501,22 @@ class _StudentDashboardState extends State<StudentDashboard>
       context,
       EventRegistration(
         registrationId:   reg['id']               as String,
-        eventId:          reg['event_id']          as String,
-        eventTitle:       reg['event_title']       as String? ?? '',
+        eventTitle:       _titleOf(reg),
         studentId:        reg['student_school_id'] as String? ?? '',
         studentName:      reg['student_name']      as String? ?? '',
         registrationDate: DateTime.tryParse(reg['registered_at'] as String? ?? '') ?? DateTime.now(),
         qrCodeData:       qrCode,
+        ticketCode:       reg['ticket_code']       as String? ?? '—',
       ),
     );
+  }
+
+  // The event's current name — the registration keeps the one from sign-up.
+  static String _titleOf(Map<String, dynamic> reg) {
+    final ev = reg['events'];
+    final current = ev is Map ? (ev['title'] as String?)?.trim() : null;
+    if (current != null && current.isNotEmpty) return current;
+    return reg['event_title'] as String? ?? '—';
   }
 
   void _navigateToEventDetail(Map<String, dynamic> reg) {
@@ -476,8 +552,8 @@ class _StudentDashboardState extends State<StudentDashboard>
           index: _selectedIndex,
           children: [
             _buildHomeScreen(t),
-            const StudentAllEventsPage(showAsEmbedded: true),
-            const ProfileBody(showAsEmbedded: true),
+            const StudentAllEventsPage(),
+            const ProfileBody(),
           ],
         ),
       ),
@@ -811,8 +887,13 @@ class _StudentDashboardState extends State<StudentDashboard>
               ),
             ),
             const SizedBox(height: 6),
+            // Shown whenever nothing is upcoming — including for students
+            // whose registered events have all ended, so only say "not
+            // registered yet" when that's true.
             Text(
-              "You haven't registered for any events yet.\nExplore what's happening around you.",
+              _totalRegistrations == 0
+                  ? "You haven't registered for any events yet.\nExplore what's happening around you."
+                  : "You're all caught up — none of your events are coming up.\nFind your next one.",
               style: TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 11.5,
@@ -1047,7 +1128,7 @@ class _StudentDashboardState extends State<StudentDashboard>
 
   Widget _buildCompactRegCard(Map<String, dynamic> reg, AppTk t) {
     final evMap    = reg['events'] as Map?;
-    final title    = reg['event_title'] as String? ?? '—';
+    final title    = _titleOf(reg);
     final dStr     = evMap?['event_date'] as String?;
     final imageUrl = evMap?['event_image_url'] as String?;
 

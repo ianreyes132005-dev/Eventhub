@@ -30,13 +30,15 @@ serve(async (req) => {
 
   try {
     // ── 1. Parse body ────────────────────────────────────────────────────────
-    const { lrn, full_name, first_name, last_name, year_level, strand, section, password } =
+    const { lrn, full_name, first_name, middle_name, last_name, year_level, strand, section, password } =
       await req.json()
 
     // Name parts are optional for backward compatibility; when present,
-    // full_name is always rebuilt from them ("First Last").
-    const first = String(first_name ?? '').trim()
-    const last  = String(last_name ?? '').trim()
+    // full_name is always rebuilt from them ("First Last"). The middle name
+    // is optional and stored on its own, not in full_name.
+    const first  = String(first_name ?? '').trim()
+    const middle = String(middle_name ?? '').trim()
+    const last   = String(last_name ?? '').trim()
     const displayName = first && last ? `${first} ${last}` : String(full_name ?? '').trim()
 
     const rawLrn = String(lrn ?? '').replace(/\D/g, '')
@@ -93,9 +95,10 @@ serve(async (req) => {
     const { error: insertErr } = await supabaseAdmin.from('students').insert({
       lrn:        formattedLrn,
       user_id:    created.user.id,
-      full_name:  displayName,
-      first_name: first || null,
-      last_name:  last || null,
+      full_name:   displayName,
+      first_name:  first || null,
+      middle_name: middle || null,
+      last_name:   last || null,
       year_level: year_level ?? null,
       strand:     isShs ? strand : null,
       section:    String(section ?? '').trim() || null,

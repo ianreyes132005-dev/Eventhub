@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/app_colors.dart';
 import '../../core/theme_store.dart';
+import '../../core/services/event_archive_service.dart';
 import '../../core/services/supabase_service.dart';
 import '../organizer/web/web_shared.dart';
 import '../../shared/widgets/event_phase_pill.dart';
@@ -87,6 +88,13 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
   RealtimeChannel? _eventsChannel;
   Timer?           _eventsDebounce;
 
+  // Events ready to archive, on the Archives nav item. The loaded events are
+  // kept so the number follows the clock (an event becomes ready when its
+  // check-in closes) between loads.
+  ArchiveReadiness? _readiness;
+  int               _readyToArchive = 0;
+  Timer?            _archiveClock;
+
   late final AnimationController _entryCt;
   late final Animation<double>   _sidebarFade;
   late final Animation<Offset>   _sidebarSlide;
@@ -118,6 +126,7 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
   void dispose() {
     _entryCt.dispose();
     _eventsDebounce?.cancel();
+    _archiveClock?.cancel();
     if (_eventsChannel != null) SupabaseService.client.removeChannel(_eventsChannel!);
     super.dispose();
   }
@@ -134,7 +143,9 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
       setState(() { _name = row['full_name'] as String?; _loading = false; });
       _entryCt.forward();
       _loadPendingEventsCount();
+      _loadReadyToArchive();
       _subscribePendingEvents();
+      _archiveClock = Timer.periodic(const Duration(minutes: 1), (_) => _recountReady());
     } catch (_) {
       if (mounted) setState(() { _loading = false; _error = true; });
     }
@@ -142,10 +153,18 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
 
   Future<void> _loadPendingEventsCount() async {
     try {
+      // Pending events that reached their start without a decision are
+      // rejected automatically. Settle them first so they leave the queue.
+      try {
+        await SupabaseService.client.rpc('reject_unreviewed_events');
+      } catch (_) {} // migration 202610210001 not run yet: left out below
       final rows = await SupabaseService.client
           .from('events')
-          .select('event_id')
+          .select()
           .eq('approval_status', 'pending');
+      final waiting = List<Map<String, dynamic>>.from(rows as List)
+          .where((e) => !pendingPastStart(e))
+          .length;
       // Edits to live events waiting for review — counted separately so a
       // missing event_revisions table (migration 007 not run) can't zero the badge.
       var changes = 0;
@@ -156,12 +175,27 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
             .eq('status', 'pending');
         changes = (revs as List).length;
       } catch (_) {}
-      if (mounted) setState(() => _pendingEventsCount = (rows as List).length + changes);
+      if (mounted) setState(() => _pendingEventsCount = waiting + changes);
     } catch (_) {
       // Badge is a convenience indicator, not the source of truth — the
       // Events tab's own load still surfaces a real error if this table is
       // genuinely unreachable, so this failure can stay silent.
     }
+  }
+
+  Future<void> _loadReadyToArchive() async {
+    try {
+      _readiness = await EventArchiveService.loadReadiness();
+      _recountReady();
+    } catch (_) {
+      // A convenience number like the Events badge: the Archives tab shows
+      // the real list (and any error) itself.
+    }
+  }
+
+  void _recountReady() {
+    final n = _readiness?.readyCount() ?? 0;
+    if (mounted && n != _readyToArchive) setState(() => _readyToArchive = n);
   }
 
   void _subscribePendingEvents() {
@@ -173,7 +207,9 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
         (_, [_]) {
           _eventsDebounce?.cancel();
           _eventsDebounce = Timer(const Duration(milliseconds: 600), () {
-            if (mounted) _loadPendingEventsCount();
+            if (!mounted) return;
+            _loadPendingEventsCount();
+            _loadReadyToArchive();
           });
         },
       );
@@ -193,6 +229,17 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
     );
     if (ok != true) return;
     await SupabaseService.client.auth.signOut();
+    if (!mounted) return;
+    await Swal.fire(
+      context,
+      icon: SwalIcon.success,
+      title: 'Signed out',
+      text: 'You have been signed out successfully.',
+      showConfirmButton: false,
+      timer: const Duration(milliseconds: 1200),
+      timerProgressBar: true,
+      allowOutsideClick: false,
+    );
     if (mounted) _goLogin();
   }
 
@@ -253,6 +300,7 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
                 collapsed:    _collapsed,
                 currentPage:  _page,
                 pendingEventsCount: _pendingEventsCount,
+                readyToArchiveCount: _readyToArchive,
                 onPageChanged: _navigate,
                 onToggle:     () => setState(() => _collapsed = !_collapsed),
               ),
@@ -308,12 +356,14 @@ class _AdminSidebar extends StatefulWidget {
   final bool      collapsed;
   final AdminPage currentPage;
   final int       pendingEventsCount;
+  final int       readyToArchiveCount;
   final ValueChanged<AdminPage> onPageChanged;
   final VoidCallback onToggle;
 
   const _AdminSidebar({
     required this.collapsed, required this.currentPage,
     required this.pendingEventsCount,
+    required this.readyToArchiveCount,
     required this.onPageChanged, required this.onToggle,
   });
 
@@ -490,7 +540,11 @@ class _AdminSidebarState extends State<_AdminSidebar>
             icon: icon, label: label,
             isActive:  widget.currentPage == page,
             collapsed: widget.collapsed,
-            badgeCount: page == AdminPage.events ? widget.pendingEventsCount : 0,
+            badgeCount: switch (page) {
+              AdminPage.events   => widget.pendingEventsCount,
+              AdminPage.archives => widget.readyToArchiveCount,
+              _                  => 0,
+            },
             onTap: () => widget.onPageChanged(page),
           ),
           cIdx,
@@ -659,7 +713,7 @@ class _AdminNavItemState extends State<_AdminNavItem> {
                         if (widget.badgeCount > 0)
                           Positioned(
                             top: -4, right: -6,
-                            child: _NavBadge(count: widget.badgeCount),
+                            child: WebNavBadge(count: widget.badgeCount),
                           ),
                       ]),
                     )
@@ -688,7 +742,7 @@ class _AdminNavItemState extends State<_AdminNavItem> {
                           ),
                         ),
                         if (widget.badgeCount > 0)
-                          _NavBadge(count: widget.badgeCount)
+                          WebNavBadge(count: widget.badgeCount)
                         else
                           AnimatedContainer(
                             duration: const Duration(milliseconds: 200),
@@ -704,36 +758,6 @@ class _AdminNavItemState extends State<_AdminNavItem> {
       ),
     );
   }
-}
-
-// ─── Nav badge — "needs review" count on a sidebar item ─────────────────────
-// Amber, not the accent orange — matches the "needs attention" language
-// already used for Pending Review everywhere else in this feature, rather
-// than the neutral brand accent used for "currently selected."
-class _NavBadge extends StatelessWidget {
-  final int count;
-  const _NavBadge({required this.count});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    constraints: const BoxConstraints(minWidth: 18),
-    height: 18,
-    padding: const EdgeInsets.symmetric(horizontal: 5),
-    decoration: BoxDecoration(
-      color: const Color(0xFFF59E0B),
-      borderRadius: BorderRadius.circular(9),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.85), width: 1.5),
-      boxShadow: [
-        BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 4, offset: const Offset(0, 1)),
-      ],
-    ),
-    alignment: Alignment.center,
-    child: Text(
-      count > 9 ? '9+' : '$count',
-      style: const TextStyle(fontFamily: 'Poppins', fontSize: 10,
-          fontWeight: FontWeight.w800, color: Colors.white, height: 1.0),
-    ),
-  );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -981,7 +1005,8 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
         // show up in the Upcoming Events tile indistinguishable from a
         // real, student-visible event.
         client.from('events')
-            .select('event_id, title, event_status, event_date, start_time, current_participants, organizers(full_name)')
+            .select('event_id, title, event_status, approval_status, archived_at, event_date, '
+                'end_date, start_time, end_time, current_participants, organizers(full_name)')
             .eq('approval_status', 'approved')
             .order('event_date', ascending: true),
       ]);
@@ -1016,27 +1041,16 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       final orgActive     = orgs.where((o) => o['is_active'] == true).length;
 
       // ── Event stats ───────────────────────────────────────────────────
-      var upcomingCount = 0;
-      final upcomingList = <Map<String, dynamic>>[];
-
-      for (final e in events) {
-        final s    = (e['event_status'] as String? ?? 'unknown').toLowerCase();
-        final dStr = e['event_date'] as String?;
-        if (s == 'upcoming' || s == 'ongoing') {
-          upcomingCount++;
-          if (dStr != null) {
-            try {
-              final d    = DateTime.parse(dStr);
-              final dMid = DateTime(d.year, d.month, d.day);
-              if (!dMid.isBefore(todayMid)) upcomingList.add(e);
-            } catch (_) {}
-          }
-        }
-      }
+      // By the clock: the stored event_status only records a cancellation,
+      // so it says "upcoming" for ended (and archived) events too.
+      final upcomingList  = upcomingApprovedEvents(events);
+      final upcomingCount = upcomingList.length;
 
       // ── Registration stats ────────────────────────────────────────────
       final checkedInTotal = statsRegs.where((r) => r['status'] == 'checked_in').length;
-      final checkInRate    = statsRegs.isEmpty ? 0.0 : checkedInTotal / statsRegs.length * 100;
+      // Declined registrations don't count as registered (countsAsRegistered).
+      final countedRegs    = statsRegs.where(countsAsRegistered).length;
+      final checkInRate    = countedRegs == 0 ? 0.0 : checkedInTotal / countedRegs * 100;
 
       final weeklyRegs  = List<double>.filled(7, 0);
       final monthlyRegs = List<double>.filled(30, 0);
@@ -1878,7 +1892,8 @@ class _UpcomingEventTile extends StatelessWidget {
     final t       = WebTk(Theme.of(context).brightness == Brightness.dark);
     final title   = event['title']         as String? ?? '—';
     final dStr    = event['event_date']    as String?;
-    final status  = (event['event_status'] as String? ?? '').toLowerCase();
+    // By the clock (the stored status is 'upcoming' even while it's on).
+    final status  = eventStatusValue(event);
     final orgName = (event['organizers']   as Map<String, dynamic>?)?['full_name'] as String? ?? '—';
     final rawTime = event['start_time']    as String?;
     String timeLabel = '';

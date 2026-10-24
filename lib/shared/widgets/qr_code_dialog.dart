@@ -173,6 +173,15 @@ class QRCodeDialog extends StatelessWidget {
   final EventRegistration registration;
   const QRCodeDialog({required this.registration, super.key});
 
+  // Tickets scanned at the door while the app is open — fed by the student
+  // dashboard's live registration updates; an open ticket shows "scanned".
+  static final ValueNotifier<Set<String>> _scanned = ValueNotifier<Set<String>>(const {});
+
+  static void markScanned(String registrationId) {
+    if (_scanned.value.contains(registrationId)) return;
+    _scanned.value = {..._scanned.value, registrationId};
+  }
+
   static void show(BuildContext context, EventRegistration registration) {
     showModalBottomSheet(
       context: context,
@@ -180,11 +189,6 @@ class QRCodeDialog extends StatelessWidget {
       backgroundColor: Colors.transparent,
       builder: (_) => QRCodeDialog(registration: registration),
     );
-  }
-
-  String get _shortId {
-    final id = registration.registrationId;
-    return id.length > 10 ? '#…${id.substring(id.length - 8)}' : '#$id';
   }
 
   String _fmtDate(DateTime d) {
@@ -222,6 +226,19 @@ class QRCodeDialog extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   _buildHeader(t),
+                  ValueListenableBuilder<Set<String>>(
+                    valueListenable: _scanned,
+                    builder: (_, scanned, _) => AnimatedSize(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOut,
+                      child: scanned.contains(registration.registrationId)
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 14),
+                              child: _ScannedBanner(t: t),
+                            )
+                          : const SizedBox(width: double.infinity),
+                    ),
+                  ),
                   const SizedBox(height: 20),
                   _buildQRSection(t),
                   const SizedBox(height: 14),
@@ -421,8 +438,60 @@ class QRCodeDialog extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(height: 18),
+          _Perforation(color: t.border),
+          const SizedBox(height: 14),
+          _buildTicketStub(t),
         ],
       ),
+    );
+  }
+
+  // ── Ticket stub — the Ticket ID, big enough to read off the screen ─────────
+
+  Widget _buildTicketStub(AppTk t) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'TICKET ID',
+                style: TextStyle(
+                  fontFamily:    'Poppins',
+                  fontSize:      10,
+                  fontWeight:    FontWeight.w800,
+                  color:         t.muted,
+                  letterSpacing: 1.4,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'QR won’t scan? The organizer can type this instead.',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize:   11,
+                  color:      t.sub,
+                  height:     1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 14),
+        Text(
+          registration.ticketCode,
+          style: TextStyle(
+            fontFamily:    'Poppins',
+            fontSize:      30,
+            fontWeight:    FontWeight.w800,
+            color:         t.text,
+            letterSpacing: 3,
+            height:        1.1,
+          ),
+        ),
+      ],
     );
   }
 
@@ -454,17 +523,11 @@ class QRCodeDialog extends StatelessWidget {
             ),
           ),
           Divider(height: 1, thickness: 1, color: t.divider),
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(child: _InfoCell(icon: Icons.calendar_today_rounded, label: 'Registered On',
-                    value: _fmtDate(registration.registrationDate), t: t)),
-                VerticalDivider(width: 1, thickness: 1, color: t.divider),
-                Expanded(child: _InfoCell(icon: Icons.confirmation_num_rounded, label: 'Ticket ID',
-                    value: _shortId, t: t, mono: true)),
-              ],
-            ),
+          // The Ticket ID already sits big under the QR, so it isn't repeated.
+          SizedBox(
+            width: double.infinity,
+            child: _InfoCell(icon: Icons.calendar_today_rounded, label: 'Registered On',
+                value: _fmtDate(registration.registrationDate), t: t),
           ),
         ],
       ),
@@ -489,7 +552,7 @@ class QRCodeDialog extends StatelessWidget {
           Expanded(
             child: Text(
               'Show this QR code at the event entrance. '
-              'Do not share it — this ticket is uniquely tied to your registration.',
+              'Don’t share it or your Ticket ID — both are tied to your registration.',
               style: TextStyle(
                 fontFamily: 'Poppins',
                 fontSize:   11.5,
@@ -550,6 +613,85 @@ class QRCodeDialog extends StatelessWidget {
 // ══════════════════════════════════════════════════════════════════════════════
 // Sub-widgets
 // ══════════════════════════════════════════════════════════════════════════════
+
+/// "Ticket scanned" — shown on the open ticket the moment the organizer scans
+/// it (with a chime + vibration from ScanFeedback.ticketScanned).
+class _ScannedBanner extends StatelessWidget {
+  final AppTk t;
+  const _ScannedBanner({required this.t});
+
+  @override
+  Widget build(BuildContext context) {
+    const green = Color(0xFF16A34A);
+    final text = t.dark ? const Color(0xFF4ADE80) : const Color(0xFF15803D);
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: green.withValues(alpha: t.dark ? 0.16 : 0.10),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: green.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: text, size: 24),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Ticket scanned',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
+                        fontWeight: FontWeight.w700, color: text)),
+                  const SizedBox(height: 1),
+                  Text('Stay here — you’ll be asked for a check-in photo next.',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                        color: t.sub, height: 1.4)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// The dashed "tear here" line above the ticket stub.
+class _Perforation extends StatelessWidget {
+  final Color color;
+  const _Perforation({required this.color});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width:  double.infinity,
+        height: 1.5,
+        child:  CustomPaint(painter: _DashPainter(color)),
+      );
+}
+
+class _DashPainter extends CustomPainter {
+  final Color color;
+  const _DashPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color       = color
+      ..strokeWidth = size.height
+      ..strokeCap   = StrokeCap.round;
+    const dash = 6.0, gap = 5.0;
+    final y = size.height / 2;
+    for (var x = 0.0; x < size.width; x += dash + gap) {
+      canvas.drawLine(Offset(x, y), Offset((x + dash).clamp(0.0, size.width), y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashPainter old) => old.color != color;
+}
 
 class _InfoCell extends StatelessWidget {
   final IconData icon;

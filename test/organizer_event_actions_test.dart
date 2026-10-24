@@ -2,9 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eventhub/core/app_colors.dart';
 import 'package:eventhub/shared/utils/realtime_utils.dart';
 
-// The organizer action rules shared by the app (and matching the web Events
-// table): edit upcoming / cancelled events, cancel any approved event that
-// hasn't ended (ongoing included), restore a cancelled one before it ends.
+// The organizer action rules shared by the app and the web Events table:
+// edit upcoming / cancelled events (and rejected ones at any time), cancel any
+// approved event that hasn't ended (ongoing included), restore a cancelled one
+// before it ends, delete anything but an ended live event or an archived one.
 
 String _two(int n) => n.toString().padLeft(2, '0');
 String _date(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
@@ -81,10 +82,50 @@ void main() {
             (edit: true, cancel: false, restore: false));
       });
     }
+
+    // Rejected events can be given a new date and resubmitted however long
+    // ago the old one was. A pending event that reached its start counts as
+    // rejected (not reviewed in time).
+    for (final approval in ['rejected', 'pending']) {
+      test('$approval + start passed: still editable', () {
+        expect(rules(_event(start: ongoing.start, end: ongoing.end, approval: approval)),
+            (edit: true, cancel: false, restore: false));
+        expect(rules(_event(start: ended.start, end: ended.end, approval: approval)),
+            (edit: true, cancel: false, restore: false));
+      });
+    }
+  });
+
+  group('delete', () {
+    test('approved: until it ends', () {
+      expect(organizerCanDeleteEvent(_event(start: upcoming.start, end: upcoming.end)), isTrue);
+      expect(organizerCanDeleteEvent(_event(start: ongoing.start, end: ongoing.end)), isTrue);
+      expect(organizerCanDeleteEvent(_event(start: ended.start, end: ended.end)), isFalse);
+    });
+
+    test('never went live: any time', () {
+      for (final approval in ['pending', 'rejected']) {
+        expect(organizerCanDeleteEvent(
+            _event(start: ended.start, end: ended.end, approval: approval)), isTrue);
+      }
+    });
+
+    test('cancelled: any time (registrations block it separately)', () {
+      expect(organizerCanDeleteEvent(
+          _event(start: ended.start, end: ended.end, status: 'cancelled')), isTrue);
+    });
+
+    test('archived: never', () {
+      expect(organizerCanDeleteEvent(
+          _event(start: upcoming.start, end: upcoming.end, approval: 'rejected', archived: true)),
+          isFalse);
+    });
   });
 
   test('archived events allow nothing', () {
     expect(rules(_event(start: ended.start, end: ended.end, archived: true)),
+        (edit: false, cancel: false, restore: false));
+    expect(rules(_event(start: ended.start, end: ended.end, approval: 'rejected', archived: true)),
         (edit: false, cancel: false, restore: false));
     expect(rules(_event(start: upcoming.start, end: upcoming.end, status: 'cancelled', archived: true)),
         (edit: false, cancel: false, restore: false));

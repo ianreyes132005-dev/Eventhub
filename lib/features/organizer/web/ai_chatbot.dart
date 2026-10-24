@@ -280,6 +280,51 @@ class _ChatPanel extends StatelessWidget {
     required this.onRetry,
   });
 
+  List<String> _followUpQuestions(String question) {
+    final q = question.toLowerCase();
+    List<String> preferred = const [];
+
+    if (q.contains('qr') || q.contains('check in') || q.contains('check-in')) {
+      preferred = const [
+        'What happens after a QR code is scanned?',
+        'Why can’t I check in a student?',
+      ];
+    } else if (q.contains('pending') || q.contains('approv')) {
+      preferred = const [
+        'Can I edit an approved event?',
+        'How do I cancel an event?',
+      ];
+    } else if (q.contains('creat') || q.contains('new event')) {
+      preferred = const [
+        'Why is my event still pending?',
+        'Can I edit an approved event?',
+      ];
+    } else if (q.contains('announcement')) {
+      preferred = const [
+        'How do I create an event?',
+        'Why is my event still pending?',
+      ];
+    } else if (q.contains('export') || q.contains('attendance')) {
+      preferred = const [
+        'How do I check students in?',
+        'How do I cancel an event?',
+      ];
+    }
+
+    final selected = <String>[];
+    for (final suggestion in [
+      ...preferred,
+      ..._kOrgSuggestions.map((item) => item.text),
+    ]) {
+      if (suggestion.toLowerCase() == q || selected.contains(suggestion)) {
+        continue;
+      }
+      selected.add(suggestion);
+      if (selected.length == 2) break;
+    }
+    return selected;
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
@@ -503,8 +548,91 @@ class _ChatPanel extends StatelessWidget {
       itemCount: history.length + (sending ? 1 : 0),
       itemBuilder: (_, i) {
         if (sending && i == history.length) return const _TypingBubble();
-        return _MessageBubble(msg: history[i]);
+        final msg = history[i];
+        final isLatestAnswer = i == history.length - 1 &&
+            msg.role == 'assistant' &&
+            !msg.isError &&
+            !sending;
+        final previousQuestion = isLatestAnswer ? _questionBefore(i) : null;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _MessageBubble(msg: msg),
+            if (isLatestAnswer && previousQuestion != null)
+              _buildFollowUpQuestions(
+                _followUpQuestions(previousQuestion),
+                t,
+              ),
+          ],
+        );
       },
+    );
+  }
+
+  String? _questionBefore(int messageIndex) {
+    for (var i = messageIndex - 1; i >= 0; i--) {
+      if (history[i].role == 'user') return history[i].content;
+    }
+    return null;
+  }
+
+  Widget _buildFollowUpQuestions(List<String> questions, WebTk t) {
+    if (questions.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(left: 36, right: 12, bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.auto_awesome_rounded, color: kGold, size: 12),
+              const SizedBox(width: 5),
+              Text(
+                'You can also ask',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w600,
+                  color: t.muted,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: questions.map((question) => Material(
+              color: t.card,
+              borderRadius: BorderRadius.circular(15),
+              child: InkWell(
+                onTap: sending ? null : () => onSendText(question),
+                borderRadius: BorderRadius.circular(15),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: kGold.withValues(alpha: 0.30)),
+                  ),
+                  child: Text(
+                    question,
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: t.text,
+                    ),
+                  ),
+                ),
+              ),
+            )).toList(),
+          ),
+        ],
+      ),
     );
   }
 

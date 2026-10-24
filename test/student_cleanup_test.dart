@@ -25,6 +25,9 @@ void main() {
       expect(privacy, contains('does not ask for your email address'));
       expect(privacy, contains('LRN'));
       expect(privacy, contains('Event organizers'));
+      // Organizers only see their own events' registrations (202610230002).
+      expect(privacy, contains('only the organizer of an event you register for'));
+      expect(terms, contains('that event’s organizer'));
       expect(privacy, contains('school administrator'));
       // The profile photo is stored behind a link anyone who has it can open.
       expect(privacy, contains('anyone who has the photo’s link can open it'));

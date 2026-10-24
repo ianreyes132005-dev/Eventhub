@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'check_in_countdown.dart';
 import 'scan_confirm_screen.dart';
+import 'ticket_entry_dialog.dart';
 import 'package:eventhub/core/services/registration_service.dart';
+import 'package:eventhub/core/services/scan_feedback.dart';
 import '../../../../core/app_colors.dart';
 import '../../../../core/friendly_error.dart';
 import '../../../../shared/widgets/error_alert.dart';
@@ -74,156 +77,19 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     HapticFeedback.lightImpact();
   }
 
-  void _showManualEntry() {
+  // "Type Ticket ID": the 4-digit code under the student's QR, for a ticket
+  // the camera can't read. Scanning pauses while the box and the confirm
+  // screen are open, so a stray scan can't pop up over them.
+  Future<void> _showManualEntry() async {
     HapticFeedback.lightImpact();
-    final ctrl = TextEditingController();
-    showDialog<void>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.7),
-      builder: (ctx) => Dialog(
-        backgroundColor: const Color(0xFF1C1814),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: kGold.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.keyboard_rounded,
-                      color: kGold,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'Enter Code Manually',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Paste or type the registration ID',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 12,
-                  color: Colors.white.withValues(alpha: 0.5),
-                ),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: ctrl,
-                autofocus: true,
-                style: const TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 14,
-                  color: Colors.white,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'e.g. a1b2c3d4-…',
-                  hintStyle: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 13,
-                    color: Colors.white.withValues(alpha: 0.3),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white.withValues(alpha: 0.07),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: kGold, width: 1.5),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.18),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white60,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        final code = ctrl.text.trim();
-                        if (code.isEmpty) return;
-                        Navigator.pop(ctx);
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => ScanConfirmScreen(qrCode: code),
-                          ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: kGold,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: const Text(
-                        'Look Up',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    setState(() => _scanning = false);
+    final qrValue = await showTicketEntryDialog(context);
+    if (mounted && qrValue != null) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => ScanConfirmScreen(qrCode: qrValue)),
+      );
+    }
+    if (mounted) setState(() => _scanning = true);
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
@@ -375,7 +241,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                             child: FilledButton.icon(
                               onPressed: _showManualEntry,
                               icon: const Icon(Icons.keyboard_rounded),
-                              label: const Text('Enter code'),
+                              label: const Text('Type Ticket ID'),
                               style: FilledButton.styleFrom(
                                 backgroundColor: kGold,
                                 foregroundColor: const Color(0xFF211A0D),
@@ -425,6 +291,9 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
   bool _confirming = false;
   String? _error;
   bool    _windowClosed = false;   // valid ticket, but check-in isn't open
+  DateTime? _opensAt;              // …yet — when it opens (counted down to)
+  bool    _opened = false;         // that countdown has reached zero
+  String  _who = '';               // "Student · Event", for the open message
 
   @override
   void initState() {
@@ -432,13 +301,16 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
     _load();
   }
 
+  // Vibrate only once EventHub has checked the ticket (see ScanFeedback).
   Future<void> _load() async {
     try {
       final reg = await RegistrationService.getByQRCode(widget.qrCode);
       if (reg == null) {
+        ScanFeedback.blocked();
         if (mounted)
           setState(() {
-            _error = 'No registration found for this QR code.';
+            // Organizers only see their own events' tickets (RLS).
+            _error = 'This QR code isn’t a ticket for any of your events.';
             _loading = false;
           });
         return;
@@ -447,13 +319,16 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
       // 2 h after end) and never for a cancelled event. Finished
       // registrations (submitted / checked in / rejected) can still be viewed.
       if (const {'pending', 'qr_scanned', 'photo_required'}.contains(reg['status'])) {
-        final problem = await RegistrationService.checkInProblem(reg['event_id'] as String?);
-        if (problem != null) {
+        final window = await RegistrationService.checkInWindow(reg['event_id'] as String?);
+        if (window.problem != null) {
+          ScanFeedback.blocked();
           if (mounted) {
             setState(() {
               _windowClosed = true;
-              _error = '${reg['student_name'] ?? 'This student'} · '
-                  '${reg['event_title'] ?? 'this event'}\n\n$problem';
+              _opensAt = window.opensAt;
+              _who = '${reg['student_name'] ?? 'This student'} · '
+                  '${reg['event_title'] ?? 'this event'}';
+              _error = '$_who\n\n${window.problem}';
               _loading = false;
             });
           }
@@ -467,6 +342,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
         );
         reg['status'] = 'qr_scanned';
       }
+      ScanFeedback.forStatus(reg['status'] as String?);
       if (mounted)
         setState(() {
           _reg = reg;
@@ -474,6 +350,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
         });
     } catch (e) {
       debugPrint('QR check failed: $e');
+      ScanFeedback.blocked();
       if (mounted)
         setState(() {
           _error = friendlyError(e,
@@ -481,6 +358,18 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
           _loading = false;
         });
     }
+  }
+
+  /// The countdown reached zero — check the same ticket again, as a re-scan would.
+  void _recheck() {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _windowClosed = false;
+      _opensAt = null;
+      _opened = false;
+    });
+    _load();
   }
 
   Future<void> _confirm() async {
@@ -560,14 +449,22 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              color: Colors.red.withValues(alpha: 0.12),
+              color: (_opened ? const Color(0xFF16A34A) : Colors.red).withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: const Icon(Icons.qr_code_2, color: Colors.red, size: 28),
+            child: _opened
+                ? const Icon(Icons.lock_open_rounded, color: Color(0xFF16A34A), size: 28)
+                : const Icon(Icons.qr_code_2, color: Colors.red, size: 28),
           ),
           const SizedBox(height: 14),
           Text(
-            _windowClosed ? 'Check-in isn’t open' : 'Invalid QR Code',
+            !_windowClosed
+                ? 'Invalid QR Code'
+                : _opened
+                ? 'Check-in is open'
+                : _opensAt != null
+                ? 'Check-in isn’t open yet'
+                : 'Check-in isn’t open',
             style: const TextStyle(
               fontFamily: 'Poppins',
               fontWeight: FontWeight.w700,
@@ -577,7 +474,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
           ),
           const SizedBox(height: 6),
           Text(
-            _error!,
+            _opened ? '$_who\n\n$kCheckInJustOpened' : _error!,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'Poppins',
@@ -586,7 +483,43 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
               height: 1.55,
             ),
           ),
+          if (_opensAt != null && !_opened) ...[
+            const SizedBox(height: 16),
+            CheckInCountdown(
+              opensAt: _opensAt!,
+              onOpened: () => setState(() => _opened = true),
+              textColor: Colors.white,
+              accentColor: kGold,
+            ),
+          ],
           const SizedBox(height: 22),
+          if (_opened) ...[
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _recheck,
+                icon: const Icon(Icons.how_to_reg_rounded, size: 18),
+                label: const Text(
+                  'Continue Check-In',
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF16A34A),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  elevation: 0,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(
@@ -770,18 +703,42 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
             ),
           )
         : const Icon(Icons.camera_alt_rounded, size: 18),
-    label: Text(
-      _confirming ? 'Opening camera…' : 'Confirm — Open Student Camera',
-      style: const TextStyle(
-        fontFamily: 'Poppins',
-        fontWeight: FontWeight.w700,
-        fontSize: 14,
-      ),
-    ),
+    // "Confirm — request to open student camera", on two lines: the
+    // student's phone asks them to allow the photo before the camera opens.
+    label: _confirming
+        ? const Text(
+            'Sending request…',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+            ),
+          )
+        : const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Confirm',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
+              Text(
+                'Request to open student camera',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontWeight: FontWeight.w500,
+                  fontSize: 11.5,
+                ),
+              ),
+            ],
+          ),
     style: ElevatedButton.styleFrom(
       backgroundColor: const Color(0xFF16A34A),
       foregroundColor: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 15),
+      padding: const EdgeInsets.symmetric(vertical: 11),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       elevation: 0,
     ),
@@ -808,7 +765,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Student dismissed the camera. Tap below to re-open it.',
+                'No photo yet — the student may have tapped “Not now” or closed the camera. Tap below to ask again.',
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 11.5,
@@ -833,7 +790,7 @@ class _ScanResultSheetState extends State<_ScanResultSheet> {
               )
             : const Icon(Icons.refresh_rounded, size: 18),
         label: Text(
-          _confirming ? 'Re-opening camera…' : 'Re-open Student Camera',
+          _confirming ? 'Sending request…' : 'Request Photo Again',
           style: const TextStyle(
             fontFamily: 'Poppins',
             fontWeight: FontWeight.w700,

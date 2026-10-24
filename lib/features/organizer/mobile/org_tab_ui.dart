@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/app_colors.dart';
 
+export '../../../shared/widgets/compact_filter_menu.dart';
+
 // The shared look of the organizer app's list tabs (Events, Registrations):
 // the header, search field, pinned filter chips, buttons and the empty /
 // error message. Purely visual — each tab keeps its own data, filters and
@@ -18,25 +20,31 @@ Color goldText(AppTk t) => t.dark ? kGold : const Color(0xFF8A6516);
 const double kOrgFilterBarHeight = 56;
 
 ButtonStyle _primaryStyle() => FilledButton.styleFrom(
-      backgroundColor: kGold,
-      foregroundColor: kOnGold,
-      minimumSize: const Size(0, 46),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      textStyle: const TextStyle(
-          fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700),
-    );
+  backgroundColor: kGold,
+  foregroundColor: kOnGold,
+  minimumSize: const Size(0, 46),
+  padding: const EdgeInsets.symmetric(horizontal: 16),
+  elevation: 0,
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  textStyle: const TextStyle(
+    fontFamily: 'Poppins',
+    fontSize: 14,
+    fontWeight: FontWeight.w700,
+  ),
+);
 
 ButtonStyle _secondaryStyle(AppTk t) => OutlinedButton.styleFrom(
-      foregroundColor: t.text,
-      minimumSize: const Size(0, 46),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      side: BorderSide(color: orgOutlineColor(t), width: 1.4),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      textStyle: const TextStyle(
-          fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700),
-    );
+  foregroundColor: t.text,
+  minimumSize: const Size(0, 46),
+  padding: const EdgeInsets.symmetric(horizontal: 16),
+  side: BorderSide(color: orgOutlineColor(t), width: 1.4),
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  textStyle: const TextStyle(
+    fontFamily: 'Poppins',
+    fontSize: 14,
+    fontWeight: FontWeight.w700,
+  ),
+);
 
 /// The border of [OrgSecondaryButton] and other outlined controls.
 Color orgOutlineColor(AppTk t) =>
@@ -56,11 +64,11 @@ class OrgPrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => FilledButton.icon(
-        onPressed: onPressed,
-        style: _primaryStyle(),
-        icon: Icon(icon, size: 18),
-        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-      );
+    onPressed: onPressed,
+    style: _primaryStyle(),
+    icon: Icon(icon, size: 18),
+    label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+  );
 }
 
 /// A quieter, outlined action next to [OrgPrimaryButton].
@@ -79,11 +87,11 @@ class OrgSecondaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => OutlinedButton.icon(
-        onPressed: onPressed,
-        style: _secondaryStyle(t),
-        icon: Icon(icon, size: 18, color: t.sub),
-        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-      );
+    onPressed: onPressed,
+    style: _secondaryStyle(t),
+    icon: Icon(icon, size: 18, color: t.sub),
+    label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+  );
 }
 
 // ── Header ──────────────────────────────────────────────────────────────────
@@ -132,10 +140,7 @@ class OrgTabHeader extends StatelessWidget {
               ),
             ),
           ),
-          if (action != null) ...[
-            const SizedBox(width: 12),
-            action!,
-          ],
+          if (action != null) ...[const SizedBox(width: 12), action!],
         ],
       ),
     );
@@ -162,9 +167,9 @@ class OrgSearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     OutlineInputBorder border(Color c, double w) => OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: c, width: w),
-        );
+      borderRadius: BorderRadius.circular(14),
+      borderSide: BorderSide(color: c, width: w),
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
       child: TextField(
@@ -175,7 +180,10 @@ class OrgSearchField extends StatelessWidget {
         decoration: InputDecoration(
           hintText: hint,
           hintStyle: TextStyle(
-              fontFamily: 'Poppins', fontSize: 13.5, color: t.muted),
+            fontFamily: 'Poppins',
+            fontSize: 13.5,
+            color: t.muted,
+          ),
           prefixIcon: Icon(Icons.search_rounded, color: t.muted, size: 22),
           suffixIcon: controller.text.isNotEmpty
               ? IconButton(
@@ -210,8 +218,11 @@ class OrgFilterBarDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => kOrgFilterBarHeight;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) =>
-      builder(shrinkOffset > 0 || overlapsContent);
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) => builder(shrinkOffset > 0 || overlapsContent);
 
   @override
   bool shouldRebuild(covariant OrgFilterBarDelegate oldDelegate) => true;
@@ -343,7 +354,10 @@ class _FilterChip extends StatelessWidget {
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOut,
             height: 36,
-            padding: EdgeInsets.only(left: selected || icon != null ? 12 : 14, right: 8),
+            padding: EdgeInsets.only(
+              left: selected || icon != null ? 12 : 14,
+              right: 8,
+            ),
             decoration: BoxDecoration(
               color: selected ? accent.withValues(alpha: 0.08) : t.inputBg,
               borderRadius: BorderRadius.circular(18),
@@ -374,9 +388,14 @@ class _FilterChip extends StatelessWidget {
                 const SizedBox(width: 6),
                 Container(
                   constraints: const BoxConstraints(minWidth: 22),
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
-                    color: selected ? accent.withValues(alpha: 0.15) : t.divider,
+                    color: selected
+                        ? accent.withValues(alpha: 0.15)
+                        : t.divider,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
@@ -406,6 +425,7 @@ class OrgMessage extends StatelessWidget {
   final String title;
   final String message;
   final Widget? action;
+
   /// Red tint for errors; gold otherwise.
   final bool isError;
   final AppTk t;
@@ -461,10 +481,7 @@ class OrgMessage extends StatelessWidget {
               height: 1.55,
             ),
           ),
-          if (action != null) ...[
-            const SizedBox(height: 22),
-            action!,
-          ],
+          if (action != null) ...[const SizedBox(height: 22), action!],
         ],
       ),
     );

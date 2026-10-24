@@ -185,8 +185,7 @@ class _AttendanceExportDialogState extends State<_AttendanceExportDialog> {
         const SizedBox(width: 8),
         _stat(t, '${rec.present}', 'Present', const Color(0xFF16A34A)),
         const SizedBox(width: 8),
-        _stat(t, '${rec.count(AttendanceMark.absent) + rejected}',
-            rejected > 0 ? 'Absent / rejected' : 'Absent', const Color(0xFFEF4444)),
+        _stat(t, '${rec.count(AttendanceMark.absent)}', 'Absent', const Color(0xFFEF4444)),
         const SizedBox(width: 8),
         _stat(t, '${(rec.rate * 100).round()}%', 'Attendance', const Color(0xFF3B82F6)),
       ]),
@@ -197,7 +196,13 @@ class _AttendanceExportDialogState extends State<_AttendanceExportDialog> {
             'Students who check in after you export won’t be in this file — '
             'export again after that for the final record.'),
       ],
-      if (rec.registered == 0) ...[
+      if (rejected > 0) ...[
+        const SizedBox(height: 12),
+        _note(t, Icons.block_rounded, t.muted,
+            '$rejected rejected registration${rejected == 1 ? ' is' : 's are'} in the file '
+            'too, marked Rejected. They don’t count as registered.'),
+      ],
+      if (rec.rows.isEmpty) ...[
         const SizedBox(height: 12),
         _note(t, Icons.info_outline_rounded, t.muted,
             'No students registered for this event. The file will contain the event '
