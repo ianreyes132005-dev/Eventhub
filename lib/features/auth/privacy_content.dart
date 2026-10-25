@@ -67,6 +67,6 @@ const eventHubPrivacy = <({IconData icon, String title, String body})>[
   (
     icon: Icons.mail_outline_rounded,
     title: 'Questions',
-    body: 'For questions about your information or this policy, contact your school administrator.',
+    body: 'For questions about your information or this policy, contact your school administrator or email Ianreyes132005@gmail.com.',
   ),
 ];

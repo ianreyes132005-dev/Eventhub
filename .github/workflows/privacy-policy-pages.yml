@@ -1,0 +1,40 @@
+name: Deploy privacy policy
+
+on:
+  push:
+    branches:
+      - deploy-prep
+    paths:
+      - .github/workflows/privacy-policy-pages.yml
+      - web/privacy.html
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: privacy-policy-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Prepare privacy policy site
+        run: |
+          mkdir -p public
+          cp web/privacy.html public/privacy.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
