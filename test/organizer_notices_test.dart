@@ -44,6 +44,17 @@ void main() {
       expect(first.single.id, isNot(second.single.id));
     });
 
+    test('normalizes repeated trailing periods in rejection reasons', () {
+      final n = OrganizerNotices.eventDecisions([
+        event('a', 'rejected',
+            reviewedAt: ago(const Duration(hours: 1)), reason: 'Fix the venue..'),
+      ], now: now);
+
+      expect(n.single.message,
+          '“Science Fair” was rejected. Reason: Fix the venue. '
+          'Edit the event and resubmit it for review.');
+    });
+
     test('once its date has passed: resubmit with a new date', () {
       final n = OrganizerNotices.eventDecisions([
         event('a', 'rejected', reviewedAt: ago(const Duration(hours: 1)), date: '2020-01-10'),

@@ -160,7 +160,7 @@ class _SelfieScreenState extends State<SelfieScreen> {
         (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
-      _controller = CameraController(cam, ResolutionPreset.medium);
+      _controller = CameraController(cam, ResolutionPreset.medium, enableAudio: false);
       await _controller!.initialize();
       if (mounted) setState(() => _cameraReady = true);
     } catch (e) {

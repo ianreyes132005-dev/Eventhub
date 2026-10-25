@@ -350,16 +350,15 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   // ── Loading ───────────────────────────────────────────────────────────────
 
   Widget _buildLoading(AppTk t) {
-    return SingleChildScrollView(
-      physics: const NeverScrollableScrollPhysics(),
-      child: Column(
-        children: [
-          _buildHeader(t),
-          _buildSearchBar(t),
-          const SizedBox(height: 8),
-          const AppShimmerList(itemCount: 4, hasAvatar: false, hasImage: true),
-        ],
-      ),
+    return Column(
+      children: [
+        _buildHeader(t),
+        _buildSearchBar(t),
+        const SizedBox(height: 8),
+        const Expanded(
+          child: AppShimmerList(itemCount: 4, hasAvatar: false, hasImage: true),
+        ),
+      ],
     );
   }
 

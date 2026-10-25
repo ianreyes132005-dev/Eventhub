@@ -1034,7 +1034,7 @@ class _WebAuthScreenState extends State<WebAuthScreen>
           ),
           const SizedBox(height: 6),
           Text(
-            'Â© ${DateTime.now().year} J-Jireh EventHub · All rights reserved',
+            '© ${DateTime.now().year} J-Jireh EventHub · All rights reserved',
             style: const TextStyle(
               fontFamily: 'Poppins',
               fontSize: 10.5,

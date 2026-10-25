@@ -263,8 +263,9 @@ class OrganizerNotices {
   static String _reason(Object? reason) {
     final r = _text(reason);
     if (r == null) return '';
-    final end = RegExp(r'[.!?]$').hasMatch(r) ? '' : '.';
-    return ' Reason: $r$end';
+    final normalized = r.replaceFirst(RegExp(r'\.{2,}$'), '.');
+    final end = RegExp(r'[.!?]$').hasMatch(normalized) ? '' : '.';
+    return ' Reason: $normalized$end';
   }
 }
 

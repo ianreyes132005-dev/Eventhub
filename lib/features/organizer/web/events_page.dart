@@ -43,6 +43,11 @@ String _resolveDisplayStatus(Map<String, dynamic> event) {
   return eventStatusValue(event);
 }
 
+TimeOfDay _suggestedEndTime(TimeOfDay? start) {
+  if (start == null) return const TimeOfDay(hour: 17, minute: 0);
+  return TimeOfDay(hour: (start.hour + 1) % 24, minute: start.minute);
+}
+
 // End date / time accent. Not red: on the event form red only means an error.
 const _kEndAccent = Color(0xFF4F46E5);
 
@@ -542,7 +547,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     // Live counts per status — displayed as badges on each chip so the
     // organizer sees event distribution at a glance without filtering.
     final active = _events.where((e) => !eventIsArchived(e));
-    final scheduled = active.where((e) => approvalStatusOf(e) != 'rejected');
+    final scheduled = active.where(eventIsApproved);
     final counts = <String, int>{
       'All':       active.length,
       'Upcoming':  scheduled.where((e) => _resolveDisplayStatus(e) == 'upcoming').length,
@@ -1005,6 +1010,10 @@ class _EventDialogState extends State<_EventDialog> {
               borderSide: BorderSide(color: formErrorColor(t.dark), width: 2)));
 
   bool get _isEdit => widget.existing != null;
+  bool get _isRejected =>
+      widget.existing?['approval_status'] == 'rejected';
+  String get _rejectionReason =>
+      rejectionReasonOf(widget.existing ?? const {})?.trim() ?? '';
 
   // Tracks the 5 most important required fields so the progress bar animates
   // as the organizer fills in the form.  Each field counts as 1/5 = 20%.
@@ -1443,6 +1452,26 @@ class _EventDialogState extends State<_EventDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (_isRejected) ...[
+                      _DialogSection(
+                        icon: Icons.block_rounded,
+                        iconBg: const Color(0x1AEF4444),
+                        iconColor: const Color(0xFFEF4444),
+                        title: 'Rejected by Admin',
+                        child: Text(
+                          _rejectionReason.isNotEmpty
+                              ? _rejectionReason
+                              : 'No rejection reason was provided.',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 13,
+                            color: t.text,
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     if (errs.isNotEmpty) ...[
                       FormErrorSummary<EventFormField>(
                         key: _summaryKey,
@@ -1753,9 +1782,11 @@ class _EventDialogState extends State<_EventDialog> {
                       // Says what saving will do — approved events need the admin.
                       : Text(!_isEdit
                               ? 'Create Event'
-                              : EventChangeRequestService.needsApproval(widget.existing!)
-                                  ? 'Submit for Approval'
-                                  : 'Save Changes',
+                              : _isRejected
+                                  ? 'Save & Resubmit'
+                                  : EventChangeRequestService.needsApproval(widget.existing!)
+                                      ? 'Submit for Approval'
+                                      : 'Save Changes',
                           style: const TextStyle(
                             fontFamily: 'Poppins', fontWeight: FontWeight.w700,
                           )),
@@ -2259,7 +2290,9 @@ class _EventDialogState extends State<_EventDialog> {
     final wtk         = WebTk(Theme.of(context).brightness == Brightness.dark);
     final accentColor = showStart ? const Color(0xFF16A34A) : _kEndAccent;
     final label       = showStart ? 'Start Time' : 'End Time';
-    final initTime    = showStart ? _startTime   : _endTime;
+    final initTime    = showStart
+        ? _startTime
+        : _endTime ?? _suggestedEndTime(_startTime);
     final now         = DateTime.now();
     final isToday     = _date != null &&
         DateUtils.isSameDay(DateUtils.dateOnly(_date!), DateUtils.dateOnly(now));

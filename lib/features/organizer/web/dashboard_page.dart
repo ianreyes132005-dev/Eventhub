@@ -781,8 +781,11 @@ class _WebDashboardPageState extends State<WebDashboardPage>
     final totalRegistered      = _eventAttendance.fold<int>(0, (s, e) => s + (e['total']           as int));
     // Checked in out of registered. Capacity is now the whole student body,
     // so measuring against it would make a full event look poorly attended.
-    final rate = totalRegistered > 0 ? (totalCheckedIn / totalRegistered * 100).round() : 0;
-    final rateColor = rate >= 70
+    final hasRateData = totalRegistered > 0;
+    final rate = hasRateData ? (totalCheckedIn / totalRegistered * 100).round() : 0;
+    final rateColor = !hasRateData
+        ? t.muted
+        : rate >= 70
         ? const Color(0xFF16A34A)
         : rate >= 40
             ? kGold
@@ -822,7 +825,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
           Row(children: [
             _analyticsKpiChip(t: t, value: '$totalCheckedIn', label: 'Checked In', icon: Icons.check_circle_rounded, color: blue),
             const SizedBox(width: 10),
-            _analyticsKpiChip(t: t, value: '$rate%', label: 'Avg Rate', icon: Icons.trending_up_rounded, color: rateColor),
+            _analyticsKpiChip(t: t, value: hasRateData ? '$rate%' : '—', label: 'Avg Rate', icon: Icons.trending_up_rounded, color: rateColor),
           ]),
 
           if (_eventAttendance.isNotEmpty) ...[
@@ -832,7 +835,7 @@ class _WebDashboardPageState extends State<WebDashboardPage>
               children: [
                 Text('Overall attendance',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w500, color: t.sub)),
-                Text('$rate%',
+                Text(hasRateData ? '$rate%' : '—',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: rateColor)),
               ],
             ),
@@ -899,8 +902,11 @@ class _WebDashboardPageState extends State<WebDashboardPage>
         final checkedIn       = e['checkedIn']       as int;
         final title           = e['title']           as String;
         final dateLabel       = (e['label'] as String).replaceAll('\n', ' ');
-        final rate            = total > 0 ? (checkedIn / total * 100).round() : 0;
-        final rateColor       = rate >= 70 ? green : rate >= 40 ? kGold : red;
+        final hasRateData     = total > 0;
+        final rate            = hasRateData ? (checkedIn / total * 100).round() : 0;
+        final rateColor       = !hasRateData
+            ? t.muted
+            : rate >= 70 ? green : rate >= 40 ? kGold : red;
         final fraction        = total > 0 ? (checkedIn / total).clamp(0.0, 1.0) : 0.0;
 
         return Padding(
@@ -942,13 +948,13 @@ class _WebDashboardPageState extends State<WebDashboardPage>
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(color: rateColor.withValues(alpha: 0.25)),
                         ),
-                        child: Text('$rate%',
+                        child: Text(hasRateData ? '$rate%' : '—',
                           style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
                             fontWeight: FontWeight.w700, color: rateColor)),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        total > 0 ? '$checkedIn / $total' : '$checkedIn',
+                        total > 0 ? '$checkedIn / $total' : 'No registrations',
                         style: TextStyle(fontFamily: 'Poppins',
                           fontSize: 10, fontWeight: FontWeight.w500, color: t.muted)),
                     ],

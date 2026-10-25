@@ -1616,10 +1616,13 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       0,
       (sum, event) => sum + (event['total'] as int),
     );
-    final rate = totalRegistered > 0
+    final hasRateData = totalRegistered > 0;
+    final rate = hasRateData
         ? (totalCheckedIn / totalRegistered * 100).round()
         : 0;
-    final rateColor = rate >= 70
+    final rateColor = !hasRateData
+        ? t.muted
+        : rate >= 70
         ? const Color(0xFF16A34A)
         : rate >= 40
         ? kGold
@@ -1702,7 +1705,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                 Expanded(
                   child: _attendanceKpi(
                     t,
-                    value: '$rate%',
+                    value: hasRateData ? '$rate%' : '—',
                     label: 'Avg Rate',
                     icon: Icons.trending_up_rounded,
                     color: rateColor,
@@ -1725,7 +1728,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                     ),
                   ),
                   Text(
-                    '$rate%',
+                    hasRateData ? '$rate%' : '—',
                     style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 11,
@@ -1869,8 +1872,11 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
         final event = entry.value;
         final total = event['total'] as int;
         final checkedIn = event['checkedIn'] as int;
-        final eventRate = total > 0 ? (checkedIn / total * 100).round() : 0;
-        final eventRateColor = eventRate >= 70
+        final hasRateData = total > 0;
+        final eventRate = hasRateData ? (checkedIn / total * 100).round() : 0;
+        final eventRateColor = !hasRateData
+            ? t.muted
+            : eventRate >= 70
             ? green
             : eventRate >= 40
             ? kGold
@@ -1938,7 +1944,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                           ),
                         ),
                         child: Text(
-                          '$eventRate%',
+                          hasRateData ? '$eventRate%' : '—',
                           style: TextStyle(
                             fontFamily: 'Poppins',
                             fontSize: 10,
@@ -1949,7 +1955,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        total > 0 ? '$checkedIn / $total' : '$checkedIn',
+                        total > 0 ? '$checkedIn / $total' : 'No registrations',
                         style: TextStyle(
                           fontFamily: 'Poppins',
                           fontSize: 10,

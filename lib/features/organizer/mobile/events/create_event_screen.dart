@@ -319,11 +319,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _TimePickerSheet(
-        title: 'End Time', initialTime: _endTime, accentColor: _kEnd,
+        title: 'End Time',
+        initialTime: _endTime ?? _suggestedEndTime(),
+        accentColor: _kEnd,
         minTime: isToday ? TimeOfDay(hour: now.hour, minute: now.minute) : null,
       ),
     );
     if (t != null) setState(() => _endTime = t);
+  }
+
+  TimeOfDay _suggestedEndTime() {
+    final start = _startTime;
+    if (start == null) return const TimeOfDay(hour: 17, minute: 0);
+    return TimeOfDay(hour: (start.hour + 1) % 24, minute: start.minute);
   }
 
   // ── Banner ───────────────────────────────────────────────────────────────────

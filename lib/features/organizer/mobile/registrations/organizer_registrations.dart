@@ -763,16 +763,15 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   // ── Loading ───────────────────────────────────────────────────────────────
 
   Widget _buildLoadingState(AppTk t) {
-    return SingleChildScrollView(
-      physics: const NeverScrollableScrollPhysics(),
-      child: Column(
-        children: [
-          _buildPageHeader(t),
-          _buildSearchBar(t),
-          const SizedBox(height: 8),
-          const AppShimmerList(itemCount: 6, hasAvatar: true, hasImage: false),
-        ],
-      ),
+    return Column(
+      children: [
+        _buildPageHeader(t),
+        _buildSearchBar(t),
+        const SizedBox(height: 8),
+        const Expanded(
+          child: AppShimmerList(itemCount: 6, hasAvatar: true, hasImage: false),
+        ),
+      ],
     );
   }
 
