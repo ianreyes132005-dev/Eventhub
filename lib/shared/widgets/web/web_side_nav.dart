@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'web_nav_badge.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The web portals' sidebar (organizer and admin): links in titled groups,
-// an icon rail when collapsed, and a drawer on narrow windows.
+// always open beside the page, and a drawer on narrow windows.
 //
 //   (logo) J-Jireh            ← "Organizer portal" / "Admin console"
 //   ▣ Dashboard
@@ -13,51 +12,16 @@ import 'web_nav_badge.dart';
 //   ▣ Events
 //   ▣ Registrations   3       ← WebNavBadge
 //   …
-//   « Collapse                ← remembered per browser (WebNavPrefs)
 //
 // Every link is keyboard-reachable (Tab, Enter or Space) with a focus ring,
 // and tells screen readers which page is open.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Narrower than this, the sidebar is a drawer behind a menu button…
+/// Narrower than this, the sidebar is a drawer behind a menu button; wider,
+/// it's always open beside the page.
 const kWebNavDrawerMax = 1024.0;
 
-/// …from there to this width it starts as an icon rail; wider, it starts
-/// open. Either way the « button switches it, and the choice is remembered.
-const kWebNavWideMin = 1280.0;
-
-/// How the sidebar shows at the window's width.
-enum WebNavLayout { drawer, medium, wide }
-
-WebNavLayout webNavLayoutFor(double width) => width < kWebNavDrawerMax
-    ? WebNavLayout.drawer
-    : width < kWebNavWideMin
-        ? WebNavLayout.medium
-        : WebNavLayout.wide;
-
-/// Remembers, per browser and portal, whether the sidebar was left
-/// collapsed — separately on wide and medium windows, since medium starts
-/// collapsed.
-class WebNavPrefs {
-  WebNavPrefs._();
-
-  static String _key(String portal, WebNavLayout layout) =>
-      'web_nav_collapsed_${portal}_${layout.name}';
-
-  static Future<({bool wide, bool medium})> load(String portal) async {
-    final prefs = await SharedPreferences.getInstance();
-    return (
-      wide: prefs.getBool(_key(portal, WebNavLayout.wide)) ?? false,
-      medium: prefs.getBool(_key(portal, WebNavLayout.medium)) ?? true,
-    );
-  }
-
-  static Future<void> save(String portal, WebNavLayout layout, bool collapsed) async {
-    if (layout == WebNavLayout.drawer) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_key(portal, layout), collapsed);
-  }
-}
+bool webNavUsesDrawer(double width) => width < kWebNavDrawerMax;
 
 /// The sidebar's colours — each portal makes its own (organizer gold, admin
 /// orange; light or dark).
@@ -129,12 +93,6 @@ class WebSideNav<T> extends StatelessWidget {
   final T current;
   final ValueChanged<T> onSelect;
 
-  /// An icon rail: labels move into tooltips.
-  final bool collapsed;
-
-  /// The « Collapse / » Expand button; none in the drawer.
-  final VoidCallback? onToggleCollapse;
-
   /// Shown in the drawer: a close button, and Esc closes too.
   final VoidCallback? onClose;
 
@@ -151,8 +109,6 @@ class WebSideNav<T> extends StatelessWidget {
     required this.groups,
     required this.current,
     required this.onSelect,
-    this.collapsed = false,
-    this.onToggleCollapse,
     this.onClose,
     this.logoFallbackIcon = Icons.celebration_rounded,
     this.headerHeight = 64,
@@ -161,7 +117,6 @@ class WebSideNav<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = palette;
-    final pad = collapsed ? 10.0 : 12.0;
     Widget nav = Container(
       decoration: BoxDecoration(
         gradient: p.background,
@@ -172,28 +127,12 @@ class WebSideNav<T> extends StatelessWidget {
           _header(),
           Expanded(
             child: ListView(
-              padding: EdgeInsets.fromLTRB(pad, 10, pad, 10),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               children: [
                 for (var i = 0; i < groups.length; i++) ..._group(groups[i], first: i == 0),
               ],
             ),
           ),
-          if (onToggleCollapse != null)
-            Padding(
-              padding: EdgeInsets.fromLTRB(pad, 4, pad, 12),
-              child: _NavTile(
-                icon: collapsed
-                    ? Icons.keyboard_double_arrow_right_rounded
-                    : Icons.keyboard_double_arrow_left_rounded,
-                label: 'Collapse',
-                tooltip: 'Expand sidebar',
-                semanticLabel: collapsed ? 'Expand sidebar' : 'Collapse sidebar',
-                collapsed: collapsed,
-                outlined: true,
-                palette: p,
-                onTap: onToggleCollapse!,
-              ),
-            ),
         ],
       ),
     );
@@ -211,58 +150,55 @@ class WebSideNav<T> extends StatelessWidget {
     final p = palette;
     return Container(
       height: headerHeight,
-      padding: collapsed ? EdgeInsets.zero : const EdgeInsets.only(left: 18, right: 8),
+      padding: const EdgeInsets.only(left: 18, right: 8),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: p.border.withValues(alpha: 0.6))),
       ),
-      alignment: collapsed ? Alignment.center : Alignment.centerLeft,
-      child: collapsed
-          ? _logo(36)
-          : Row(
+      child: Row(
+        children: [
+          _logo(38),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _logo(38),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'J-Jireh',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontFamily: 'Playball',
-                          fontSize: 21,
-                          fontWeight: FontWeight.w700,
-                          height: 1.1,
-                          color: p.text,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        portalLabel.toUpperCase(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.9,
-                          color: p.label,
-                        ),
-                      ),
-                    ],
+                Text(
+                  'J-Jireh',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'Playball',
+                    fontSize: 21,
+                    fontWeight: FontWeight.w700,
+                    height: 1.1,
+                    color: p.text,
                   ),
                 ),
-                if (onClose != null)
-                  IconButton(
-                    onPressed: onClose,
-                    tooltip: 'Close menu',
-                    icon: Icon(Icons.close_rounded, size: 20, color: p.icon),
+                const SizedBox(height: 2),
+                Text(
+                  portalLabel.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.9,
+                    color: p.label,
                   ),
+                ),
               ],
             ),
+          ),
+          if (onClose != null)
+            IconButton(
+              onPressed: onClose,
+              tooltip: 'Close menu',
+              icon: Icon(Icons.close_rounded, size: 20, color: p.icon),
+            ),
+        ],
+      ),
     );
   }
 
@@ -289,15 +225,8 @@ class WebSideNav<T> extends StatelessWidget {
     final p = palette;
     final title = group.title;
     return [
-      if (!first)
-        collapsed
-            // The rail has no room for titles: a line between groups.
-            ? Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Divider(height: 1, color: p.border.withValues(alpha: 0.7)),
-              )
-            : const SizedBox(height: 14),
-      if (title != null && !collapsed)
+      if (!first) const SizedBox(height: 14),
+      if (title != null)
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
           child: Semantics(
@@ -323,7 +252,6 @@ class WebSideNav<T> extends StatelessWidget {
             badge: e.badge,
             badgeTip: e.badgeTip,
             active: e.page == current,
-            collapsed: collapsed,
             palette: p,
             onTap: () => onSelect(e.page),
           ),
@@ -332,35 +260,25 @@ class WebSideNav<T> extends StatelessWidget {
   }
 }
 
-// A sidebar link (or the « Collapse button): focusable, Enter or Space
-// opens it, with a ring for keyboard focus. Collapsed, the label is a
-// tooltip, which also shows on keyboard focus.
+// A sidebar link: focusable, Enter or Space opens it, with a ring for
+// keyboard focus.
 class _NavTile extends StatefulWidget {
   final IconData icon;
   final String label;
   final int badge;
   final String? badgeTip;
   final bool active;
-  final bool collapsed;
-  final bool outlined;
-  /// The collapsed tooltip, when it isn't the label.
-  final String? tooltip;
-  final String? semanticLabel;
   final WebNavPalette palette;
   final VoidCallback onTap;
 
   const _NavTile({
     required this.icon,
     required this.label,
-    required this.collapsed,
     required this.palette,
     required this.onTap,
     this.badge = 0,
     this.badgeTip,
     this.active = false,
-    this.outlined = false,
-    this.tooltip,
-    this.semanticLabel,
   });
 
   @override
@@ -370,7 +288,6 @@ class _NavTile extends StatefulWidget {
 class _NavTileState extends State<_NavTile> {
   bool _hover = false;
   bool _focus = false;
-  final _tip = GlobalKey<TooltipState>();
 
   String get _badgeText =>
       widget.badge > 0 && widget.badgeTip != null ? widget.badgeTip! : '';
@@ -387,7 +304,7 @@ class _NavTileState extends State<_NavTile> {
     Widget tile = AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       height: 44,
-      padding: widget.collapsed ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: active
             ? p.accent.withValues(alpha: 0.14)
@@ -396,11 +313,7 @@ class _NavTileState extends State<_NavTile> {
                 : Colors.transparent,
         borderRadius: radius,
         border: Border.all(
-          color: active
-              ? p.accent.withValues(alpha: 0.34)
-              : widget.outlined
-                  ? p.border
-                  : Colors.transparent,
+          color: active ? p.accent.withValues(alpha: 0.34) : Colors.transparent,
         ),
       ),
       foregroundDecoration: _focus
@@ -409,50 +322,29 @@ class _NavTileState extends State<_NavTile> {
               border: Border.all(color: p.focus, width: 2),
             )
           : null,
-      child: widget.collapsed
-          ? Center(
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  icon,
-                  if (showBadge)
-                    Positioned(top: -8, right: -12, child: WebNavBadge(count: widget.badge)),
-                ],
+      child: Row(
+        children: [
+          icon,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              widget.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 13,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                color: fg,
               ),
-            )
-          : Row(
-              children: [
-                icon,
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    widget.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 13,
-                      fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                      color: fg,
-                    ),
-                  ),
-                ),
-                if (showBadge) WebNavBadge(count: widget.badge),
-              ],
             ),
+          ),
+          if (showBadge) WebNavBadge(count: widget.badge),
+        ],
+      ),
     );
 
-    if (widget.collapsed) {
-      final tip = widget.tooltip ??
-          (_badgeText.isEmpty ? widget.label : '${widget.label} · $_badgeText');
-      tile = Tooltip(
-        key: _tip,
-        message: tip,
-        positionDelegate: _besideTile,
-        waitDuration: const Duration(milliseconds: 300),
-        child: tile,
-      );
-    } else if (_badgeText.isNotEmpty) {
+    if (_badgeText.isNotEmpty) {
       tile = Tooltip(
         message: _badgeText,
         waitDuration: const Duration(milliseconds: 300),
@@ -468,15 +360,11 @@ class _NavTileState extends State<_NavTile> {
       container: true,
       button: true,
       selected: active,
-      label: widget.semanticLabel ??
-          (_badgeText.isEmpty ? widget.label : '${widget.label}, $_badgeText'),
+      label: _badgeText.isEmpty ? widget.label : '${widget.label}, $_badgeText',
       child: FocusableActionDetector(
         mouseCursor: SystemMouseCursors.click,
         onShowHoverHighlight: (v) => setState(() => _hover = v),
-        onShowFocusHighlight: (v) {
-          setState(() => _focus = v);
-          if (v && widget.collapsed) _tip.currentState?.ensureTooltipVisible();
-        },
+        onShowFocusHighlight: (v) => setState(() => _focus = v),
         actions: {
           ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) {
             widget.onTap();
@@ -491,14 +379,4 @@ class _NavTileState extends State<_NavTile> {
       ),
     );
   }
-}
-
-// Rail tooltips sit beside the icon, centred on it, rather than above or
-// below it where they would cover the next icon.
-Offset _besideTile(TooltipPositionContext c) {
-  final maxY = c.overlaySize.height - c.tooltipSize.height;
-  return Offset(
-    c.target.dx + c.targetSize.width / 2 + 12,
-    (c.target.dy - c.tooltipSize.height / 2).clamp(0.0, maxY > 0 ? maxY : 0.0),
-  );
 }

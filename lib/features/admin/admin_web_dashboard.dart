@@ -66,9 +66,6 @@ class AdminWebDashboard extends StatefulWidget {
 class _AdminWebDashboardState extends State<AdminWebDashboard>
     with SingleTickerProviderStateMixin {
   AdminPage _page      = AdminPage.overview;
-  // Sidebar left collapsed on wide / medium windows (WebNavPrefs).
-  bool      _collapsedWide   = false;
-  bool      _collapsedMedium = true;
   final     _scaffoldKey = GlobalKey<ScaffoldState>();
   bool      _loading   = true;
   bool      _error     = false;
@@ -113,11 +110,6 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
     _contentFade  = CurvedAnimation(parent: _entryCt,
         curve: const Interval(0.12, 0.78, curve: Curves.easeOut));
     _loadProfile();
-    WebNavPrefs.load('admin').then((v) {
-      if (mounted) {
-        setState(() { _collapsedWide = v.wide; _collapsedMedium = v.medium; });
-      }
-    });
   }
 
   @override
@@ -244,25 +236,6 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
 
   void _navigate(AdminPage p) => setState(() => _page = p);
 
-  bool _collapsedFor(WebNavLayout layout) => switch (layout) {
-    WebNavLayout.wide   => _collapsedWide,
-    WebNavLayout.medium => _collapsedMedium,
-    WebNavLayout.drawer => false,
-  };
-
-  // « Collapse / » Expand, remembered per browser.
-  void _toggleCollapse(WebNavLayout layout) {
-    final next = !_collapsedFor(layout);
-    setState(() {
-      if (layout == WebNavLayout.wide) {
-        _collapsedWide = next;
-      } else {
-        _collapsedMedium = next;
-      }
-    });
-    WebNavPrefs.save('admin', layout, next);
-  }
-
   // Dark mode from the account menu.
   Future<void> _toggleTheme() async {
     try {
@@ -349,20 +322,14 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
   }
 
   // [onClose]: the drawer — choosing a page closes it.
-  Widget _sideNav({
-    required bool collapsed,
-    VoidCallback? onToggleCollapse,
-    VoidCallback? onClose,
-  }) {
+  Widget _sideNav({VoidCallback? onClose}) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final s    = _STk(dark);
     return WebSideNav<AdminPage>(
       portalLabel:      'Admin console',
       groups:           _navGroups,
       current:          _page,
-      collapsed:        collapsed,
       headerHeight:     kWebTopH,
-      onToggleCollapse: onToggleCollapse,
       onClose:          onClose,
       logoFallbackIcon: Icons.admin_panel_settings_rounded,
       onSelect: (page) {
@@ -426,11 +393,9 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
       );
     }
 
-    // Wide: the sidebar (or its icon rail); narrow: no sidebar, a menu button
-    // in the top bar opens it as a drawer.
-    final layout    = webNavLayoutFor(MediaQuery.sizeOf(context).width);
-    final drawer    = layout == WebNavLayout.drawer;
-    final collapsed = _collapsedFor(layout);
+    // Wide: the sidebar; narrow: no sidebar, a menu button in the top bar
+    // opens it as a drawer.
+    final drawer = webNavUsesDrawer(MediaQuery.sizeOf(context).width);
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: t.bg,
@@ -440,7 +405,6 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
               backgroundColor: Colors.transparent,
               shape: const RoundedRectangleBorder(),
               child: _sideNav(
-                collapsed: false,
                 onClose: () => _scaffoldKey.currentState?.closeDrawer(),
               ),
             )
@@ -451,15 +415,7 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
             opacity: _sidebarFade,
             child: SlideTransition(
               position: _sidebarSlide,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeInOut,
-                width: collapsed ? kWebSideWc : kWebSideW,
-                child: _sideNav(
-                  collapsed: collapsed,
-                  onToggleCollapse: () => _toggleCollapse(layout),
-                ),
-              ),
+              child: SizedBox(width: kWebSideW, child: _sideNav()),
             ),
           ),
         Expanded(

@@ -3,7 +3,6 @@ import '../../../core/app_colors.dart';
 
 // ── Layout metrics ────────────────────────────────────────────────────────────
 const kWebSideW  = 260.0;
-const kWebSideWc = 76.0;
 const kWebTopH   = 64.0;
 const kWebPad    = 24.0;
 

@@ -1,13 +1,11 @@
 import 'package:eventhub/shared/widgets/web/web_account_menu.dart';
 import 'package:eventhub/shared/widgets/web/web_side_nav.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-// The web portals' sidebar and account menu: titled groups, an icon rail,
-// a drawer on narrow windows, remembered collapse and keyboard use.
+// The web portals' sidebar and account menu: titled groups, always open on
+// wide windows, a drawer on narrow ones, and keyboard use.
 enum _Page { dashboard, events, registrations, profile }
 
 const _palette = WebNavPalette(
@@ -43,51 +41,28 @@ const _groups = [
 ];
 
 void main() {
-  test('the sidebar follows the window width', () {
-    expect(webNavLayoutFor(900), WebNavLayout.drawer);
-    expect(webNavLayoutFor(1023), WebNavLayout.drawer);
-    expect(webNavLayoutFor(1024), WebNavLayout.medium);
-    expect(webNavLayoutFor(1279), WebNavLayout.medium);
-    expect(webNavLayoutFor(1280), WebNavLayout.wide);
+  test('narrow windows get a drawer; from 1024 px the sidebar stays open', () {
+    expect(webNavUsesDrawer(900), isTrue);
+    expect(webNavUsesDrawer(1023), isTrue);
+    expect(webNavUsesDrawer(1024), isFalse);
+    expect(webNavUsesDrawer(1440), isFalse);
   });
 
-  test('collapse is remembered per portal: open on wide, a rail on medium at first', () async {
-    SharedPreferences.setMockInitialValues({});
-    var v = await WebNavPrefs.load('organizer');
-    expect((v.wide, v.medium), (false, true));
-
-    await WebNavPrefs.save('organizer', WebNavLayout.wide, true);
-    await WebNavPrefs.save('organizer', WebNavLayout.medium, false);
-    await WebNavPrefs.save('organizer', WebNavLayout.drawer, true); // ignored
-    v = await WebNavPrefs.load('organizer');
-    expect((v.wide, v.medium), (true, false));
-    // The admin portal keeps its own.
-    v = await WebNavPrefs.load('admin');
-    expect((v.wide, v.medium), (false, true));
-  });
-
-  Future<List<_Page>> pumpNav(
-    WidgetTester tester, {
-    bool collapsed = false,
-    VoidCallback? onToggle,
-    VoidCallback? onClose,
-  }) async {
+  Future<List<_Page>> pumpNav(WidgetTester tester, {VoidCallback? onClose}) async {
     final picked = <_Page>[];
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: Align(
           alignment: Alignment.topLeft,
           child: SizedBox(
-            width: collapsed ? 76 : 260,
+            width: 260,
             height: 700,
             child: WebSideNav<_Page>(
               portalLabel: 'Organizer portal',
               palette: _palette,
               groups: _groups,
               current: _Page.events,
-              collapsed: collapsed,
               onSelect: picked.add,
-              onToggleCollapse: onToggle,
               onClose: onClose,
             ),
           ),
@@ -98,17 +73,15 @@ void main() {
   }
 
   testWidgets('groups under their titles; a click opens the page', (tester) async {
-    var toggled = 0;
-    final picked = await pumpNav(tester, onToggle: () => toggled++);
+    final picked = await pumpNav(tester);
     expect(find.text('ORGANIZER PORTAL'), findsOneWidget);
     expect(find.text('MANAGE'), findsOneWidget);
     expect(find.text('ACCOUNT'), findsOneWidget);
     expect(find.text('3'), findsOneWidget); // the Registrations badge
+    expect(find.text('Collapse'), findsNothing); // removed: always open
 
     await tester.tap(find.text('Profile'));
-    await tester.tap(find.text('Collapse'));
     expect(picked, [_Page.profile]);
-    expect(toggled, 1);
 
     // Screen readers hear one button per link, can activate it, and know
     // which page is open; the badge's meaning is part of its name.
@@ -121,26 +94,6 @@ void main() {
       find.bySemanticsLabel('Registrations, 3 selfies waiting for your review'),
       findsOneWidget,
     );
-  });
-
-  testWidgets('collapsed: an icon rail without labels or titles', (tester) async {
-    await pumpNav(tester, collapsed: true, onToggle: () {});
-    expect(find.text('Events'), findsNothing);
-    expect(find.text('MANAGE'), findsNothing);
-    expect(find.byIcon(Icons.event_rounded), findsOneWidget);
-    expect(find.byIcon(Icons.keyboard_double_arrow_right_rounded), findsOneWidget);
-
-    // Hover: the name shows beside the icon, not over the next one.
-    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
-    await mouse.addPointer(location: Offset.zero);
-    addTearDown(mouse.removePointer);
-    final icon = tester.getRect(find.byIcon(Icons.event_rounded));
-    await mouse.moveTo(icon.center);
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
-    final tip = tester.getRect(find.text('Events'));
-    expect(tip.left, greaterThan(icon.right));
-    expect(tip.center.dy, moreOrLessEquals(icon.center.dy, epsilon: 1));
   });
 
   testWidgets('the keyboard reaches every link: Tab, then Enter', (tester) async {

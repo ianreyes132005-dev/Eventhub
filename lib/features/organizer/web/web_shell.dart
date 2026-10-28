@@ -31,9 +31,6 @@ class OrganizerWebDashboard extends StatefulWidget {
 class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
     with SingleTickerProviderStateMixin {
   OrganizerPage _page         = OrganizerPage.dashboard;
-  // Sidebar left collapsed on wide / medium windows (WebNavPrefs).
-  bool          _collapsedWide   = false;
-  bool          _collapsedMedium = true;
   final         _scaffoldKey = GlobalKey<ScaffoldState>();
   AppTheme      _theme        = const AppTheme();
   String?       _orgId;
@@ -105,11 +102,6 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
       );
     }
     _loadTheme();
-    WebNavPrefs.load('organizer').then((v) {
-      if (mounted) {
-        setState(() { _collapsedWide = v.wide; _collapsedMedium = v.medium; });
-      }
-    });
     _loadProfile();
   }
 
@@ -198,25 +190,6 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
       allowOutsideClick: false,
     );
     if (mounted) _goLogin();
-  }
-
-  bool _collapsedFor(WebNavLayout layout) => switch (layout) {
-    WebNavLayout.wide   => _collapsedWide,
-    WebNavLayout.medium => _collapsedMedium,
-    WebNavLayout.drawer => false,
-  };
-
-  // « Collapse / » Expand, remembered per browser.
-  void _toggleCollapse(WebNavLayout layout) {
-    final next = !_collapsedFor(layout);
-    setState(() {
-      if (layout == WebNavLayout.wide) {
-        _collapsedWide = next;
-      } else {
-        _collapsedMedium = next;
-      }
-    });
-    WebNavPrefs.save('organizer', layout, next);
   }
 
   // Dark mode from the account menu (also on the Profile page).
@@ -368,31 +341,28 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
         ),
       );
     }
-    final layout = webNavLayoutFor(MediaQuery.sizeOf(context).width);
+    final drawer = webNavUsesDrawer(MediaQuery.sizeOf(context).width);
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: t.bg,
       // Narrow windows: the sidebar slides in from the menu button.
-      drawer: layout == WebNavLayout.drawer
+      drawer: drawer
           ? Drawer(
               width: 288,
               backgroundColor: Colors.transparent,
               shape: const RoundedRectangleBorder(),
               child: _sideNav(
-                collapsed: false,
                 onClose: () => _scaffoldKey.currentState?.closeDrawer(),
               ),
             )
           : null,
-      body: _buildBody(layout),
+      body: _buildBody(drawer),
     );
   }
 
-  // Wide: the sidebar (or its icon rail); narrow: no sidebar, a menu button
-  // in the top bar opens it as a drawer.
-  Widget _buildBody(WebNavLayout layout) {
-    final drawer    = layout == WebNavLayout.drawer;
-    final collapsed = _collapsedFor(layout);
+  // Wide: the sidebar; narrow ([drawer]): no sidebar, a menu button in the
+  // top bar opens it as a drawer.
+  Widget _buildBody(bool drawer) {
     return Stack(children: [
       Row(children: [
         if (!drawer)
@@ -401,15 +371,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
             opacity: _sidebarFade,
             child: SlideTransition(
               position: _sidebarSlide,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeInOut,
-                width: collapsed ? kWebSideWc : kWebSideW,
-                child: _sideNav(
-                  collapsed: collapsed,
-                  onToggleCollapse: () => _toggleCollapse(layout),
-                ),
-              ),
+              child: SizedBox(width: kWebSideW, child: _sideNav()),
             ),
           ),
         Expanded(
@@ -497,23 +459,17 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   ];
 
   // [onClose]: the drawer — choosing a page closes it.
-  Widget _sideNav({
-    required bool collapsed,
-    VoidCallback? onToggleCollapse,
-    VoidCallback? onClose,
-  }) {
+  Widget _sideNav({VoidCallback? onClose}) {
     // The sidebar follows dark mode, whatever accent the organizer chose.
     final dark = Theme.of(context).brightness == Brightness.dark;
     final s    = _theme.copyWith(dark: dark);
     final hsl  = HSLColor.fromColor(s.primaryColor);
     return WebSideNav<OrganizerPage>(
-      portalLabel:      'Organizer portal',
-      groups:           _navGroups,
-      current:          _page,
-      collapsed:        collapsed,
-      headerHeight:     kWebTopH,
-      onToggleCollapse: onToggleCollapse,
-      onClose:          onClose,
+      portalLabel:  'Organizer portal',
+      groups:       _navGroups,
+      current:      _page,
+      headerHeight: kWebTopH,
+      onClose:      onClose,
       onSelect: (page) {
         onClose?.call();
         _openPage(page);
