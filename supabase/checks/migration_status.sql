@@ -120,7 +120,14 @@ checks (migration, what, ok) AS (
                                             AND qual ILIKE '%90 days%')),
   ('202610270002_registration_status_changed_at', 'notifications show when a check-in step happened',
     EXISTS (SELECT 1 FROM col WHERE table_name = 'registrations' AND column_name = 'status_changed_at')
-    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'stamp_registration_status_change'))
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'stamp_registration_status_change')),
+  ('202610280001_checkin_windows_final_attendance', 'scanning until 30 min after the end, final attendance, students can cancel',
+    EXISTS (SELECT 1 FROM col WHERE table_name = 'registrations' AND column_name = 'attendance_note')
+    AND EXISTS (SELECT 1 FROM col WHERE table_name = 'registrations' AND column_name = 'corrected_at')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'event_scan_problem')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'enforce_registration_update_rules'
+                                   AND prosrc ILIKE '%attendance is final%')
+    AND EXISTS (SELECT 1 FROM pol WHERE policyname = 'student_cancel_own_registration'))
 )
 SELECT CASE WHEN ok THEN '✓' ELSE '✗ run it' END AS status, migration, what
 FROM checks

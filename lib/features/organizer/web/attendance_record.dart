@@ -540,6 +540,100 @@ Uint8List buildAttendanceSummaryXlsx({
       headerRow: headerRow);
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Student logins (admin registrar import)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// One new student's sign-in details from a registrar import.
+class StudentLogin {
+  final String lrn, last, first, password;
+  final String? middle, strand, section;
+  final int? grade;
+
+  const StudentLogin({
+    required this.lrn,
+    required this.last,
+    required this.first,
+    required this.password,
+    this.middle,
+    this.grade,
+    this.strand,
+    this.section,
+  });
+}
+
+/// The new students' initial logins after a registrar import, sorted by
+/// grade, section and name so advisers can hand them out class by class.
+/// The passwords are shown nowhere else in EventHub.
+Uint8List buildStudentLoginsXlsx(List<StudentLogin> logins, {required DateTime generatedAt}) {
+  final sheetRows = _XlsxRows();
+  final row = sheetRows.row;
+  final students = [...logins]..sort((a, b) {
+      int c = (a.grade ?? 99).compareTo(b.grade ?? 99);
+      if (c != 0) return c;
+      c = (a.section ?? '~').toLowerCase().compareTo((b.section ?? '~').toLowerCase());
+      if (c != 0) return c;
+      c = a.last.toLowerCase().compareTo(b.last.toLowerCase());
+      if (c != 0) return c;
+      return a.first.toLowerCase().compareTo(b.first.toLowerCase());
+    });
+
+  row([(0, 'Student logins', _sTitle)], height: 26);
+  row([(0, 'New accounts from the registrar import · J-Jireh EventHub', _sSub)]);
+  sheetRows.blank();
+  row([(1, 'Accounts', _sLabel), (2, students.length, 0)]);
+  row([(1, 'Generated', _sLabel), (2, _fmtStamp(generatedAt), 0)]);
+  row([(1, 'Students sign in on the EventHub app with the last 4 digits of their LRN '
+      'and their initial password. Keep this file private.', _sNote)]);
+  sheetRows.blank();
+
+  const headers = ['No.', 'LRN', 'Last Name', 'First Name', 'Middle Name', 'Grade',
+      'Strand', 'Section', 'Initial Password'];
+  row([for (var c = 0; c < headers.length; c++) (c, headers[c], _sHead)], height: 20);
+  final headerRow = sheetRows.r;
+
+  for (var i = 0; i < students.length; i++) {
+    final s = students[i];
+    row([
+      (0, i + 1, _sCenter),
+      (1, s.lrn, _sBody),
+      (2, s.last, _sBody),
+      (3, s.first, _sBody),
+      (4, s.middle ?? '', _sBody),
+      (5, s.grade ?? '', _sCenter),
+      (6, s.strand ?? '', _sCenter),
+      (7, s.section ?? '', _sBody),
+      (8, s.password, _sBody),
+    ]);
+  }
+  final lastRow = students.isEmpty ? headerRow : sheetRows.r;
+
+  const widths = [6, 21, 18, 22, 16, 7, 8, 16, 18];
+  final cols = [
+    for (var c = 0; c < widths.length; c++)
+      '<col min="${c + 1}" max="${c + 1}" width="${widths[c]}" customWidth="1"/>',
+  ].join();
+
+  final sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>'
+      '<dimension ref="A1:I${sheetRows.r}"/>'
+      '<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>'
+      '<sheetFormatPr defaultRowHeight="15"/>'
+      '<cols>$cols</cols>'
+      '<sheetData>${sheetRows.rows.join()}</sheetData>'
+      '${students.isEmpty ? '' : '<autoFilter ref="A$headerRow:I$lastRow"/>'}'
+      '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
+      '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
+      '<headerFooter><oddFooter>&amp;LStudent logins&amp;RPage &amp;P of &amp;N</oddFooter></headerFooter>'
+      '</worksheet>';
+
+  return _xlsxPackage('Logins', sheet,
+      filter: students.isEmpty ? null : '\$A\$$headerRow:\$I\$$lastRow',
+      headerRow: headerRow);
+}
+
 const _xlsxStyles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
     '<fonts count="7">'

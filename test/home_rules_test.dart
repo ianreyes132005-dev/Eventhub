@@ -36,14 +36,30 @@ void main() {
       String status = 'pending',
     }) => {'status': status, 'events': ev};
 
-    test('upcoming: not cancelled, not declined, until check-in closes', () {
-      // Ended at 09:00 today → check-in open until 11:00.
+    test('upcoming: not cancelled, not declined, while it can still check in', () {
+      // Ended at 09:00 today → scanning until 09:30, check-in until 11:00.
       final endedRecently = _event(
         day: today,
         start: '07:00:00',
         end: '09:00:00',
       );
-      expect(registrationIsUpcoming(reg(endedRecently), now: now), isTrue);
+      // Not scanned: only until scanning closes.
+      expect(registrationIsUpcoming(reg(endedRecently), now: now), isFalse);
+      expect(
+        registrationIsUpcoming(
+          reg(endedRecently),
+          now: DateTime(2026, 10, 19, 9, 20),
+        ),
+        isTrue,
+      );
+      // Scanned in time: until check-in closes, to finish.
+      for (final status in ['qr_scanned', 'photo_required', 'photo_submitted', 'checked_in']) {
+        expect(
+          registrationIsUpcoming(reg(endedRecently, status: status), now: now),
+          isTrue,
+          reason: status,
+        );
+      }
       expect(
         registrationIsUpcoming(
           reg(_event(day: today.add(const Duration(days: 3)))),
@@ -78,6 +94,14 @@ void main() {
     test('finished (attendance rate): check-in closed and not cancelled', () {
       final past = _event(day: today.subtract(const Duration(days: 2)));
       expect(registrationIsFinished(reg(past), now: now), isTrue);
+      // Ended at 09:00: an unscanned ticket is final once scanning closed
+      // (09:30); a scanned one only once check-in closes (11:00).
+      final endedRecently = _event(day: today, start: '07:00:00', end: '09:00:00');
+      expect(registrationIsFinished(reg(endedRecently), now: now), isTrue);
+      expect(
+        registrationIsFinished(reg(endedRecently, status: 'photo_submitted'), now: now),
+        isFalse,
+      );
       expect(
         registrationIsFinished(
           reg(
@@ -129,7 +153,14 @@ void main() {
 
   test('student phase includes check-in open', () {
     final ev = _event(day: today, start: '07:00:00', end: '09:00:00');
-    expect(eventPhaseOf(ev, now: now), EventPhase.checkInOpen);
+    // Ended at 09:00: an unscanned ticket can be scanned until 09:30, a
+    // scanned one finished until 11:00.
+    expect(
+      eventPhaseOf(ev, now: DateTime(2026, 10, 19, 9, 20)),
+      EventPhase.checkInOpen,
+    );
+    expect(eventPhaseOf(ev, now: now), EventPhase.completed);
+    expect(eventPhaseOf(ev, now: now, scanned: true), EventPhase.checkInOpen);
     expect(
       eventPhaseOf(ev, now: DateTime(2026, 10, 19, 8)),
       EventPhase.ongoing,

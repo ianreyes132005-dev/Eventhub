@@ -23,6 +23,8 @@ import '../../core/app_colors.dart';
 import '../../core/friendly_error.dart';
 import '../../core/services/supabase_service.dart';
 import '../../shared/utils/csv_download.dart';
+import '../organizer/web/attendance_record.dart'
+    show StudentLogin, buildStudentLoginsXlsx, kXlsxMime;
 import '../organizer/web/web_shared.dart';
 import 'admin_shared.dart';
 
@@ -1105,38 +1107,31 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
     if (mounted) setState(() => _step = _Step.done);
   }
 
+  // An Excel file of the new accounts' initial passwords, sorted grade →
+  // section → name (buildStudentLoginsXlsx).
   void _downloadLogins() {
-    final created = _results.where((r) => r.ok && r.password != null).toList()
-      ..sort(
-        (a, b) => '${a.row.grade}${a.row.section}${a.row.last}'.compareTo(
-          '${b.row.grade}${b.row.section}${b.row.last}',
-        ),
-      );
-    downloadCsv(
-      _csv([
+    final now = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    downloadFile(
+      buildStudentLoginsXlsx(
         [
-          'LRN (username)',
-          'Last Name',
-          'First Name',
-          'Middle Name',
-          'Grade',
-          'Strand',
-          'Section',
-          'Initial Password',
+          for (final r in _results)
+            if (r.ok && r.password != null)
+              StudentLogin(
+                lrn: _fmtLrn(r.row.lrn),
+                last: r.row.last,
+                first: r.row.first,
+                middle: r.row.middle,
+                grade: r.row.grade,
+                strand: r.row.strand,
+                section: r.row.section,
+                password: r.password!,
+              ),
         ],
-        for (final r in created)
-          [
-            _fmtLrn(r.row.lrn),
-            r.row.last,
-            r.row.first,
-            r.row.middle ?? '',
-            '${r.row.grade}',
-            r.row.strand ?? '',
-            r.row.section ?? '',
-            r.password!,
-          ],
-      ]),
-      'eventhub_student_logins',
+        generatedAt: now,
+      ),
+      'Student logins - ${now.year}-${two(now.month)}-${two(now.day)}.xlsx',
+      kXlsxMime,
     );
   }
 
@@ -2336,9 +2331,9 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'The file lists each new student’s LRN and initial password, sorted by '
-                    'grade and section for advisers. Passwords are shown only here — '
-                    'store the file securely.',
+                    'The Excel file lists each new student’s LRN and initial password, '
+                    'sorted by grade and section for advisers. Passwords are shown only '
+                    'here — store the file securely.',
                     style: TextStyle(
                       fontFamily: 'Poppins',
                       fontSize: 11.5,
@@ -2350,7 +2345,7 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: WebBtn(
-                      label: 'Download logins (CSV)',
+                      label: 'Download logins (Excel)',
                       icon: Icons.download_rounded,
                       onTap: _downloadLogins,
                     ),

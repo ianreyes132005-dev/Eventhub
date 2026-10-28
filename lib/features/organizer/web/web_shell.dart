@@ -43,6 +43,7 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   // like the admin's count of events to review.
   int              _reviewCount = 0;
   bool             _reviewFirst = false; // open Registrations on those selfies
+  String?          _openEventId;         // open Events on this event's details
   Set<String>      _myEventIds  = {};
   RealtimeChannel? _reviewChannel;
   Timer?           _reviewDebounce;
@@ -272,7 +273,15 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   // Submitted filter); every other time it opens as usual.
   void _openPage(OrganizerPage p) => setState(() {
         _reviewFirst = p == OrganizerPage.registrations && _reviewCount > 0;
+        _openEventId = null;
         _page = p;
+      });
+
+  // The dashboard's Next event card opens that event on the Events tab.
+  void _openEvent(String eventId) => setState(() {
+        _reviewFirst = false;
+        _openEventId = eventId;
+        _page = OrganizerPage.events;
       });
 
   @override
@@ -539,8 +548,9 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
           orgId:      _orgId,
           name:       _name,
           onNavigate: _openPage,
+          onOpenEvent: _openEvent,
         ),
-      OrganizerPage.events        => WebEventsPage(orgId: _orgId),
+      OrganizerPage.events        => WebEventsPage(orgId: _orgId, openEventId: _openEventId),
       OrganizerPage.registrations => WebRegistrationsPage(
           orgId:         _orgId,
           initialStatus: _reviewFirst ? 'Photo Submitted' : null,

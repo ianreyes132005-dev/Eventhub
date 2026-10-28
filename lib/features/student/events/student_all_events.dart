@@ -752,13 +752,21 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   Widget _buildCard(Map<String, dynamic> event, AppTk t) {
     final eventId = event['event_id'] as String;
     final statusLabel = eventStatusLabel(event);
-    final isRegistered = _regByEventId.containsKey(eventId);
+    final reg = _regByEventId[eventId];
+    final isRegistered = reg != null;
     final isRegistering = _registeringId == eventId;
     final imageUrl = event['event_image_url'] as String?;
     final hasImage = imageUrl != null && imageUrl.isNotEmpty;
     final eventType = event['event_type'] as String?;
     final sc = eventStatusColor(statusLabel);
     final isPast = statusLabel == 'Ended' || statusLabel == 'Cancelled';
+    // Registered: the QR while it can still be scanned — before the end, or
+    // after it while scanning is still open for a ticket not yet scanned.
+    final showQr = reg != null &&
+        (!isPast ||
+            (!eventIsCancelled(event) &&
+                (reg['status'] as String? ?? 'pending') == 'pending' &&
+                !registrationMissed(reg, event)));
     // Same rule the server enforces: closes at the deadline, else at the
     // event start, never after the end.
     final regState = registrationState(event);
@@ -868,9 +876,7 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                         ),
                         const Spacer(),
                         // Primary action button
-                        if (isPast)
-                          const SizedBox.shrink()
-                        else if (isRegistered)
+                        if (showQr)
                           _PrimaryBtn(
                             label: 'My QR',
                             icon: Icons.qr_code_2_rounded,

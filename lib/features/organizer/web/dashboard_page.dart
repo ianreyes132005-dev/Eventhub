@@ -7,7 +7,28 @@ import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/services/account_session_guard.dart';
 import '../../../shared/widgets/event_phase_pill.dart';
+import '../mobile/dashboard/dashboard_metrics.dart' show nextApprovedEvent;
 import 'web_shared.dart';
+
+/// Selfies waiting for the organizer's review while their event's check-in
+/// is open — the ones that can still be approved, the same count as the
+/// sidebar badge. A photo still waiting when check-in closes can't be
+/// approved, and the student stays absent.
+({int waiting, bool checkInOpen}) photosToReview(
+  Iterable<Map<String, dynamic>> events,
+  Iterable<Map<String, dynamic>> registrations, {
+  DateTime? now,
+}) {
+  final at = now ?? DateTime.now();
+  final open = {
+    for (final e in events)
+      if (checkInIsOpen(e, now: at)) e['event_id'],
+  };
+  final waiting = registrations
+      .where((r) => r['status'] == 'photo_submitted' && open.contains(r['event_id']))
+      .length;
+  return (waiting: waiting, checkInOpen: open.isNotEmpty);
+}
 
 class WebDashboardPage extends StatefulWidget {
   final String? orgId;
@@ -15,7 +36,15 @@ class WebDashboardPage extends StatefulWidget {
   /// Switches the shell to another tab (the stat cards link to Events and
   /// Registrations).
   final void Function(OrganizerPage page)? onNavigate;
-  const WebDashboardPage({super.key, this.orgId, this.name, this.onNavigate});
+  /// Opens one event's details on the Events tab (the Next event card).
+  final void Function(String eventId)? onOpenEvent;
+  const WebDashboardPage({
+    super.key,
+    this.orgId,
+    this.name,
+    this.onNavigate,
+    this.onOpenEvent,
+  });
 
   @override
   State<WebDashboardPage> createState() => _WebDashboardPageState();
@@ -31,9 +60,13 @@ class _WebDashboardPageState extends State<WebDashboardPage>
   // Stats
   int _activeEvents  = 0;
   int _totalRegs     = 0;
-  // Attendance rate uses only past/completed events to avoid future-event dilution.
-  int _pastEventRegs = 0;
-  int _pastCheckedIn = 0;
+  // Photos to review card (photosToReview).
+  int  _photosToReview = 0;
+  bool _checkInOpenNow = false;
+  // Next event card: the next approved event that's on now or still ahead,
+  // and how many students registered for it.
+  Map<String, dynamic>? _nextEvent;
+  int _nextRegistered = 0;
 
   // Data
   List<Map<String, dynamic>> _upcomingEvents  = [];
@@ -166,13 +199,12 @@ class _WebDashboardPageState extends State<WebDashboardPage>
       _weekDayLabels = const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
       // ── Past events (ended, approved, not cancelled) ───────────────────
-      // Used for both the event-attendance breakdown and the attendance-rate
-      // stat card.  Upcoming & ongoing events are excluded because no student
-      // has had the chance to be checked in yet; including them would deflate
-      // the rate misleadingly (e.g. an event with 100 registrations and 0
-      // check-ins drags the school-wide rate to near zero). Events that never
-      // ran — not approved, or cancelled — are left out for the same reason:
-      // every registration would count as absent.
+      // Used for the Event Attendance card. Upcoming & ongoing events are
+      // excluded because no student has had the chance to be checked in
+      // yet; including them would deflate the rate misleadingly (e.g. an
+      // event with 100 registrations and 0 check-ins drags the rate to near
+      // zero). Events that never ran — not approved, or cancelled — are left
+      // out for the same reason: every registration would count as absent.
       final today      = DateUtils.dateOnly(now);
       final pastEvents = List<Map<String, dynamic>>.from(events)
         ..retainWhere((e) {
@@ -216,20 +248,17 @@ class _WebDashboardPageState extends State<WebDashboardPage>
         };
       }).toList();
 
-      // ── Attendance rate — past events only ────────────────────────────
-      // Use ALL past events (not just last 5) for a school-wide rate.
-      // Upcoming & ongoing events are excluded because no student has had
-      // the chance to be checked in yet; including them deflates the rate.
-      final pastEventIdSet =
-          pastEvents.map((e) => e['event_id'] as String).toSet();
-      _pastEventRegs = orgRegs
-          .where((r) =>
-              pastEventIdSet.contains(r['event_id']) && countsAsRegistered(r))
-          .length;
-      _pastCheckedIn = orgRegs
-          .where((r) =>
-              pastEventIdSet.contains(r['event_id']) &&
-              r['status'] == 'checked_in')
+      // ── Photos to review ──────────────────────────────────────────────
+      final review = photosToReview(events, orgRegs, now: now);
+      _photosToReview = review.waiting;
+      _checkInOpenNow = review.checkInOpen;
+
+      // ── Next event ────────────────────────────────────────────────────
+      // The same event the app's Dashboard counts down to.
+      _nextEvent = nextApprovedEvent(events, now: now);
+      final nextId = _nextEvent?['event_id'];
+      _nextRegistered = orgRegs
+          .where((r) => r['event_id'] == nextId && countsAsRegistered(r))
           .length;
 
       if (mounted) {
@@ -338,22 +367,10 @@ class _WebDashboardPageState extends State<WebDashboardPage>
 
   // ── Stat cards ───────────────────────────────────────────────────────────
   Widget _buildStatRow(WebTk t) {
-    final todayCount = _weeklyRegs[DateTime.now().weekday - 1];
-
-    // Attendance rate is computed from past/completed events only.
-    // Upcoming events have zero check-ins by definition and would
-    // deflate the rate if included.
-    final hasPastData = _pastEventRegs > 0;
-    final rate        = hasPastData
-        ? (_pastCheckedIn / _pastEventRegs * 100).round()
-        : 0;
-    final rateColor   = !hasPastData
-        ? t.muted
-        : rate >= 70
-            ? const Color(0xFF10B981)
-            : rate >= 40 ? kGold : const Color(0xFFEF4444);
-
-    final nav = widget.onNavigate;
+    final nav    = widget.onNavigate;
+    final open   = widget.onOpenEvent;
+    final next   = _nextEvent;
+    final nextId = next?['event_id'] as String?;
     final cards = [
       _DashStatCard(
         value:       '$_activeEvents',
@@ -371,18 +388,38 @@ class _WebDashboardPageState extends State<WebDashboardPage>
         hint:        'Opens the Registrations tab',
         onTap:       nav == null ? null : () => nav(OrganizerPage.registrations),
       ),
+      // The one number here that needs the organizer: a photo still waiting
+      // when check-in closes can't be approved, and the student stays absent.
       _DashStatCard(
-        value:       hasPastData ? '$rate%' : '—',
-        label:       'Attendance Rate',
-        icon:        Icons.show_chart_rounded,
-        accentColor: rateColor,
+        value:       '$_photosToReview',
+        label:       'Photos to review',
+        icon:        Icons.photo_camera_rounded,
+        accentColor: _photosToReview > 0
+            ? const Color(0xFFF59E0B)
+            : _checkInOpenNow ? const Color(0xFF10B981) : t.muted,
+        hint:        'Opens the Registrations tab',
+        onTap:       nav == null ? null : () => nav(OrganizerPage.registrations),
       ),
-      _DashStatCard(
-        value:       '$todayCount',
-        label:       "Today's Sign-ups",
-        icon:        Icons.person_add_rounded,
-        accentColor: const Color(0xFFF59E0B),
-      ),
+      if (next == null)
+        _DashStatCard(
+          value:       '—',
+          label:       'No upcoming events',
+          icon:        Icons.event_note_rounded,
+          accentColor: t.muted,
+          hint:        'Opens the Events tab',
+          onTap:       nav == null ? null : () => nav(OrganizerPage.events),
+        )
+      else
+        _DashStatCard(
+          value:       '$_nextRegistered',
+          label:       'Registered · ${next['title'] as String? ?? 'Next event'}',
+          icon:        Icons.event_note_rounded,
+          accentColor: eventStatusValue(next) == 'ongoing'
+              ? const Color(0xFF10B981)
+              : const Color(0xFF0EA5E9),
+          hint:        'Opens this event',
+          onTap:       open == null || nextId == null ? null : () => open(nextId),
+        ),
     ];
 
     return LayoutBuilder(builder: (_, c) {

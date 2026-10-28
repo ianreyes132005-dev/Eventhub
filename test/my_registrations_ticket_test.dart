@@ -17,6 +17,9 @@ void main() {
     expect(label('photo_submitted'), 'Under review');
     expect(label('checked_in'), 'Checked In');
     expect(label('rejected'), 'Declined');
+    // Too late to check in (registrationMissed).
+    expect(ticketStatusBadge('pending', missed: true).label, 'Missed');
+    expect(ticketStatusBadge('photo_submitted', missed: true).label, 'Missed');
   });
 
   test('white badge text clears 4.5:1 on every badge colour', () {
@@ -29,6 +32,8 @@ void main() {
       expect(contrast(Colors.white, ticketStatusBadge(s).color),
           greaterThanOrEqualTo(4.5), reason: s);
     }
+    expect(contrast(Colors.white, ticketStatusBadge('pending', missed: true).color),
+        greaterThanOrEqualTo(4.5), reason: 'missed');
   });
 
   test('a registered student is never told their registration failed', () {

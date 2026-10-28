@@ -14,6 +14,7 @@ import '../../../../shared/widgets/ai_chat_fab.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../shared/widgets/live_countdown.dart';
+import '../../../../shared/widgets/mark_all_read_button.dart';
 import '../../../../core/app_colors.dart';
 import '../../../../core/services/org_notif_prefs.dart';
 import '../../../../core/services/account_session_guard.dart';
@@ -126,7 +127,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
   List<_AppNotif> _notifs = [];
   Set<String> _unreadIds = {};
 
-  /// Opened in this session — counted as read even before the prefs write
+  /// Read in this session — counted as read even before the prefs write
   /// lands, so a refresh racing it can't bring the badge back.
   final Set<String> _seenIds = {};
 
@@ -641,12 +642,12 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
   Future<void> _persistReadState() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null || _notifs.isEmpty) return;
+    if (userId == null || _seenIds.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     final existing = Set<String>.from(
       prefs.getStringList(_prefKey(userId)) ?? [],
     );
-    existing.addAll(_notifs.map((n) => n.id));
+    existing.addAll(_seenIds);
     final list = existing.toList();
     final trimmed = list.length > 200 ? list.sublist(list.length - 200) : list;
     await prefs.setStringList(_prefKey(userId), trimmed);
@@ -982,20 +983,31 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
     );
   }
 
+  // Opening the sheet doesn't read anything (same as the web bell): an
+  // unread row stays gold until it's tapped or "Mark all as read" is used.
   void _showNotificationSheet() {
-    // Highlight what's new in the sheet, then count everything as read.
-    final fresh = {..._unreadIds};
-    setState(() {
-      _seenIds.addAll(_notifs.map((n) => n.id));
-      _unreadIds = {};
-    });
-    _persistReadState(); // fire-and-forget — survives logout/login
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _NotifSheet(notifs: _notifs, fresh: fresh),
+      builder: (_) => _NotifSheet(
+        notifs: _notifs,
+        // Not a tear-off: _markRead swaps in a new set.
+        isUnread: (id) => _unreadIds.contains(id),
+        onRead: _markRead,
+      ),
     );
+  }
+
+  /// Marks [ids] read: the bell's number drops.
+  void _markRead(Iterable<String> ids) {
+    final fresh = ids.where(_unreadIds.contains).toList();
+    if (fresh.isEmpty || !mounted) return;
+    setState(() {
+      _seenIds.addAll(fresh);
+      _unreadIds = {..._unreadIds}..removeAll(fresh);
+    });
+    _persistReadState(); // fire-and-forget — survives logout/login
   }
 
   // ── Announcements card ────────────────────────────────────────────────────
@@ -2428,16 +2440,40 @@ class _OrganizerBottomNavItem extends StatelessWidget {
 
 // ── Notification bottom sheet (mobile) ────────────────────────────────────────
 
-class _NotifSheet extends StatelessWidget {
+class _NotifSheet extends StatefulWidget {
   final List<_AppNotif> notifs;
 
-  /// Unread when the sheet opened — highlighted.
-  final Set<String> fresh;
-  const _NotifSheet({required this.notifs, this.fresh = const {}});
+  /// Not read yet (highlighted). Asks the dashboard, so the sheet and the
+  /// bell always agree.
+  final bool Function(String id) isUnread;
+
+  /// Marks rows read on the dashboard.
+  final void Function(Iterable<String> ids) onRead;
+
+  const _NotifSheet({
+    required this.notifs,
+    required this.isUnread,
+    required this.onRead,
+  });
+
+  @override
+  State<_NotifSheet> createState() => _NotifSheetState();
+}
+
+class _NotifSheetState extends State<_NotifSheet> {
+  void _read(Iterable<String> ids) {
+    widget.onRead(ids);
+    if (mounted) setState(() {}); // the gold fades
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = AppTk(Theme.of(context).brightness == Brightness.dark);
+    final notifs = widget.notifs;
+    final unread = [
+      for (final n in notifs)
+        if (widget.isUnread(n.id)) n.id,
+    ];
 
     return Container(
       decoration: BoxDecoration(
@@ -2478,18 +2514,22 @@ class _NotifSheet extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Text(
-                    fresh.isNotEmpty
-                        ? '${fresh.length} new'
-                        : 'Recent activity',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 11,
-                      fontWeight: fresh.isNotEmpty
-                          ? FontWeight.w600
-                          : FontWeight.w400,
-                      color: t.sub,
+                  if (unread.isNotEmpty) ...[
+                    Text(
+                      '${unread.length} new',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: t.sub,
+                      ),
                     ),
+                    const SizedBox(width: 10),
+                  ],
+                  // Mark all as read → All read
+                  MarkAllReadButton(
+                    unread: unread.length,
+                    onTap: () => _read(unread),
                   ),
                 ],
               ),
@@ -2566,87 +2606,102 @@ class _NotifSheet extends StatelessWidget {
   }
 
   Widget _buildItem(_AppNotif n, AppTk t) {
-    final isNew = fresh.contains(n.id);
-    return Container(
-      color: isNew ? kGold.withValues(alpha: t.dark ? 0.10 : 0.07) : null,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: n.color.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(12),
+    final isNew = widget.isUnread(n.id);
+    final gold = kGold.withValues(alpha: t.dark ? 0.10 : 0.07);
+    // Tapping an unread row reads it (the web reads on hover or click).
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _read([n.id]),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+        color: isNew ? gold : gold.withValues(alpha: 0),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: n.color.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(n.icon, size: 19, color: n.color),
             ),
-            child: Icon(n.icon, size: 19, color: n.color),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        n.title,
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: t.text,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (n.at != null) ...[
-                      const SizedBox(width: 8),
-                      Text(
-                        noticeTimeAgo(n.at!),
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 10.5,
-                          color: t.sub,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          n.title,
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: t.text,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      if (n.at != null) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          noticeTimeAgo(n.at!),
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 10.5,
+                            color: t.sub,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
-                ),
-                const SizedBox(height: 3),
-                // Admin decisions carry the reason — show it in full.
-                Text(
-                  n.subtitle,
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 11.5,
-                    height: 1.45,
-                    color: t.sub,
                   ),
-                  maxLines: n.at != null ? 6 : 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+                  const SizedBox(height: 3),
+                  // Admin decisions carry the reason — show it in full.
+                  Text(
+                    n.subtitle,
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 11.5,
+                      height: 1.45,
+                      color: t.sub,
+                    ),
+                    maxLines: n.at != null ? 6 : 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
-          ),
-          if (isNew)
+            // Kept in place once read (just faded) so the text doesn't shift.
             Padding(
               padding: const EdgeInsets.only(left: 10, top: 6),
-              child: Semantics(
-                label: 'New',
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: kGold,
-                    shape: BoxShape.circle,
+              child: ExcludeSemantics(
+                excluding: !isNew,
+                child: Semantics(
+                  label: 'New',
+                  child: AnimatedOpacity(
+                    opacity: isNew ? 1 : 0,
+                    duration: const Duration(milliseconds: 350),
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: kGold,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }

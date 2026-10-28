@@ -9,6 +9,7 @@ import '../../../core/services/registration_service.dart';
 import '../../../core/services/student_count_service.dart';
 import '../../../core/app_colors.dart';
 import '../../../shared/widgets/error_alert.dart';
+import 'cancel_registration.dart';
 
 class EventDetailsPage extends StatefulWidget {
   final Map<String, dynamic> event;
@@ -216,6 +217,10 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   bool get _isDeadlinePassed => _regState == RegistrationState.deadlinePassed ||
       _regState == RegistrationState.started;
 
+  // Still Registered and check-in hasn't opened (shared rule; the server
+  // enforces the same).
+  bool get _canCancel => _reg != null && registrationCancellable(_reg!, _e);
+
   // ── Actions ────────────────────────────────────────────────────────────────
 
   Future<void> _handleRegister() async {
@@ -240,6 +245,25 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         showErrorAlert(context, e, title: 'Couldn’t register');
       }
     }
+  }
+
+  Future<void> _handleCancel() async {
+    final id = _reg?['id'] as String?;
+    if (id == null) return;
+    final cancelled = await confirmCancelRegistration(
+      context,
+      registrationId: id,
+      eventTitle: _title,
+    );
+    if (!cancelled || !mounted) return;
+    HapticFeedback.mediumImpact();
+    setState(() => _reg = null);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Registration cancelled.', style: TextStyle(fontFamily: 'Poppins')),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _showQR() {
@@ -479,8 +503,8 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
           // Schedule
           _buildScheduleSection(),
 
-          // Bottom padding for sticky bar
-          const SizedBox(height: 110),
+          // Bottom padding for sticky bar (taller with the cancel link)
+          SizedBox(height: _canCancel ? 154 : 110),
         ],
       ),
     );
@@ -916,7 +940,16 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
         MediaQuery.of(context).padding.bottom + 16,
       ),
       child: _isRegistered
-          ? _registeredAction()
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _registeredAction(),
+                if (_canCancel) ...[
+                  const SizedBox(height: 4),
+                  CancelRegistrationLink(onTap: _handleCancel),
+                ],
+              ],
+            )
           : !_canRegister
               ? _closedButton()
               : _isDeadlinePassed
@@ -962,7 +995,15 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
 
   // The registered student's next step, following their ticket live: show
   // the QR → take the check-in photo → wait for the organizer → checked in.
+  // Once it's too late to check in (scanning closed before the ticket was
+  // scanned, or check-in closed before it was finished): missed.
   Widget _registeredAction() {
+    if (_reg != null && registrationMissed(_reg!, _e)) {
+      return _actionButton(
+        icon: Icons.event_busy_rounded,
+        label: 'Missed — check-in has closed',
+      );
+    }
     return switch (_reg?['status'] as String? ?? 'pending') {
       'photo_required' => _actionButton(
           icon: Icons.photo_camera_rounded,

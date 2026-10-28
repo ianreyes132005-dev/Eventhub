@@ -45,11 +45,16 @@ class _ScanConfirmScreenState extends State<ScanConfirmScreen> {
         setState(() { _error = 'This QR code isn’t a ticket for any of your events.'; _loading = false; });
         return;
       }
-      // Check-in only runs inside the event's window (1 h before start →
-      // 2 h after end) and never for a cancelled event. Finished
-      // registrations (submitted / checked in / rejected) can still be viewed.
+      // Check-in only runs inside the event's window and never for a
+      // cancelled event: a new ticket can be scanned from 1 h before the
+      // start until 30 min after the end, and a check-in started in time can
+      // be finished until 2 h after the end. Finished registrations
+      // (submitted / checked in / rejected) can still be viewed.
       if (const {'pending', 'qr_scanned', 'photo_required'}.contains(reg['status'])) {
-        final window = await RegistrationService.checkInWindow(reg['event_id'] as String?);
+        final window = await RegistrationService.checkInWindow(
+          reg['event_id'] as String?,
+          scanning: reg['status'] == 'pending',
+        );
         if (window.problem != null) {
           ScanFeedback.blocked();
           if (!mounted) return;

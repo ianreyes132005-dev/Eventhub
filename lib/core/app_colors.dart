@@ -51,10 +51,16 @@ class AppTk {
 // overrides it is a cancellation (event_status = 'cancelled'). Any other
 // stored value ('upcoming', legacy 'ongoing'/'completed'/…) is ignored.
 
-/// Check-in (QR scan → selfie → check in) is open from this long before the
-/// event starts…
+/// Check-in (QR scan → selfie → check in) opens this long before the event
+/// starts…
 const Duration kCheckInOpensBefore = Duration(hours: 1);
-/// …until this long after it ends.
+/// …a ticket can be scanned (the student arrives) until this long after the
+/// end, for a queue or an event that runs late…
+const Duration kScanClosesAfter = Duration(minutes: 30);
+/// …and a check-in started in time (the ticket was scanned) can be finished
+/// (selfie, the organizer's approval) until this long after the end. Then the
+/// attendance is final: only the admin can correct it. The database enforces
+/// the same (migration 202610280001).
 const Duration kCheckInClosesAfter = Duration(hours: 2);
 
 /// Local start/end of an event, or null when it has no valid date.
@@ -191,7 +197,31 @@ String? registrationClosedReason(RegistrationState s) => switch (s) {
   RegistrationState.notApproved    => 'This event isn’t open for registration',
 };
 
-/// Why a QR scan / check-in step isn't allowed right now, or null when it is.
+/// Why a ticket can't be scanned right now (a student arriving), or null when
+/// it can: from 1 hour before the start until [kScanClosesAfter] after the
+/// end. Checking a Registered student in by hand follows the same window.
+String? scanBlockedReason(Map<String, dynamic> event, {DateTime? now}) {
+  if (eventIsCancelled(event)) return 'This event was cancelled — check-in is closed.';
+  final w = eventWindow(event);
+  if (w == null) return null;
+  final at = now ?? DateTime.now();
+  final opens  = w.start.subtract(kCheckInOpensBefore);
+  final closes = w.end.add(kScanClosesAfter);
+  if (at.isBefore(opens)) {
+    return 'Check-in opens 1 hour before the event starts '
+        '(${_fmtWhen(opens)}).';
+  }
+  if (at.isAfter(closes)) {
+    return 'Scanning closed 30 minutes after the event ended '
+        '(${_fmtWhen(closes)}). Students scanned before then can still '
+        'finish checking in.';
+  }
+  return null;
+}
+
+/// Why a later check-in step (selfie request, selfie, approval) isn't allowed
+/// right now, or null when it is: from 1 hour before the start until
+/// [kCheckInClosesAfter] after the end.
 String? checkInBlockedReason(Map<String, dynamic> event, {DateTime? now}) {
   if (eventIsCancelled(event)) return 'This event was cancelled — check-in is closed.';
   final w = eventWindow(event);
@@ -205,9 +235,27 @@ String? checkInBlockedReason(Map<String, dynamic> event, {DateTime? now}) {
   }
   if (at.isAfter(closes)) {
     return 'Check-in closed 2 hours after the event ended '
-        '(${_fmtWhen(closes)}).';
+        '(${_fmtWhen(closes)}). Its attendance is final.';
   }
   return null;
+}
+
+/// When scanning closes: [kScanClosesAfter] after the event ends.
+DateTime? scanClosesAt(Map<String, dynamic> event) =>
+    eventWindow(event)?.end.add(kScanClosesAfter);
+
+/// The ticket was scanned and the check-in isn't decided yet, so it can still
+/// be finished after scanning closes (until check-in closes).
+bool checkInStarted(String? status) =>
+    const {'qr_scanned', 'photo_required', 'photo_submitted'}.contains(status);
+
+/// Check-in has closed ([kCheckInClosesAfter] after the end): the attendance
+/// is final. Organizers can't change or delete its registrations any more;
+/// the admin can correct one, with a reason. Cancelled events count too, once
+/// that time has passed.
+bool attendanceFinal(Map<String, dynamic> event, {DateTime? now}) {
+  final w = eventWindow(event);
+  return w != null && (now ?? DateTime.now()).isAfter(w.end.add(kCheckInClosesAfter));
 }
 
 /// When check-in opens ([kCheckInOpensBefore] before the start) while that's
@@ -315,16 +363,22 @@ DateTime? checkInOpenUntil(Map<String, dynamic> event, {DateTime? now}) {
   return !at.isBefore(w.end) && at.isBefore(closes) ? closes : null;
 }
 
-/// Organizer-facing status: "Ended · Check-in open until 5:00 PM" while late
-/// check-ins are still possible, otherwise the plain [eventStatusLabel].
-String organizerEventStatusLabel(Map<String, dynamic> event) {
-  final closes = checkInOpenUntil(event);
+/// Organizer-facing status after the end, while check-ins can still change:
+/// "Ended · Scanning until 5:30 PM" (late arrivals can still be scanned), then
+/// "Ended · Finish check-ins by 7:00 PM" (only students scanned in time).
+/// Otherwise the plain [eventStatusLabel].
+String organizerEventStatusLabel(Map<String, dynamic> event, {DateTime? now}) {
+  final at = now ?? DateTime.now();
+  final closes = checkInOpenUntil(event, now: at);
   if (closes == null) return eventStatusLabel(event);
-  final now = DateTime.now();
-  final sameDay = closes.year == now.year && closes.month == now.month && closes.day == now.day;
-  final h = closes.hour % 12 == 0 ? 12 : closes.hour % 12;
-  final time = '$h:${closes.minute.toString().padLeft(2, '0')} ${closes.hour < 12 ? 'AM' : 'PM'}';
-  return 'Ended · Check-in open until ${sameDay ? time : _fmtWhen(closes)}';
+  final scanUntil = scanClosesAt(event);
+  final scanning = scanUntil != null && at.isBefore(scanUntil);
+  final until = scanning ? scanUntil : closes;
+  final sameDay = until.year == at.year && until.month == at.month && until.day == at.day;
+  final h = until.hour % 12 == 0 ? 12 : until.hour % 12;
+  final time = '$h:${until.minute.toString().padLeft(2, '0')} ${until.hour < 12 ? 'AM' : 'PM'}';
+  final when = sameDay ? time : _fmtWhen(until);
+  return scanning ? 'Ended · Scanning until $when' : 'Ended · Finish check-ins by $when';
 }
 
 /// Archived by the admin (supabase/migrations/202610180010_event_archives.sql):
@@ -533,11 +587,53 @@ DateTime? checkInClosesAt(Map<String, dynamic> event) =>
 bool countsAsRegistered(Map<String, dynamic> reg) =>
     (reg['status'] as String?) != 'rejected';
 
-/// Organizers can delete a registration unless the student has checked in:
-/// that's the attendance record. The database enforces the same
-/// (organizer_delete_own_event_registrations, migration 202610230001).
-bool registrationDeletable(Map<String, dynamic> reg) =>
-    (reg['status'] as String?) != 'checked_in';
+/// Organizers can delete a registration unless the student has checked in
+/// (that's the attendance record) or [event]'s check-in has closed (its
+/// attendance is final). The database enforces the same
+/// (organizer_delete_own_event_registrations, migration 202610280001).
+bool registrationDeletable(
+  Map<String, dynamic> reg, {
+  Map<String, dynamic>? event,
+  DateTime? now,
+}) =>
+    (reg['status'] as String?) != 'checked_in' &&
+    !(event != null && attendanceFinal(event, now: now));
+
+/// A student can cancel their registration while it's still Registered (not
+/// scanned) and check-in hasn't opened ([kCheckInOpensBefore] before the
+/// start), on an event that's still on. Cancelling deletes it; they can
+/// register again while registration is open. The database enforces the same
+/// (student_cancel_own_registration, migration 202610280001).
+bool registrationCancellable(
+  Map<String, dynamic> reg,
+  Map<String, dynamic> event, {
+  DateTime? now,
+}) {
+  if ((reg['status'] as String? ?? 'pending') != 'pending') return false;
+  if (eventIsCancelled(event) || eventIsArchived(event)) return false;
+  final w = eventWindow(event);
+  return w != null &&
+      (now ?? DateTime.now()).isBefore(w.start.subtract(kCheckInOpensBefore));
+}
+
+/// The student didn't check in and no longer can: their ticket wasn't
+/// scanned before scanning closed, or a check-in that started wasn't
+/// finished before check-in closed. Never for a cancelled event or a
+/// decided check-in.
+bool registrationMissed(
+  Map<String, dynamic> reg,
+  Map<String, dynamic> event, {
+  DateTime? now,
+}) {
+  if (eventIsCancelled(event)) return false;
+  final status = reg['status'] as String? ?? 'pending';
+  final at = now ?? DateTime.now();
+  if (status == 'pending') {
+    final closes = scanClosesAt(event);
+    return closes != null && at.isAfter(closes);
+  }
+  return checkInStarted(status) && attendanceFinal(event, now: at);
+}
 
 // ── Student registrations (Home) ─────────────────────────────────────────────
 // [reg] is a registrations row with its event under 'events'.
@@ -547,23 +643,33 @@ Map<String, dynamic>? _regEvent(Map<String, dynamic> reg) {
   return ev is Map ? Map<String, dynamic>.from(ev) : null;
 }
 
+/// When check-in can no longer change for this registration: scanning's close
+/// for a ticket that wasn't scanned, check-in's close otherwise.
+DateTime? _registrationClosesAt(Map<String, dynamic> reg, Map<String, dynamic> event) =>
+    (reg['status'] as String? ?? 'pending') == 'pending'
+        ? scanClosesAt(event)
+        : checkInClosesAt(event);
+
 /// Still on the student's schedule — the Home "Upcoming" number and the
 /// "My upcoming events" list both use this: the event isn't cancelled, the
-/// registration wasn't declined, and check-in hasn't closed yet.
+/// registration wasn't declined, and check-in can still happen: until
+/// scanning closes for a ticket that wasn't scanned, until check-in closes
+/// for one that was.
 bool registrationIsUpcoming(Map<String, dynamic> reg, {DateTime? now}) {
   final event = _regEvent(reg);
   if (event == null || eventIsCancelled(event)) return false;
   if ((reg['status'] as String?) == 'rejected') return false;
-  final closes = checkInClosesAt(event);
+  final closes = _registrationClosesAt(reg, event);
   return closes != null && (now ?? DateTime.now()).isBefore(closes);
 }
 
-/// Over, for the attendance rate: the event wasn't cancelled and its
-/// check-in has closed, so attended-or-not is final.
+/// Over, for the attendance rate: the event wasn't cancelled and the
+/// student's check-in can't change any more (as [registrationIsUpcoming]),
+/// so attended-or-not is final.
 bool registrationIsFinished(Map<String, dynamic> reg, {DateTime? now}) {
   final event = _regEvent(reg);
   if (event == null || eventIsCancelled(event)) return false;
-  final closes = checkInClosesAt(event);
+  final closes = _registrationClosesAt(reg, event);
   return closes != null && !(now ?? DateTime.now()).isBefore(closes);
 }
 

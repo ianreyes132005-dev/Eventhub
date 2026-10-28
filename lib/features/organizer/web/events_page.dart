@@ -75,7 +75,10 @@ const _kTypes = [
 
 class WebEventsPage extends StatefulWidget {
   final String? orgId;
-  const WebEventsPage({super.key, this.orgId});
+  /// Opens this event's details once the list has loaded (the dashboard's
+  /// Next event card).
+  final String? openEventId;
+  const WebEventsPage({super.key, this.orgId, this.openEventId});
 
   @override
   State<WebEventsPage> createState() => _WebEventsPageState();
@@ -207,6 +210,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
       _applyFilter();
       setState(() => _loading = false);
       _staggerCtrl.forward(from: 0);
+      _openRequestedEvent();
     } catch (_) {
       if (mounted) {
         setState(() => _loading = false);
@@ -337,6 +341,23 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
       context: context,
       builder: (_) => _EventDetailsDialog(event: e),
     );
+  }
+
+  // Opened from the dashboard's Next event card: show that event's details
+  // once, after the first load (later live reloads don't reopen it).
+  bool _openedRequested = false;
+  void _openRequestedEvent() {
+    final id = widget.openEventId;
+    if (id == null || _openedRequested) return;
+    _openedRequested = true;
+    for (final e in _events) {
+      if (e['event_id'] == id) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _openDetails(e);
+        });
+        return;
+      }
+    }
   }
 
   // ── Cancel / restore / delete ──────────────────────────────────────────────
@@ -698,8 +719,14 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
             '${reason.isNotEmpty ? 'Reason: $reason' : 'No reason recorded.'}');
       case 'Check-in open':
         final closes = checkInOpenUntil(e);
-        if (closes != null) {
-          lines.add('The event has ended — late check-in is open until ${clockLabel(closes)}.');
+        final scanUntil = scanClosesAt(e);
+        if (closes != null && scanUntil != null) {
+          lines.add(DateTime.now().isBefore(scanUntil)
+              ? 'The event has ended — late arrivals can be scanned until '
+                  '${clockLabel(scanUntil)}, and check-ins finished until '
+                  '${clockLabel(closes)}.'
+              : 'Scanning has closed — students scanned in time can finish '
+                  'checking in until ${clockLabel(closes)}. Then the attendance is final.');
         }
     }
 

@@ -235,8 +235,12 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   final Set<String> _orgEventIds = {};
   // Events the admin archived: their registrations are read-only records.
   final Set<String> _archivedEventIds = {};
+  // _organizerEvents by id (see _refreshEventOptions).
+  Map<String, Map<String, dynamic>> _eventsById = {};
   bool _fetching = false; // a load is running…
   bool _refetch = false; // …and a change arrived meanwhile
+  // Check-in closing makes rows final while the tab is open.
+  Timer? _clock;
 
   @override
   void initState() {
@@ -247,10 +251,14 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
       const Duration(minutes: 5),
       (_) => _loadSelfies(),
     );
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(_applyFilter);
+    });
   }
 
   @override
   void dispose() {
+    _clock?.cancel();
     _selfieRenewal?.cancel();
     _search.dispose();
     if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
@@ -451,16 +459,13 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
 
       return matchesFilter && matchesEvent && matchesSearch;
     }).toList();
-    final reviewableIds = _filtered
-        .where((r) => r['status'] == 'photo_submitted')
-        .map((r) => r['id'] as String? ?? '')
-        .where((id) => id.isNotEmpty)
-        .toSet();
+    final reviewableIds = _filteredReviewableIds.toSet();
     _selectedIds.removeWhere((id) => !reviewableIds.contains(id));
   }
 
   List<String> get _filteredReviewableIds => _filtered
-      .where((r) => r['status'] == 'photo_submitted' && !_isArchived(r))
+      .where((r) =>
+          r['status'] == 'photo_submitted' && !_isArchived(r) && !_isFinal(r))
       .map((r) => r['id'] as String? ?? '')
       .where((id) => id.isNotEmpty)
       .toList();
@@ -468,6 +473,13 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   // Its event is archived: a read-only record.
   bool _isArchived(Map<String, dynamic> r) =>
       _archivedEventIds.contains(r['event_id']);
+
+  // Its event's check-in has closed: the attendance is final, and only the
+  // admin can correct it.
+  bool _isFinal(Map<String, dynamic> r) {
+    final event = _eventsById[r['event_id']];
+    return event != null && attendanceFinal(event);
+  }
 
   bool get _allReviewableSelected =>
       _filteredReviewableIds.isNotEmpty &&
@@ -564,6 +576,10 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   }
 
   void _refreshEventOptions() {
+    _eventsById = {
+      for (final e in _organizerEvents)
+        if (e['event_id'] is String) e['event_id'] as String: e,
+    };
     _organizerEvents.sort((a, b) {
       final titleA = (a['title'] as String? ?? '').toLowerCase();
       final titleB = (b['title'] as String? ?? '').toLowerCase();
@@ -981,6 +997,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
       busy: _bulkProcessing,
       sending: _statusUpdatingIds.contains(id),
       archived: _isArchived(r),
+      attendanceFinal: _isFinal(r),
       onToggleSelect: () => _toggleRegistrationSelection(id),
       onRequestSelfie: () => _updateStatus(id, 'photo_required'),
       onCheckIn: () => _updateStatus(id, 'checked_in'),

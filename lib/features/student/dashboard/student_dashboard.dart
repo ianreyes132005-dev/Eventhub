@@ -744,7 +744,7 @@ class _StudentDashboardState extends State<StudentDashboard>
         HapticFeedback.lightImpact();
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => const NotificationsScreen(markAllRead: true),
+            builder: (_) => const NotificationsScreen(),
           ),
         );
       },
@@ -1006,7 +1006,10 @@ class _StudentDashboardState extends State<StudentDashboard>
             // check-in open).
             Positioned(
               top: 14, left: 14,
-              child: LiveEventPhasePill(event: event),
+              child: LiveEventPhasePill(
+                event: event,
+                scanned: checkInStarted(reg['status'] as String?),
+              ),
             ),
             // Top-right: where the student's ticket stands, with the action
             // it needs — its own tap target, separate from the card.
@@ -1083,6 +1086,7 @@ class _StudentDashboardState extends State<StudentDashboard>
                       start: window.start,
                       end: window.end,
                       statusEvent: event,
+                      scanned: checkInStarted(reg['status'] as String?),
                     ),
                   ],
                 ),

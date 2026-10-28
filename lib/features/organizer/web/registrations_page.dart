@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
@@ -44,8 +45,12 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
   final Set<String> _orgEventIds = {};
   // Events the admin archived: their registrations are read-only records.
   final Set<String> _archivedEventIds = {};
+  // The organizer's events by id, with their schedule (see _isFinal).
+  final Map<String, Map<String, dynamic>> _eventsById = {};
   bool _fetching = false; // a load is running…
   bool _refetch = false; // …and a change arrived meanwhile
+  // Check-in closing makes rows final while the page is open.
+  Timer? _clock;
 
   final _statusFilters = [
     'All',
@@ -71,10 +76,14 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
     _search.addListener(_applyFilter);
     _load();
     _subscribeRealtime();
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) _applyFilter();
+    });
   }
 
   @override
   void dispose() {
+    _clock?.cancel();
     if (_channel != null) SupabaseService.client.removeChannel(_channel!);
     _staggerCtrl.dispose();
     _search.dispose();
@@ -118,7 +127,8 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
     try {
       final eventsRaw = await SupabaseService.client
           .from('events')
-          .select('event_id, title, event_date, archived_at')
+          .select('event_id, title, event_date, end_date, start_time, end_time, '
+              'event_status, archived_at')
           .eq('organizer_id', widget.orgId!);
       final events = List<Map<String, dynamic>>.from(eventsRaw as List);
       final eventIds = events.map((e) => e['event_id'] as String).toList();
@@ -128,6 +138,9 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
           for (final e in events)
             if (eventIsArchived(e)) e['event_id'] as String,
         ]);
+      _eventsById
+        ..clear()
+        ..addAll({for (final e in events) e['event_id'] as String: e});
       // Live changes are kept to these events (see _subscribeRealtime).
       _orgEventIds
         ..clear()
@@ -259,6 +272,8 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
       onEventRow: (event) {
         final id = event['event_id'];
         if (id is! String || !mounted) return;
+        // A new schedule moves when the rows become final.
+        _eventsById[id] = {...?_eventsById[id], ...event};
         final archived = eventIsArchived(event);
         if (archived == _archivedEventIds.contains(id)) return;
         setState(() {
@@ -278,8 +293,21 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
   bool _isArchived(Map<String, dynamic> r) =>
       _archivedEventIds.contains(r['event_id']);
 
+  // Its event's check-in has closed: the attendance is final (no selection,
+  // no actions); only the admin can correct it.
+  bool _isFinal(Map<String, dynamic> r) {
+    final event = _eventsById[r['event_id']];
+    return event != null && attendanceFinal(event);
+  }
+
+  // Bulk Approve / Reject decide submitted selfies, as on the app: a
+  // check-in without one is done by hand, one student at a time, with a
+  // reason.
+  bool _selectable(Map<String, dynamic> r) =>
+      r['status'] == 'photo_submitted' && !_isArchived(r) && !_isFinal(r);
+
   Iterable<String> get _selectableVisibleIds => _displayed
-      .where((r) => !_isArchived(r))
+      .where(_selectable)
       .map((r) => r['id'] as String? ?? '')
       .where((id) => id.isNotEmpty);
 
@@ -309,6 +337,10 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
             sid.contains(q);
         return matchStatus && matchEvent && matchSearch;
       }).toList();
+      // A selfie decided elsewhere, or check-in closing, ends a selection.
+      _selectedIds.removeWhere(
+        (id) => !_all.any((r) => r['id'] == id && _selectable(r)),
+      );
     });
   }
 
@@ -465,6 +497,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
     String id,
     String newStatus, {
     String? rejectionReason,
+    String? attendanceNote,
   }) async {
     setState(() => _processingIds.add(id));
     try {
@@ -472,6 +505,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
         id,
         newStatus,
         rejectionReason: rejectionReason,
+        attendanceNote: attendanceNote,
       );
     } catch (e) {
       if (mounted) {
@@ -517,8 +551,34 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
       organizerId: widget.orgId,
       profile: _profiles[reg['student_user_id'] as String? ?? ''],
       archived: _isArchived(reg),
+      attendanceFinal: _isFinal(reg),
     );
     if (changed == true && mounted) _load();
+  }
+
+  // Checking in a student who hasn't sent an approved selfie: allowed while
+  // check-in is open, with a reason that's kept with the attendance.
+  Future<void> _checkInByHand(String id, String studentName, String status) async {
+    final r = await Swal.fire(
+      context,
+      icon: SwalIcon.question,
+      title: 'Check in $studentName by hand?',
+      text: status == 'pending'
+          ? 'Their ticket wasn’t scanned and they sent no selfie. Say why '
+              'you’re checking them in; it’s saved with their attendance.'
+          : 'They haven’t sent a selfie for review. Say why you’re checking '
+              'them in; it’s saved with their attendance.',
+      input: true,
+      inputLabel: 'Reason',
+      inputPlaceholder: 'e.g. Phone battery died, ID checked at the door',
+      inputValidator: (v) =>
+          v.trim().isEmpty ? 'Give a reason for checking them in by hand.' : null,
+      showCancelButton: true,
+      confirmButtonText: 'Check In',
+      confirmButtonColor: kSwalGold,
+    );
+    if (!r.isConfirmed || !mounted) return;
+    await _updateStatus(id, 'checked_in', attendanceNote: r.value);
   }
 
   Future<void> _sendSelfieRequest(String id, String studentName) async {
@@ -1034,11 +1094,18 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
               children: [
                 SizedBox(
                   width: 36,
-                  child: Checkbox(
-                    value: _allVisibleSelected && _displayed.isNotEmpty,
-                    onChanged: (_) => _toggleSelectAllVisible(),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    activeColor: const Color(0xFF8B5CF6),
+                  child: Tooltip(
+                    message: _selectableVisibleIds.isEmpty
+                        ? 'Selecting is for submitted selfies waiting for review'
+                        : 'Select every submitted selfie shown',
+                    child: Checkbox(
+                      value: _allVisibleSelected,
+                      onChanged: _selectableVisibleIds.isEmpty
+                          ? null
+                          : (_) => _toggleSelectAllVisible(),
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      activeColor: const Color(0xFF8B5CF6),
+                    ),
                   ),
                 ),
                 Expanded(flex: 4, child: WebColHeader('STUDENT')),
@@ -1076,6 +1143,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
           final isProcessing = _processingIds.contains(id);
           final isSelected = _selectedIds.contains(id);
           final archived = _isArchived(reg);
+          final isFinal = !archived && _isFinal(reg);
           final s = 0.55 + (i * 0.07).clamp(0.0, 0.27);
 
           return _stagger(
@@ -1092,7 +1160,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
                   children: [
                     SizedBox(
                       width: 36,
-                      child: archived
+                      child: !_selectable(reg)
                           ? null
                           : Checkbox(
                               value: isSelected,
@@ -1265,6 +1333,20 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
                                 ),
                               ),
                             )
+                          : isFinal
+                          ? const Align(
+                              alignment: Alignment.centerRight,
+                              child: Tooltip(
+                                message:
+                                    'Check-in closed 2 hours after the event ended, '
+                                    'so this attendance is final. Only the '
+                                    'administrator can correct it.',
+                                child: WebStatusBadge(
+                                  label: 'Final',
+                                  color: Color(0xFF6B7280),
+                                ),
+                              ),
+                            )
                           : isProcessing
                           ? const Center(
                               child: SizedBox(
@@ -1340,8 +1422,19 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
                                 // Slot 2 - Status advance / lock
                                 _StatusMenu(
                                   currentStatus: status,
+                                  canStart: switch (_eventsById[reg['event_id']]) {
+                                    final event? => scanBlockedReason(event) == null,
+                                    null => true,
+                                  },
                                   onSelect: (s) async {
-                                    if (s == 'rejected') {
+                                    if (s == 'checked_in' &&
+                                        status != 'photo_submitted') {
+                                      await _checkInByHand(
+                                        id,
+                                        name,
+                                        status ?? 'pending',
+                                      );
+                                    } else if (s == 'rejected') {
                                       final reason = await _promptRejectReason(
                                         context,
                                         name,
@@ -1698,8 +1791,11 @@ Future<String?> _promptBulkRejectReason(BuildContext context, int count) {
 
 class _StatusMenu extends StatefulWidget {
   final String? currentStatus;
+  /// A Registered (unscanned) student can be checked in by hand only while
+  /// tickets can be scanned (scanBlockedReason).
+  final bool canStart;
   final ValueChanged<String> onSelect;
-  const _StatusMenu({this.currentStatus, required this.onSelect});
+  const _StatusMenu({this.currentStatus, this.canStart = true, required this.onSelect});
 
   @override
   State<_StatusMenu> createState() => _StatusMenuState();
@@ -1717,13 +1813,17 @@ class _StatusMenuState extends State<_StatusMenu> {
     ('rejected', 'Reject'),
   ];
 
-  // Forward-only state machine. checked_in and rejected are both terminal —
-  // rejected is only reachable from photo_submitted (the same point admin's
-  // now-removed dialog used to decide from).
+  // Forward-only state machine, the same one the database enforces
+  // (enforce_registration_update_rules, migration 202610280001).
+  // checked_in and rejected are both terminal — rejected is only reachable
+  // from photo_submitted (the same point admin's now-removed dialog used to
+  // decide from). Only the student's own upload makes a selfie
+  // "submitted"; checking in from any other step is done by hand and needs
+  // a reason.
   static const _allowed = <String, Set<String>>{
-    'pending': {'photo_submitted', 'checked_in'},
-    'qr_scanned': {'photo_required', 'photo_submitted', 'checked_in'},
-    'photo_required': {'photo_submitted', 'checked_in'},
+    'pending': {'checked_in'},
+    'qr_scanned': {'photo_required', 'checked_in'},
+    'photo_required': {'checked_in'},
     'photo_submitted': {'checked_in', 'rejected'},
     'checked_in': {},
     'rejected': {},
@@ -1739,10 +1839,14 @@ class _StatusMenuState extends State<_StatusMenu> {
     _ => Icons.circle_outlined,
   };
 
-  static String _statusDesc(String key) => switch (key) {
+  // [current]: checking in from anything but a submitted selfie is done by
+  // hand.
+  static String _statusDesc(String key, String? current) => switch (key) {
     'qr_scanned' => 'Student\'s QR code has been scanned',
     'photo_required' => 'Request a selfie from the student',
     'photo_submitted' => 'Selfie received, awaiting review',
+    'checked_in' when current != 'photo_submitted' =>
+      'Check in by hand, without a selfie — requires a reason',
     'checked_in' => 'Confirm and finalise attendance',
     'rejected' => 'Deny attendance — requires a reason',
     _ => '',
@@ -1775,7 +1879,9 @@ class _StatusMenuState extends State<_StatusMenu> {
       );
     }
 
-    final allowedSet = _allowed[current] ?? {};
+    final allowedSet = current == 'pending' && !widget.canStart
+        ? const <String>{}
+        : _allowed[current] ?? const <String>{};
     final items = _statuses.where((s) => allowedSet.contains(s.$1)).toList();
     if (items.isEmpty) return const SizedBox(width: 32);
 
@@ -1889,7 +1995,7 @@ class _StatusMenuState extends State<_StatusMenu> {
             final (key, label) = s;
             final c = webStatusColor(key);
             final icon = _statusIcon(key);
-            final desc = _statusDesc(key);
+            final desc = _statusDesc(key, current);
             final isTerminal = key == 'checked_in' || key == 'rejected';
 
             return PopupMenuItem<String>(

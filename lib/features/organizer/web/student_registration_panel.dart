@@ -58,6 +58,7 @@ Future<bool?> showStudentRegistrationPanel(
   String? organizerId,
   Map<String, dynamic>? profile,
   bool archived = false,
+  bool attendanceFinal = false,
 }) {
   return showGeneralDialog<bool>(
     context: context,
@@ -69,7 +70,7 @@ Future<bool?> showStudentRegistrationPanel(
       alignment: Alignment.centerRight,
       child: StudentRegistrationPanel(
         registration: registration, organizerId: organizerId, profile: profile,
-        archived: archived),
+        archived: archived, attendanceFinal: attendanceFinal),
     ),
     transitionBuilder: (_, anim, _, child) => SlideTransition(
       position: Tween(begin: const Offset(1, 0), end: Offset.zero)
@@ -85,9 +86,12 @@ class StudentRegistrationPanel extends StatefulWidget {
   final Map<String, dynamic>? profile;
   /// The admin archived the event: read-only, and the photo was deleted.
   final bool                  archived;
+  /// The event's check-in has closed: read-only, only the admin can correct
+  /// the attendance.
+  final bool                  attendanceFinal;
   const StudentRegistrationPanel({
     super.key, required this.registration, this.organizerId, this.profile,
-    this.archived = false});
+    this.archived = false, this.attendanceFinal = false});
 
   @override
   State<StudentRegistrationPanel> createState() => _StudentRegistrationPanelState();
@@ -581,10 +585,32 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
           fontSize: 12, color: t.sub, height: 1.4))),
     ]);
 
+    // Why a check-in didn't come from an approved selfie (by hand, or the
+    // admin's correction).
+    final note = (_reg['attendance_note'] as String?)?.trim() ?? '';
+    final noteLine = note.isEmpty
+        ? null
+        : _reg['corrected_at'] != null
+            ? 'Corrected by the administrator: $note'
+            : 'By hand: $note';
+    final checkedInLine =
+        'Checked in ${_fmtDateTime(_reg['checked_in_at'] as String?) ?? ''}'.trim();
     final Widget content = widget.archived
         ? info(Icons.inventory_2_outlined,
             'The admin archived this event. Its attendance is kept as a record and can’t be changed.',
             kArchivedColor)
+        : widget.attendanceFinal
+        ? info(Icons.lock_clock_rounded,
+            [
+              switch (_status) {
+                'checked_in' => checkedInLine,
+                'rejected' => 'Check-in was rejected.',
+                _ => 'Absent: the student didn’t finish checking in before check-in closed.',
+              },
+              if (_status == 'checked_in' && noteLine != null) noteLine,
+              'Check-in has closed, so this is final. Only the administrator can correct it.',
+            ].join('\n'),
+            t.muted)
         : switch (_status) {
       'pending' => info(Icons.qr_code_scanner_rounded,
           'Scan the student’s QR code with the EventHub app to start check-in.', t.muted),
@@ -613,7 +639,7 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
               () => _setStatus('checked_in'))),
         ]),
       'checked_in' => info(Icons.verified_rounded,
-          'Checked in ${_fmtDateTime(_reg['checked_in_at'] as String?) ?? ''}'.trim(), _kGreen),
+          [checkedInLine, ?noteLine].join('\n'), _kGreen),
       'rejected' => info(Icons.cancel_outlined,
           'Check-in was rejected. The student was notified with the reason.', _kRed),
       _ => const SizedBox.shrink(),

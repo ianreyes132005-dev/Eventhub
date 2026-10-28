@@ -89,6 +89,10 @@ class OrgRegistrationCard extends StatelessWidget {
   /// the card has no actions (and the check-in photo was deleted).
   final bool archived;
 
+  /// The event's check-in has closed: the attendance is final (only the
+  /// admin can correct it), so the card has no actions either.
+  final bool attendanceFinal;
+
   final VoidCallback onToggleSelect;
   final VoidCallback onRequestSelfie;
   final VoidCallback onCheckIn;
@@ -105,6 +109,7 @@ class OrgRegistrationCard extends StatelessWidget {
     required this.busy,
     required this.sending,
     this.archived = false,
+    this.attendanceFinal = false,
     required this.onToggleSelect,
     required this.onRequestSelfie,
     required this.onCheckIn,
@@ -124,6 +129,9 @@ class OrgRegistrationCard extends StatelessWidget {
     final checkedInAt = r['checked_in_at'] as String?;
     final status = r['status'] as String? ?? 'pending';
     final color = registrationStatusColor(status);
+    // Archived or final: a record, not a to-do.
+    final locked = archived || attendanceFinal;
+    final note = (r['attendance_note'] as String?)?.trim() ?? '';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -211,6 +219,16 @@ class OrgRegistrationCard extends StatelessWidget {
                     t: t,
                   ),
                 ],
+                if (status == 'checked_in' && note.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  _MetaLine(
+                    icon: Icons.edit_note_rounded,
+                    text: r['corrected_at'] != null
+                        ? 'Corrected by the admin: $note'
+                        : 'Checked in by hand: $note',
+                    t: t,
+                  ),
+                ],
                 if (archived) ...[
                   const SizedBox(height: 6),
                   _MetaLine(
@@ -219,8 +237,15 @@ class OrgRegistrationCard extends StatelessWidget {
                     color: readableStatusColor(kArchivedColor, t.dark),
                     t: t,
                   ),
+                ] else if (attendanceFinal) ...[
+                  const SizedBox(height: 6),
+                  _MetaLine(
+                    icon: Icons.lock_clock_rounded,
+                    text: 'Check-in closed · attendance is final',
+                    t: t,
+                  ),
                 ],
-                if (status == 'photo_submitted' && !archived) ...[
+                if (status == 'photo_submitted' && !locked) ...[
                   const SizedBox(height: 14),
                   _SelfiePreview(
                     url: selfieUrl,
@@ -235,7 +260,7 @@ class OrgRegistrationCard extends StatelessWidget {
                     t: t,
                   ),
                 ],
-                if (status == 'photo_required' && !archived) ...[
+                if (status == 'photo_required' && !locked) ...[
                   const SizedBox(height: 12),
                   _WaitingStrip(t: t),
                 ],
@@ -243,7 +268,7 @@ class OrgRegistrationCard extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: archived
+                      child: locked
                           ? OrgSecondaryButton(
                               label: 'View Details',
                               icon: Icons.info_outline_rounded,
@@ -253,7 +278,7 @@ class OrgRegistrationCard extends StatelessWidget {
                           : _nextStep(status),
                     ),
                     // Checked-in registrations are the attendance record.
-                    if (!archived && registrationDeletable(r)) ...[
+                    if (!locked && registrationDeletable(r)) ...[
                       const SizedBox(width: 10),
                       _MoreButton(onDelete: onDelete, t: t),
                     ],

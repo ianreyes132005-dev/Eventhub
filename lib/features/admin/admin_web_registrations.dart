@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Admin — Registrations tab.
-// View/audit only — admin does NOT approve or reject check-in photos here.
+// View/audit — admin does NOT approve or reject check-in photos here.
 // That's organizer's job: they're physically at the event and can compare
 // the selfie to the person in front of them, which admin reviewing remotely
 // never could. Admin can still open and inspect any submitted photo (audit
@@ -9,15 +9,26 @@
 // Logs tab for the resulting audit entries. Same principle as the Events
 // tab (Section 18/19 of lib/supabase_schema.sql): admin governs, organizer
 // executes, neither duplicates the other's job.
+//
+// The one exception is after an event's check-in has closed: the attendance
+// is final and the organizer can't change it any more, so only the admin can
+// correct a record (Checked in ↔ Absent), with a reason that's saved with it
+// and logged — RegistrationService.correctAttendance(), migration
+// 202610280001.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/app_colors.dart';
 import '../../core/friendly_error.dart';
+import '../../core/services/registration_service.dart';
 import '../../core/services/supabase_service.dart';
 import '../organizer/web/web_shared.dart';
 import 'admin_shared.dart';
+
+// Swal confirm button: the admin orange, dark enough for white text.
+const _kCorrectBtn = Color(0xFFC2410C);
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Registrations page (read-only)
@@ -104,11 +115,13 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
         _error = false;
       });
     try {
+      // Each with its event's schedule (whether check-in has closed, so the
+      // attendance can be corrected) and organizer (for the Logs entry).
       final rows = await SupabaseService.client
           .from('registrations')
           .select(
-            'id, student_name, student_school_id, event_title, status, registered_at, '
-            'checked_in_at, selfie_url, rejection_reason',
+            '*, events(event_date, end_date, start_time, end_time, event_status, '
+            'archived_at, organizer_id, organizers(full_name))',
           )
           .order('registered_at', ascending: false)
           .limit(300);
@@ -215,6 +228,74 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
       context: context,
       barrierDismissible: true,
       builder: (_) => _PhotoViewDialog(reg: reg),
+    );
+  }
+
+  // Only once the event's check-in has closed (before then it's the
+  // organizer's to decide), and not for an archived or cancelled event.
+  bool _canCorrect(Map<String, dynamic> reg) {
+    final ev = reg['events'];
+    if (ev is! Map) return false;
+    final event = Map<String, dynamic>.from(ev);
+    return attendanceFinal(event) &&
+        !eventIsArchived(event) &&
+        !eventIsCancelled(event);
+  }
+
+  // Checked in ↔ Absent, with a reason that's kept with the attendance and
+  // logged. A Declined student who was there can be marked Checked in.
+  Future<void> _correct(Map<String, dynamic> reg) async {
+    final attended = reg['status'] != 'checked_in';
+    final name = reg['student_name'] as String? ?? 'this student';
+    final r = await Swal.fire(
+      context,
+      icon: SwalIcon.warning,
+      title: attended ? 'Mark $name as checked in?' : 'Mark $name as absent?',
+      text: attended
+          ? 'Check-in for this event has closed, so the organizer can’t change '
+              'it any more. Use this when the student was there but their '
+              'check-in wasn’t finished in time. Your reason is saved with the '
+              'attendance and in the Logs.'
+          : 'Check-in for this event has closed, so the organizer can’t change '
+              'it any more. Use this when the student was checked in by '
+              'mistake. Your reason is saved with the attendance and in the Logs.',
+      input: true,
+      inputLabel: 'Reason',
+      inputPlaceholder: attended
+          ? 'e.g. Selfie was sent in time but not reviewed'
+          : 'e.g. The wrong student was checked in',
+      inputValidator: (v) =>
+          v.trim().isEmpty ? 'Give a reason for the correction.' : null,
+      showCancelButton: true,
+      confirmButtonText: attended ? 'Mark Checked In' : 'Mark Absent',
+      confirmButtonColor: _kCorrectBtn,
+      preConfirm: (v) async {
+        try {
+          await RegistrationService.correctAttendance(
+            reg,
+            attended: attended,
+            reason: v ?? '',
+          );
+          return null;
+        } catch (e) {
+          return friendlyError(
+            e,
+            fallback: 'The attendance couldn’t be corrected. Please try again.',
+          );
+        }
+      },
+    );
+    if (!r.isConfirmed || !mounted) return;
+    unawaited(_load(silent: true));
+    await Swal.fire(
+      context,
+      icon: SwalIcon.success,
+      title: 'Attendance corrected',
+      text: '$name is now ${attended ? 'checked in' : 'absent'} for '
+          '${reg['event_title'] ?? 'this event'}.',
+      confirmButtonColor: _kCorrectBtn,
+      timer: const Duration(seconds: 3),
+      timerProgressBar: true,
     );
   }
 
@@ -524,6 +605,7 @@ class _AdminRegistrationsPageState extends State<AdminRegistrationsPage> {
                         return _RegistrationRow(
                           reg: r,
                           onView: hasPhoto ? () => _viewPhoto(r) : null,
+                          onCorrect: _canCorrect(r) ? () => _correct(r) : null,
                         );
                       },
                     ),
@@ -578,58 +660,90 @@ class _RegLegend extends StatelessWidget {
 // used, and available on any row with a submitted photo (not just ones
 // currently awaiting a decision), since audit means being able to look
 // back at past decisions too, not just the current queue.
-class _ViewPhotoBtn extends StatefulWidget {
+class _ViewPhotoBtn extends StatelessWidget {
   final VoidCallback onTap;
   const _ViewPhotoBtn({required this.onTap});
   @override
-  State<_ViewPhotoBtn> createState() => _ViewPhotoBtnState();
+  Widget build(BuildContext context) => _RowActionBtn(
+    icon: Icons.visibility_outlined,
+    label: 'View',
+    color: const Color(0xFF3B82F6),
+    onTap: onTap,
+  );
 }
 
-class _ViewPhotoBtnState extends State<_ViewPhotoBtn> {
-  bool _h = false;
+// A correction is a decision, so it's in the admin orange — and only there
+// once check-in has closed.
+class _CorrectBtn extends StatelessWidget {
+  final VoidCallback onTap;
+  const _CorrectBtn({required this.onTap});
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    onEnter: (_) => setState(() => _h = true),
-    onExit: (_) => setState(() => _h = false),
-    child: GestureDetector(
-      onTap: widget.onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 100),
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-        decoration: BoxDecoration(
-          color: _h
-              ? const Color(0xFF3B82F6)
-              : const Color(0xFF3B82F6).withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(7),
-          border: Border.all(
-            color: const Color(0xFF3B82F6).withValues(alpha: _h ? 0 : 0.28),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.visibility_outlined,
-              size: 12,
-              color: _h ? Colors.white : const Color(0xFF3B82F6),
-            ),
-            const SizedBox(width: 5),
-            Text(
-              'View',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                color: _h ? Colors.white : const Color(0xFF3B82F6),
-              ),
-            ),
-          ],
-        ),
-      ),
+  Widget build(BuildContext context) => Tooltip(
+    message: 'Check-in has closed — correct this attendance',
+    child: _RowActionBtn(
+      icon: Icons.edit_note_rounded,
+      label: 'Correct',
+      color: _kCorrectBtn,
+      onTap: onTap,
     ),
   );
+}
+
+class _RowActionBtn extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _RowActionBtn({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+  @override
+  State<_RowActionBtn> createState() => _RowActionBtnState();
+}
+
+class _RowActionBtnState extends State<_RowActionBtn> {
+  bool _h = false;
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.color;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _h = true),
+      onExit: (_) => setState(() => _h = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 100),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          decoration: BoxDecoration(
+            color: _h ? c : c.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(7),
+            border: Border.all(color: c.withValues(alpha: _h ? 0 : 0.28)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(widget.icon, size: 12, color: _h ? Colors.white : c),
+              const SizedBox(width: 5),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: _h ? Colors.white : c,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _RegTableHeader extends StatelessWidget {
@@ -673,7 +787,7 @@ class _RegTableHeader extends StatelessWidget {
           _sortCol('REGISTERED', 'registered_at', flex: 2),
           _sortCol('CHECKED IN', 'checked_in_at', flex: 2),
           SizedBox(
-            width: 76,
+            width: _kActionWidth,
             child: Text(
               'ACTION',
               style: TextStyle(
@@ -692,10 +806,15 @@ class _RegTableHeader extends StatelessWidget {
   }
 }
 
+// View + Correct side by side.
+const double _kActionWidth = 156;
+
 class _RegistrationRow extends StatefulWidget {
   final Map<String, dynamic> reg;
   final VoidCallback? onView;
-  const _RegistrationRow({required this.reg, this.onView});
+  /// Set once the event's check-in has closed (see _canCorrect).
+  final VoidCallback? onCorrect;
+  const _RegistrationRow({required this.reg, this.onView, this.onCorrect});
   @override
   State<_RegistrationRow> createState() => _RegistrationRowState();
 }
@@ -711,6 +830,7 @@ class _RegistrationRowState extends State<_RegistrationRow> {
     final checkedInAt = r['checked_in_at'] as String?;
     final name = r['student_name'] as String? ?? '?';
     final lrn = r['student_school_id'] as String? ?? '—';
+    final note = (r['attendance_note'] as String?)?.trim() ?? '';
     final initials = name
         .trim()
         .split(' ')
@@ -872,12 +992,36 @@ class _RegistrationRowState extends State<_RegistrationRow> {
                           ],
                         ),
                       ),
-                      // Status badge
+                      // Status badge — the hover says why when it didn't
+                      // come from an approved selfie.
                       Expanded(
                         flex: 2,
-                        child: WebStatusBadge(
-                          label: webStatusLabel(status),
-                          color: webStatusColor(status),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Tooltip(
+                            message: note.isEmpty
+                                ? ''
+                                : r['corrected_at'] != null
+                                    ? 'Corrected by an administrator: $note'
+                                    : 'Checked in by hand: $note',
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                WebStatusBadge(
+                                  label: webStatusLabel(status),
+                                  color: webStatusColor(status),
+                                ),
+                                if (note.isNotEmpty) ...[
+                                  const SizedBox(width: 4),
+                                  Icon(
+                                    Icons.edit_note_rounded,
+                                    size: 15,
+                                    color: t.muted,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                       // Registered date
@@ -938,14 +1082,22 @@ class _RegistrationRowState extends State<_RegistrationRow> {
                                 ),
                               ),
                       ),
-                      // View Photo action — inspection only, no decision made here
+                      // View Photo — inspection only, no decision made here.
+                      // Correct — only once check-in has closed.
                       SizedBox(
-                        width: 76,
-                        child: widget.onView != null
-                            ? Center(
-                                child: _ViewPhotoBtn(onTap: widget.onView!),
-                              )
-                            : null,
+                        width: _kActionWidth,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (widget.onView != null)
+                              _ViewPhotoBtn(onTap: widget.onView!),
+                            if (widget.onView != null &&
+                                widget.onCorrect != null)
+                              const SizedBox(width: 6),
+                            if (widget.onCorrect != null)
+                              _CorrectBtn(onTap: widget.onCorrect!),
+                          ],
+                        ),
                       ),
                     ],
                   ),

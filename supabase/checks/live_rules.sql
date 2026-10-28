@@ -18,6 +18,19 @@ WITH checks (topic, finding, ok) AS (
                   WHERE schemaname = 'public' AND tablename = 'registrations'
                     AND cmd IN ('DELETE', 'ALL'))
   UNION ALL
+  -- Attendance is final once check-in closes (202610280001): organizers can't
+  -- delete those registrations any more, so their delete policy checks it.
+  SELECT 'Organizers can''t delete registrations after check-in closes',
+         COALESCE((SELECT CASE WHEN qual ILIKE '%event_attendance_final%'
+                               THEN 'checked' ELSE 'not checked' END
+                     FROM pg_policies
+                    WHERE schemaname = 'public' AND tablename = 'registrations'
+                      AND policyname = 'organizer_delete_own_event_registrations'), 'no policy'),
+         EXISTS (SELECT 1 FROM pg_policies
+                  WHERE schemaname = 'public' AND tablename = 'registrations'
+                    AND policyname = 'organizer_delete_own_event_registrations'
+                    AND qual ILIKE '%event_attendance_final%')
+  UNION ALL
   -- Who can read and change registrations: the 202610150003 rollback let every
   -- organizer read and change every registration; 202610230002 limits them to
   -- their own events.

@@ -8,6 +8,7 @@ import '../../../shared/widgets/qr_code_dialog.dart';
 import '../../../core/services/registration_service.dart';
 import '../../../core/app_colors.dart';
 import '../check_in/selfie_screen.dart';
+import 'cancel_registration.dart';
 
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -520,6 +521,11 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     final needsPhoto  = status == 'photo_required';
     final location    = ev?['location'] as String? ?? '—';
     final sc          = eventStatusColor(statusLabel);
+    final event       = ev == null ? null : Map<String, dynamic>.from(ev);
+    // Too late to check in: scanning closed before the ticket was scanned,
+    // or check-in closed before it was finished.
+    final missed      = event != null && registrationMissed(reg, event);
+    final canCancel   = event != null && registrationCancellable(reg, event);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 18),
@@ -555,7 +561,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
                     ),
                   ),
                   Positioned(top: 12, left: 12, child: _StatusChip(label: statusLabel, color: sc)),
-                  Positioned(top: 12, right: 12, child: _CheckInBadge(status: status)),
+                  Positioned(top: 12, right: 12, child: _CheckInBadge(status: status, missed: missed)),
                   Positioned(
                     bottom: 10, right: 12,
                     child: Container(
@@ -645,9 +651,14 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
                       ],
                     ),
                   )
+                : missed
+                    ? _buildMissedBox(t)
                 : needsPhoto
                     ? _buildUploadPhotoButton(reg)
-                    : Container(
+                    : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                    Container(
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
@@ -721,6 +732,74 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
                       ),
                     ),
                   ),
+                    if (canCancel)
+                      CancelRegistrationLink(onTap: () => _cancel(reg)),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Until check-in opens, a ticket that wasn't scanned can be cancelled.
+  Future<void> _cancel(Map<String, dynamic> reg) async {
+    final cancelled = await confirmCancelRegistration(
+      context,
+      registrationId: reg['id'] as String,
+      eventTitle: _titleOf(reg),
+    );
+    if (!cancelled || !mounted) return;
+    HapticFeedback.mediumImpact();
+    setState(() => _registrations.removeWhere((r) => r['id'] == reg['id']));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Registration cancelled.', style: TextStyle(fontFamily: 'Poppins')),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  // Too late to check in — the ticket was never scanned before scanning
+  // closed, or the check-in wasn't finished before check-in closed.
+  Widget _buildMissedBox(AppTk t) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+      decoration: BoxDecoration(
+        color: t.bg,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: t.border),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.event_busy_rounded, size: 16, color: t.sub),
+              const SizedBox(width: 8),
+              Text(
+                'Missed — check-in has closed',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: t.text,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'You weren’t checked in for this event. If you were there, ask '
+            'the school administrator to correct it.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 12,
+              color: t.sub,
+              height: 1.4,
+            ),
           ),
         ],
       ),
@@ -908,10 +987,17 @@ class _StatusChipState extends State<_StatusChip>
 // ── Check-in badge ────────────────────────────────────────────────────────────
 
 /// The badge on a ticket for its registration status: where check-in
-/// stands. A new registration is simply "Registered". The colours keep white
-/// text at 5:1 or better (the Home card's ticket chip uses the same ones).
-({String label, IconData icon, Color color}) ticketStatusBadge(String? status) =>
-    switch (status) {
+/// stands. A new registration is simply "Registered"; one that's too late to
+/// check in ([missed], see registrationMissed) is "Missed". The colours keep
+/// white text at 5:1 or better (the Home card's ticket chip uses the same
+/// ones).
+({String label, IconData icon, Color color}) ticketStatusBadge(
+  String? status, {
+  bool missed = false,
+}) =>
+    missed
+        ? (label: 'Missed', icon: Icons.event_busy_rounded, color: const Color(0xFF4B5563))
+        : switch (status) {
       'qr_scanned' => (label: 'Scanned', icon: Icons.qr_code_scanner_rounded,
           color: const Color(0xFF0369A1)),
       'photo_required' => (label: 'Selfie needed', icon: Icons.photo_camera_rounded,
@@ -928,11 +1014,12 @@ class _StatusChipState extends State<_StatusChip>
 
 class _CheckInBadge extends StatelessWidget {
   final String? status;
-  const _CheckInBadge({required this.status});
+  final bool missed;
+  const _CheckInBadge({required this.status, this.missed = false});
 
   @override
   Widget build(BuildContext context) {
-    final badge = ticketStatusBadge(status);
+    final badge = ticketStatusBadge(status, missed: missed);
     final color = badge.color;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),

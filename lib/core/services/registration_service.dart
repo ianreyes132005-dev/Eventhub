@@ -178,12 +178,31 @@ class RegistrationService {
     return path;
   }
 
+  /// The signed-in student cancels their registration: allowed while it's
+  /// still Registered and check-in hasn't opened ([registrationCancellable];
+  /// the database enforces the same). Deletes it, so they can register again
+  /// while registration is open. Throws when nothing was deleted.
+  static Future<void> cancelMyRegistration(String registrationId) async {
+    final rows = await _plainErrors(() => _db
+        .from('registrations')
+        .delete()
+        .eq('id', registrationId)
+        .select('id'));
+    if ((rows as List).isEmpty) {
+      throw const FriendlyException(
+        'This registration can’t be cancelled any more. Check-in opens 1 hour '
+        'before the event starts, and a scanned ticket can’t be cancelled.',
+      );
+    }
+  }
+
   // ──────────────────────────────────────────────────────────
   // Organizer operations
   // ──────────────────────────────────────────────────────────
 
   /// Deletes a registration of one of the organizer's events. Checked-in ones
-  /// are kept ([registrationDeletable]; the database refuses them too).
+  /// are kept, and nothing can be deleted once the event's check-in has
+  /// closed ([registrationDeletable]; the database refuses them too).
   /// current_participants is decremented automatically by
   /// trg_maintain_participant_count. Throws when nothing was deleted, so the
   /// row isn't hidden while it still exists.
@@ -197,6 +216,7 @@ class RegistrationService {
       throw const FriendlyException(
         'Nothing was deleted. The student may have just checked in '
         '(checked-in registrations are kept as the attendance record), '
+        'check-in may have closed (its attendance is final), '
         'or the registration is already gone.',
       );
     }
@@ -214,7 +234,9 @@ class RegistrationService {
   }
 
   /// [organizerId]'s events: every id (as [organizerEventIds]) and the ones
-  /// the admin archived — their registrations are read-only.
+  /// the admin archived — their registrations are read-only. Each event
+  /// comes with its schedule, so [attendanceFinal] can tell when its
+  /// registrations stop changing.
   static Future<({
     List<String> ids,
     Set<String> archived,
@@ -222,7 +244,8 @@ class RegistrationService {
   })> organizerEventsWithArchive(String organizerId) async {
     final rows = await _db
         .from('events')
-        .select('event_id, title, event_date, archived_at')
+        .select('event_id, title, event_date, end_date, start_time, end_time, '
+            'event_status, archived_at')
         .eq('organizer_id', organizerId);
     final events = List<Map<String, dynamic>>.from(rows as List);
     return (
@@ -265,19 +288,26 @@ class RegistrationService {
     return List<Map<String, dynamic>>.from(rows as List);
   }
 
-  /// Why check-in isn't possible for [eventId] right now (cancelled, or
-  /// outside 1 h before start … 2 h after end), or null when it is — plus,
-  /// when it just hasn't opened yet, the time it opens (the scanner counts
-  /// down to it). Same window the server enforces in
+  /// Why check-in isn't possible for [eventId] right now, or null when it is —
+  /// plus, when it just hasn't opened yet, the time it opens (the scanner
+  /// counts down to it). [scanning]: a Registered ticket being scanned, which
+  /// is allowed until 30 minutes after the end ([scanBlockedReason]); a
+  /// check-in already started can be finished until 2 hours after
+  /// ([checkInBlockedReason]). Same windows the server enforces in
   /// enforce_registration_update_rules.
-  static Future<({String? problem, DateTime? opensAt})> checkInWindow(String? eventId) async {
+  static Future<({String? problem, DateTime? opensAt})> checkInWindow(
+    String? eventId, {
+    bool scanning = false,
+  }) async {
     if (eventId == null) return (problem: null, opensAt: null);
     final ev = await _db.from('events').select().eq('event_id', eventId).maybeSingle();
     if (ev == null) return (problem: null, opensAt: null);
     final event = Map<String, dynamic>.from(ev);
     final now = DateTime.now();
     return (
-      problem: checkInBlockedReason(event, now: now),
+      problem: scanning
+          ? scanBlockedReason(event, now: now)
+          : checkInBlockedReason(event, now: now),
       opensAt: checkInOpensAt(event, now: now),
     );
   }
@@ -348,15 +378,22 @@ class RegistrationService {
   /// from the organizer before calling this (see the reason-prompt dialogs
   /// in organizer_registrations.dart / registrations_page.dart) rather than
   /// rejecting silently.
+  ///
+  /// [attendanceNote]: checking a student in by hand — from anything but a
+  /// submitted selfie — needs a reason (the database refuses it without
+  /// one); it's saved with the registration and in the log entry.
   static Future<void> updateStatus(
     String id,
     String status, {
     String? rejectionReason,
+    String? attendanceNote,
   }) async {
     final user = SupabaseService.currentUser;
+    final note = attendanceNote?.trim();
     final data = <String, dynamic>{'status': status};
     if (status == 'checked_in') {
       data['checked_in_at'] = DateTime.now().toIso8601String();
+      if (note != null && note.isNotEmpty) data['attendance_note'] = note;
     }
     if (status == 'checked_in' || status == 'rejected') {
       data['reviewed_by'] = user?.id;
@@ -382,15 +419,68 @@ class RegistrationService {
             .maybeSingle();
         organizerName = orgRow?['full_name'] as String?;
       }
+      final why = status == 'rejected'
+          ? (rejectionReason ?? '').trim()
+          : note != null && note.isNotEmpty
+              ? 'checked in by hand: $note'
+              : '';
       AuditService.logEvent(
         action: status == 'checked_in' ? 'checked_in' : 'registration_rejected',
         eventTitle: updated['event_title'] as String? ?? '—',
         eventId: updated['event_id'] as String?,
         organizerName: organizerName,
         details: 'Student: ${updated['student_name']} (${updated['student_school_id']})'
-            '${status == 'rejected' && rejectionReason != null && rejectionReason.isNotEmpty ? ' — $rejectionReason' : ''}',
+            '${why.isNotEmpty ? ' — $why' : ''}',
       );
     }
+  }
+
+  /// The admin corrects a registration's attendance after its event's
+  /// check-in closed: [attended] marks the student Checked in, otherwise
+  /// Absent (back to Registered). [reason] is required; the database stamps
+  /// corrected_at and the admin as reviewer, and refuses a correction before
+  /// check-in closes or on an archived event. Logged in the Logs tab, under
+  /// the event's organizer when [reg] carries its event as
+  /// `events(organizer_id, organizers(full_name))`.
+  static Future<void> correctAttendance(
+    Map<String, dynamic> reg, {
+    required bool attended,
+    required String reason,
+  }) async {
+    final note = reason.trim();
+    // A check-in the organizer never approved happened when the student sent
+    // their last check-in step, not now.
+    final stepAt = reg['status_changed_at'] as String? ?? reg['registered_at'] as String?;
+    final updated = await _plainErrors(() => _db
+        .from('registrations')
+        .update({
+          'status': attended ? 'checked_in' : 'pending',
+          'checked_in_at': attended
+              ? (checkInStarted(reg['status'] as String?) && stepAt != null
+                  ? stepAt
+                  : DateTime.now().toIso8601String())
+              : null,
+          'attendance_note': note,
+        })
+        .eq('id', reg['id'] as String)
+        .select('event_id, event_title, student_name, student_school_id')
+        .maybeSingle());
+    if (updated == null) {
+      throw const FriendlyException(
+        'This attendance couldn’t be corrected. The registration may have been '
+        'removed, or its event was archived.',
+      );
+    }
+    final event = reg['events'] as Map?;
+    AuditService.logEvent(
+      action: 'attendance_corrected',
+      eventTitle: updated['event_title'] as String? ?? '—',
+      eventId: updated['event_id'] as String?,
+      organizerId: event?['organizer_id'] as String?,
+      organizerName: (event?['organizers'] as Map?)?['full_name'] as String?,
+      details: 'Student: ${updated['student_name']} (${updated['student_school_id']})'
+          ' — marked ${attended ? 'Checked in' : 'Absent'} by an administrator: $note',
+    );
   }
 
   /// How long a selfie link works. Screens that stay open longer renew their

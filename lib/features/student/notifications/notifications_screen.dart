@@ -5,6 +5,7 @@ import '../../../core/app_colors.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/services/notif_read_store.dart';
 import '../../../shared/widgets/app_loader.dart';
+import '../../../shared/widgets/mark_all_read_button.dart';
 import 'student_feed.dart';
 
 // ── Time helpers ──────────────────────────────────────────────────────────────
@@ -30,11 +31,11 @@ String _groupLabel(DateTime t) {
 }
 
 // ── Screen ────────────────────────────────────────────────────────────────────
+/// Opening it doesn't read anything (same as the organizer web bell): an
+/// unread item stays highlighted until it's tapped or swiped, or the header's
+/// "Mark all as read" is used.
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key, this.markAllRead = false});
-
-  /// When true (opened via bell tap) all items are immediately marked read.
-  final bool markAllRead;
+  const NotificationsScreen({super.key});
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -90,8 +91,6 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       if (!mounted) return;
 
       NotifReadStore.setAll(items.map((e) => e.id));
-      // Only the first load: a notification arriving later stays unread.
-      if (widget.markAllRead && !silent) NotifReadStore.markAll(items.map((e) => e.id));
 
       setState(() {
         _all     = items;
@@ -333,66 +332,42 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           ),
           const SizedBox(width: 14),
 
-          // Title + unread badge
+          // Title + unread badge (shrinks instead of overflowing on a narrow
+          // phone or with large text)
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text(
-                  'Notifications',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 20, fontWeight: FontWeight.w800, color: t.text),
-                ),
-                if (unread > 0) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFDC2626),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '$unread new',
-                      style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white),
-                    ),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text(
+                    'Notifications',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 20, fontWeight: FontWeight.w800, color: t.text),
                   ),
+                  if (unread > 0) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDC2626),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '$unread new',
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
+          const SizedBox(width: 8),
 
-          // Mark all read button
-          if (unread > 0)
-            GestureDetector(
-              onTap: _markAllRead,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: kGold.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: kGold.withValues(alpha: 0.25)),
-                ),
-                child: const Text(
-                  'Mark all read',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: kGold),
-                ),
-              ),
-            )
-          else
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF16A34A).withValues(alpha: 0.09),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.check_circle_rounded, size: 13, color: Color(0xFF16A34A)),
-                  SizedBox(width: 5),
-                  Text('All read', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF16A34A))),
-                ],
-              ),
-            ),
+          // Mark all as read → All read
+          MarkAllReadButton(unread: unread, onTap: _markAllRead),
         ],
       ),
     );
@@ -417,27 +392,31 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         tabs: List.generate(_tabs.length, (i) {
           final count = counts[i];
           return Tab(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(_tabs[i]),
-                if (count > 0) ...[
-                  const SizedBox(width: 5),
-                  Container(
-                    width: 17, height: 17,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFDC2626),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        count > 9 ? '9+' : '$count',
-                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 8, fontWeight: FontWeight.w900, color: Colors.white),
+            // "Announcements" + its count is tight on a 360dp phone.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_tabs[i]),
+                  if (count > 0) ...[
+                    const SizedBox(width: 5),
+                    Container(
+                      width: 17, height: 17,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFDC2626),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          count > 9 ? '9+' : '$count',
+                          style: const TextStyle(fontFamily: 'Poppins', fontSize: 8, fontWeight: FontWeight.w900, color: Colors.white),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
           );
         }),

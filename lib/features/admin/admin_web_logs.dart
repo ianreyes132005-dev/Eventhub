@@ -82,6 +82,7 @@ Color _logActionColor(String? action) => switch (action) {
   'rejected'            => const Color(0xFFF59E0B),
   'checked_in'          => const Color(0xFF10B981),
   'registration_rejected' => const Color(0xFFE11D48),
+  'attendance_corrected' => const Color(0xFFC2410C),
   'archived'            => const Color(0xFF6366F1),
   'unarchived'          => const Color(0xFF0EA5E9),
   _                     => kMuted,
@@ -96,6 +97,7 @@ String _logActionLabel(String? action) => switch (action) {
   'rejected'            => 'Rejected',
   'checked_in'          => 'Checked In',
   'registration_rejected' => 'Registration Rejected',
+  'attendance_corrected' => 'Attendance Corrected',
   'archived'            => 'Archived',
   'unarchived'          => 'Restored from Archive',
   _                     => action?.toUpperCase() ?? '—',
@@ -110,6 +112,7 @@ IconData _logActionIcon(String? action) => switch (action) {
   'rejected'            => Icons.block_rounded,
   'checked_in'          => Icons.how_to_reg_rounded,
   'registration_rejected' => Icons.person_off_rounded,
+  'attendance_corrected' => Icons.edit_note_rounded,
   _           => Icons.event_note_outlined,
 };
 
@@ -823,7 +826,7 @@ class _AdminLogsPageState extends State<AdminLogsPage>
   Widget _buildEventTab(int filtered, int total) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     const actions = ['All', 'created', 'updated', 'deleted', 'cancelled', 'approved',
-        'rejected', 'checked_in', 'registration_rejected'];
+        'rejected', 'checked_in', 'registration_rejected', 'attendance_corrected'];
 
     if (_eventLoading) {
       return const Center(child: CircularProgressIndicator(color: kAdminAccent));
@@ -1475,7 +1478,7 @@ class _LogActionBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final isKnown = const ['created', 'updated', 'deleted', 'cancelled', 'approved', 'rejected',
-        'checked_in', 'registration_rejected'].contains(action);
+        'checked_in', 'registration_rejected', 'attendance_corrected'].contains(action);
     final color = isKnown ? _logActionColor(action) : t.muted;
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Container(

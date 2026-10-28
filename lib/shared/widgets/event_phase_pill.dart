@@ -5,16 +5,24 @@ import '../../models/event_phase.dart';
 
 export '../../models/event_phase.dart'; // re-export so callers only need this file
 
+/// When check-in closes for a student holding a ticket: scanning's close
+/// ([kScanClosesAfter] after the end) until it's been [scanned], then
+/// check-in's close ([kCheckInClosesAfter]) to finish the selfie and review.
+DateTime _ticketChecksInUntil(DateTime end, bool scanned) =>
+    end.add(scanned ? kCheckInClosesAfter : kScanClosesAfter);
+
 /// Where [event] is right now, for a student holding a ticket: upcoming →
-/// ongoing → check-in open (ended, late check-in still allowed) → completed.
-EventPhase eventPhaseOf(Map<String, dynamic> event, {DateTime? now}) {
+/// ongoing → check-in open (ended, the ticket can still be checked in) →
+/// completed. [scanned]: the ticket was scanned, so the student has until
+/// check-in closes, not just until scanning does.
+EventPhase eventPhaseOf(Map<String, dynamic> event, {DateTime? now, bool scanned = false}) {
   if (eventIsCancelled(event)) return EventPhase.cancelled;
   final w = eventWindow(event);
   if (w == null) return EventPhase.upcoming;
   final at = now ?? DateTime.now();
   if (at.isBefore(w.start)) return EventPhase.upcoming;
   if (at.isBefore(w.end)) return EventPhase.ongoing;
-  if (at.isBefore(w.end.add(kCheckInClosesAfter))) return EventPhase.checkInOpen;
+  if (at.isBefore(_ticketChecksInUntil(w.end, scanned))) return EventPhase.checkInOpen;
   return EventPhase.completed;
 }
 
@@ -47,7 +55,9 @@ String _timeLeft(Duration d) {
 /// [EventPhasePill] that keeps itself current as the event starts and ends.
 class LiveEventPhasePill extends StatefulWidget {
   final Map<String, dynamic> event;
-  const LiveEventPhasePill({super.key, required this.event});
+  /// See [eventPhaseOf].
+  final bool scanned;
+  const LiveEventPhasePill({super.key, required this.event, this.scanned = false});
 
   @override
   State<LiveEventPhasePill> createState() => _LiveEventPhasePillState();
@@ -72,7 +82,7 @@ class _LiveEventPhasePillState extends State<LiveEventPhasePill> {
 
   @override
   Widget build(BuildContext context) =>
-      EventPhasePill(phase: eventPhaseOf(widget.event));
+      EventPhasePill(phase: eventPhaseOf(widget.event, scanned: widget.scanned));
 }
 
 class EventPhasePill extends StatelessWidget {
@@ -186,11 +196,14 @@ class EventStatusTimer extends StatefulWidget {
   final DateTime  start;
   final DateTime? end;
   final Map<String, dynamic>? statusEvent;
+  /// See [eventPhaseOf].
+  final bool scanned;
   const EventStatusTimer({
     super.key,
     required this.start,
     this.end,
     this.statusEvent,
+    this.scanned = false,
   });
 
   @override
@@ -216,7 +229,7 @@ class _EventStatusTimerState extends State<EventStatusTimer> {
 
   EventPhase get _phase => widget.statusEvent == null
       ? resolveEventPhase(widget.start, widget.end)
-      : eventPhaseOf(widget.statusEvent!);
+      : eventPhaseOf(widget.statusEvent!, scanned: widget.scanned);
 
   String _countdown() => countdownLabel(widget.start.difference(DateTime.now()));
 
@@ -269,9 +282,9 @@ class _EventStatusTimerState extends State<EventStatusTimer> {
       );
     }
 
-    // Ended, but late check-in is still open — say for how long.
+    // Ended, but this ticket can still be checked in — say for how long.
     if (phase == EventPhase.checkInOpen && widget.end != null) {
-      final closes = widget.end!.add(kCheckInClosesAfter);
+      final closes = _ticketChecksInUntil(widget.end!, widget.scanned);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         mainAxisSize: MainAxisSize.min,
