@@ -283,7 +283,8 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
     AdminPage.logs:          'Logs',
   };
 
-  // Dashboard, then EVENTS, PEOPLE and RECORDS — the layout the user chose.
+  // Dashboard, then MANAGE, PEOPLE and RECORDS — the layout the user chose
+  // (MANAGE as in the organizer portal, which has the same three pages).
   List<WebNavGroup<AdminPage>> get _navGroups {
     final review = _pendingEventsCount;
     final ready  = _readyToArchive;
@@ -295,7 +296,7 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
           label: 'Dashboard',
         ),
       ]),
-      WebNavGroup(title: 'Events', entries: [
+      WebNavGroup(title: 'Manage', entries: [
         WebNavEntry(
           page: AdminPage.events,
           icon: Icons.event_rounded,
