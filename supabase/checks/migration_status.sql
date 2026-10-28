@@ -112,7 +112,15 @@ checks (migration, what, ok) AS (
                                    AND prosrc ILIKE '%nothing to archive%')),
   ('202610230004_archive_delete_notice', 'organizer told when an archived event is deleted',
     EXISTS (SELECT 1 FROM fn WHERE proname = 'admin_delete_archived_event'
-                               AND prosrc ILIKE '%event_deleted%'))
+                               AND prosrc ILIKE '%event_deleted%')),
+  ('202610270001_audit_log_integrity', 'logs keep the last 90 days and name their real author',
+    EXISTS (SELECT 1 FROM fn WHERE proname = 'stamp_event_log_author')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'stamp_login_log_account')
+    AND EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'admin_delete_event_logs'
+                                            AND qual ILIKE '%90 days%')),
+  ('202610270002_registration_status_changed_at', 'notifications show when a check-in step happened',
+    EXISTS (SELECT 1 FROM col WHERE table_name = 'registrations' AND column_name = 'status_changed_at')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'stamp_registration_status_change'))
 )
 SELECT CASE WHEN ok THEN '✓' ELSE '✗ run it' END AS status, migration, what
 FROM checks

@@ -57,7 +57,10 @@ List<int> weeklyRegistrationsByDay(
 }
 
 /// The five most recent past events used by the organizer attendance card.
-/// Upcoming and ongoing events are excluded using the shared clock rules.
+/// Upcoming and ongoing events are excluded using the shared clock rules,
+/// and so are events that never ran — not approved, or cancelled — since
+/// nobody could attend them (the student's own attendance rate skips them
+/// too: registrationIsFinished).
 List<Map<String, dynamic>> recentPastEventsForAttendance(
   Iterable<Map<String, dynamic>> events, {
   DateTime? now,
@@ -66,6 +69,7 @@ List<Map<String, dynamic>> recentPastEventsForAttendance(
   final today = DateTime(at.year, at.month, at.day);
   final pastEvents =
       events.where((event) {
+        if (!eventIsApproved(event) || eventIsCancelled(event)) return false;
         final status = eventStatusValue(event, now: at);
         if (status == 'upcoming' || status == 'ongoing') return false;
         final eventDate = DateTime.tryParse(

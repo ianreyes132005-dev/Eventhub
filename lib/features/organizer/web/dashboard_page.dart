@@ -165,15 +165,18 @@ class _WebDashboardPageState extends State<WebDashboardPage>
       _weeklyRegs    = weekly;
       _weekDayLabels = const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-      // ── Past events (completed / cancelled / any non-active status) ───
+      // ── Past events (ended, approved, not cancelled) ───────────────────
       // Used for both the event-attendance breakdown and the attendance-rate
       // stat card.  Upcoming & ongoing events are excluded because no student
       // has had the chance to be checked in yet; including them would deflate
       // the rate misleadingly (e.g. an event with 100 registrations and 0
-      // check-ins drags the school-wide rate to near zero).
+      // check-ins drags the school-wide rate to near zero). Events that never
+      // ran — not approved, or cancelled — are left out for the same reason:
+      // every registration would count as absent.
       final today      = DateUtils.dateOnly(now);
       final pastEvents = List<Map<String, dynamic>>.from(events)
         ..retainWhere((e) {
+          if (!eventIsApproved(e) || eventIsCancelled(e)) return false;
           if (activeStatuses.contains(eventStatusValue(e))) return false;
           final d = DateTime.tryParse(e['event_date'] as String? ?? '');
           return d != null && !DateUtils.dateOnly(d).isAfter(today);

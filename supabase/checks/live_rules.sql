@@ -74,6 +74,18 @@ WITH checks (topic, finding, ok) AS (
          COALESCE((SELECT CASE WHEN public THEN 'public' ELSE 'private' END
                      FROM storage.buckets WHERE id = 'event-banners'), 'no bucket'),
          EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'event-banners' AND public)
+  UNION ALL
+  -- Clearing logs keeps the last 90 days (202610270001). Any other DELETE (or
+  -- ALL) policy on the log tables, e.g. one added in the dashboard, would let
+  -- recent entries be deleted again.
+  SELECT 'Log entries from the last 90 days can''t be deleted',
+         COALESCE((SELECT string_agg(tablename || ': ' || policyname, ', ') FROM pg_policies
+                    WHERE schemaname = 'public' AND tablename IN ('event_logs', 'login_logs')
+                      AND cmd IN ('DELETE', 'ALL')), 'no delete policy'),
+         NOT EXISTS (SELECT 1 FROM pg_policies
+                      WHERE schemaname = 'public' AND tablename IN ('event_logs', 'login_logs')
+                        AND cmd IN ('DELETE', 'ALL')
+                        AND COALESCE(qual, '') NOT ILIKE '%90 days%')
 )
 SELECT CASE WHEN ok THEN '✓' ELSE '✗' END AS status, topic, finding
 FROM checks

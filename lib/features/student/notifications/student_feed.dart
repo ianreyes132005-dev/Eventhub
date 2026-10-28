@@ -224,9 +224,14 @@ class StudentNotifications {
       final event   = evTitle != null && evTitle.isNotEmpty
           ? evTitle
           : reg['event_title'] as String? ?? 'an event';
+      // When the organizer asked for the photo, the student sent it or the
+      // organizer decided: status_changed_at (set by the database, migration
+      // 202610270002). Registrations from before that keep the check-in or
+      // registration time.
+      final rawChanged = reg['status_changed_at'] as String?;
       final rawCi   = reg['checked_in_at']  as String?;
       final rawReg  = reg['registered_at']  as String?;
-      final timeRaw = rawCi ?? rawReg ?? '';
+      final timeRaw = rawChanged ?? rawCi ?? rawReg ?? '';
 
       StudentNotifType notifType;
       String title, body;

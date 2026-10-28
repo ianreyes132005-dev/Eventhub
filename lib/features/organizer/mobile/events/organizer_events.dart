@@ -43,6 +43,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
 
   static const _filterOptions = [
     'All',
+    'Pending review',
     'Upcoming',
     'Ongoing',
     'Ended',
@@ -221,14 +222,11 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   void _applyFilter() {
     final q = _searchCtrl.text.toLowerCase();
     _filtered = _events.where((e) {
-      final label = _statusLabel(e);
-      final approval = approvalStatusOf(e);
-      final matchFilter = eventIsArchived(e)
-          ? _filter == 'Archived'
-          : _filter == 'All' ||
-                (_filter == 'Rejected'
-                    ? approval == 'rejected'
-                    : approval != 'rejected' && label == _filter);
+      // One filter per event, the same rule as the counts and the web
+      // (organizerEventFilterOf). Archived events only show under Archived.
+      final matchFilter = _filter == 'All'
+          ? !eventIsArchived(e)
+          : organizerEventFilterOf(e) == _filter;
       final title = (e['title'] as String? ?? '').toLowerCase();
       final location = (e['location'] as String? ?? '').toLowerCase();
       final type = (e['event_type'] as String? ?? '').toLowerCase();
@@ -267,18 +265,9 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
     setState(() {});
   }
 
-  int _countFor(String filter) {
-    if (filter == 'Archived') return _events.where(eventIsArchived).length;
-    final active = _events.where((e) => !eventIsArchived(e));
-    if (filter == 'All') return active.length;
-    if (filter == 'Rejected') {
-      return active.where((e) => approvalStatusOf(e) == 'rejected').length;
-    }
-    return active.where((e) {
-      final approval = approvalStatusOf(e);
-      return approval != 'rejected' && _statusLabel(e) == filter;
-    }).length;
-  }
+  int _countFor(String filter) => filter == 'All'
+      ? _events.where((e) => !eventIsArchived(e)).length
+      : _events.where((e) => organizerEventFilterOf(e) == filter).length;
 
   // When the event was cancelled (rows cancelled before the cancellation
   // migration have no cancelled_at — fall back to updated_at).
@@ -594,6 +583,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
             label: status,
             count: _countFor(status),
             color: switch (status) {
+              'Pending review' => approvalStatusColor('pending'),
               'Upcoming' => eventStatusColor('Upcoming'),
               'Ongoing' => eventStatusColor('Ongoing'),
               'Ended' => eventStatusColor('Ended'),
@@ -640,13 +630,17 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
 
   Widget _buildEmptyState(AppTk t) {
     final isFiltered = _filter != 'All' || _searchCtrl.text.isNotEmpty;
-    // An empty Cancelled tab (no search) is good news, not a failed filter.
+    // An empty Cancelled or Pending review tab (no search) is good news, not
+    // a failed filter.
     final noneCancelled = _filter == 'Cancelled' && _searchCtrl.text.isEmpty;
+    final nonePending = _filter == 'Pending review' && _searchCtrl.text.isEmpty;
     final noneArchived = _filter == 'Archived' && _searchCtrl.text.isEmpty;
 
     return OrgMessage(
       icon: noneArchived
           ? Icons.inventory_2_outlined
+          : nonePending
+          ? Icons.fact_check_outlined
           : noneCancelled
           ? Icons.event_available_rounded
           : isFiltered
@@ -654,6 +648,8 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
           : Icons.event_busy_rounded,
       title: noneArchived
           ? 'No archived events'
+          : nonePending
+          ? 'Nothing waiting for review'
           : noneCancelled
           ? 'No cancelled events'
           : isFiltered
@@ -661,6 +657,8 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
           : 'No events yet',
       message: noneArchived
           ? 'The administrator archives finished events. They show here, read-only.'
+          : nonePending
+          ? 'New events, and rejected ones you edit and resubmit, wait here until the administrator approves them.'
           : noneCancelled
           ? 'Events you cancel appear here with the reason students were given.'
           : isFiltered
@@ -668,7 +666,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
           : 'Create your first event to get started.',
       action: isFiltered
           ? OrgSecondaryButton(
-              label: noneCancelled ? 'Show all events' : 'Clear filters',
+              label: noneCancelled || nonePending ? 'Show all events' : 'Clear filters',
               icon: Icons.filter_alt_off_outlined,
               onPressed: () {
                 _searchCtrl.clear();

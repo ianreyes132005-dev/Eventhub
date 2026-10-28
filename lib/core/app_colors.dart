@@ -499,6 +499,25 @@ Color approvalColorFor(Map<String, dynamic> event) =>
   return (label: label, color: eventStatusColor(label));
 }
 
+/// The Status filter an organizer finds [event] under — the web Events table
+/// and the app's Events tab use it for both the rows and the counts, so the
+/// two always match. Like the event's pill ([organizerEventStatus]):
+/// Archived, Rejected and Pending review first, then the schedule — Upcoming,
+/// Ongoing, Ended (check-in open included) or Cancelled. "All" isn't one of
+/// these: it's every event that isn't archived.
+String organizerEventFilterOf(Map<String, dynamic> event, {DateTime? now}) {
+  if (eventIsArchived(event)) return 'Archived';
+  final approval = approvalStatusOf(event, now: now);
+  if (approval == 'rejected') return 'Rejected';
+  if (approval == 'pending') return 'Pending review';
+  return switch (eventStatusValue(event, now: now)) {
+    'ongoing' => 'Ongoing',
+    'ended' => 'Ended',
+    'cancelled' => 'Cancelled',
+    _ => 'Upcoming',
+  };
+}
+
 /// Approved by the admin (no value = a legacy event, which is live).
 bool eventIsApproved(Map<String, dynamic> event) =>
     (event['approval_status'] as String? ?? 'approved').toLowerCase() == 'approved';

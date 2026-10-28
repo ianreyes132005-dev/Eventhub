@@ -512,9 +512,12 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
     final imageUrl    = ev?['event_image_url'] as String?;
     final hasImage    = imageUrl != null && imageUrl.isNotEmpty;
     final statusLabel = eventStatusLabel(reg['events'] as Map<String, dynamic>? ?? {});
+    final status      = reg['status'] as String? ?? 'pending';
     final checkedIn   = _isCheckedIn(reg);
-    final isPending   = (reg['status'] as String? ?? '') == 'pending';
-    final needsPhoto  = (reg['status'] as String? ?? '') == 'photo_required';
+    // Declined by the organizer: the ticket can't be used, so no QR.
+    final isDeclined  = status == 'rejected';
+    final declineReason = (reg['rejection_reason'] as String?)?.trim() ?? '';
+    final needsPhoto  = status == 'photo_required';
     final location    = ev?['location'] as String? ?? '—';
     final sc          = eventStatusColor(statusLabel);
 
@@ -552,7 +555,7 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
                     ),
                   ),
                   Positioned(top: 12, left: 12, child: _StatusChip(label: statusLabel, color: sc)),
-                  Positioned(top: 12, right: 12, child: _CheckInBadge(checkedIn: checkedIn, isPending: isPending)),
+                  Positioned(top: 12, right: 12, child: _CheckInBadge(status: status)),
                   Positioned(
                     bottom: 10, right: 12,
                     child: Container(
@@ -599,29 +602,46 @@ class _MyRegisteredEventsPageState extends State<MyRegisteredEventsPage> {
           // ── QR button ──────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: isPending
+            child: isDeclined
                 ? Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFEF2F2),
                       borderRadius: BorderRadius.circular(13),
                       border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.35)),
                     ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    child: Column(
                       children: [
-                        Icon(Icons.cancel_rounded, size: 16, color: Color(0xFFEF4444)),
-                        SizedBox(width: 8),
-                        Text(
-                          'Failed to Register for this event',
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFFEF4444),
-                          ),
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.block_rounded, size: 16, color: Color(0xFFDC2626)),
+                            SizedBox(width: 8),
+                            Text(
+                              'Registration declined',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFFB91C1C),
+                              ),
+                            ),
+                          ],
                         ),
+                        if (declineReason.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Reason: $declineReason',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              color: Color(0xFFB91C1C),
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   )
@@ -887,18 +907,33 @@ class _StatusChipState extends State<_StatusChip>
 
 // ── Check-in badge ────────────────────────────────────────────────────────────
 
+/// The badge on a ticket for its registration status: where check-in
+/// stands. A new registration is simply "Registered". The colours keep white
+/// text at 5:1 or better (the Home card's ticket chip uses the same ones).
+({String label, IconData icon, Color color}) ticketStatusBadge(String? status) =>
+    switch (status) {
+      'qr_scanned' => (label: 'Scanned', icon: Icons.qr_code_scanner_rounded,
+          color: const Color(0xFF0369A1)),
+      'photo_required' => (label: 'Selfie needed', icon: Icons.photo_camera_rounded,
+          color: kCheckInOpenColor),
+      'photo_submitted' => (label: 'Under review', icon: Icons.hourglass_top_rounded,
+          color: const Color(0xFF6D28D9)),
+      'checked_in' => (label: 'Checked In', icon: Icons.check_circle_rounded,
+          color: const Color(0xFF15803D)),
+      'rejected' => (label: 'Declined', icon: Icons.block_rounded,
+          color: const Color(0xFFB91C1C)),
+      _ => (label: 'Registered', icon: Icons.confirmation_num_rounded,
+          color: const Color(0xFF2563EB)),
+    };
+
 class _CheckInBadge extends StatelessWidget {
-  final bool checkedIn;
-  final bool isPending;
-  const _CheckInBadge({required this.checkedIn, this.isPending = false});
+  final String? status;
+  const _CheckInBadge({required this.status});
 
   @override
   Widget build(BuildContext context) {
-    final color = checkedIn
-        ? const Color(0xFF16A34A)
-        : isPending
-            ? const Color(0xFFEF4444)
-            : const Color(0xFFF59E0B);
+    final badge = ticketStatusBadge(status);
+    final color = badge.color;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
@@ -909,13 +944,10 @@ class _CheckInBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            checkedIn ? Icons.check_circle_rounded : isPending ? Icons.error_rounded : Icons.schedule_rounded,
-            color: Colors.white, size: 10,
-          ),
+          Icon(badge.icon, color: Colors.white, size: 10),
           const SizedBox(width: 4),
           Text(
-            checkedIn ? 'Checked In' : 'Pending',
+            badge.label,
             style: const TextStyle(fontFamily: 'Poppins', fontSize: 9.5, fontWeight: FontWeight.w700, color: Colors.white),
           ),
         ],

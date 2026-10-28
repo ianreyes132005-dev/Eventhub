@@ -69,6 +69,40 @@ void main() {
     });
   });
 
+  group('organizerEventFilterOf (the Status filter, app and web)', () {
+    Map<String, dynamic> event(String approval, {String date = '2099-01-10', String? extra}) => {
+      'approval_status': approval,
+      'event_date': date,
+      'start_time': '09:00:00',
+      'end_time': '12:00:00',
+      'event_status': extra == 'cancelled' ? 'cancelled' : 'upcoming',
+      if (extra == 'archived') 'archived_at': '2026-10-01T00:00:00Z',
+    };
+
+    test('waiting for the admin is its own filter, not Upcoming', () {
+      expect(organizerEventFilterOf(event('pending')), 'Pending review');
+      expect(organizerEventFilterOf(event('approved')), 'Upcoming');
+    });
+    test('rejected and archived come first', () {
+      expect(organizerEventFilterOf(event('rejected')), 'Rejected');
+      // Nobody reviewed it before it started: it counts as rejected.
+      expect(organizerEventFilterOf(event('pending', date: '2020-01-10')), 'Rejected');
+      expect(organizerEventFilterOf(event('approved', extra: 'archived')), 'Archived');
+    });
+    test('approved events follow the schedule', () {
+      expect(organizerEventFilterOf(event('approved'), now: DateTime(2099, 1, 10, 10)), 'Ongoing');
+      // Ended, check-in still open until 2 PM: under Ended.
+      expect(organizerEventFilterOf(event('approved'), now: DateTime(2099, 1, 10, 13)), 'Ended');
+      expect(organizerEventFilterOf(event('approved', extra: 'cancelled')), 'Cancelled');
+    });
+    test('each event is under the filter its pill names', () {
+      for (final e in [event('pending'), event('rejected'), event('approved'),
+          event('approved', extra: 'cancelled'), event('approved', extra: 'archived')]) {
+        expect(organizerEventFilterOf(e), organizerEventStatus(e).label);
+      }
+    });
+  });
+
   test('app chip text clears 4.5:1 on the card, light and dark', () {
     double contrast(Color a, Color b) {
       final la = a.computeLuminance(), lb = b.computeLuminance();

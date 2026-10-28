@@ -183,6 +183,20 @@ void main() {
       expect(attendance.skip(2).every((event) => event['total'] == 0), isTrue);
     });
 
+    test('attendance leaves out events that never ran', () {
+      final events = [
+        _event(id: 'held', day: DateTime(2026, 10, 5)),
+        _event(id: 'cancelled', day: DateTime(2026, 10, 6), cancelled: true),
+        _event(id: 'rejected', day: DateTime(2026, 10, 7), approval: 'rejected'),
+        // Nobody reviewed it before it started: rejected, so it never ran.
+        _event(id: 'unreviewed', day: DateTime(2026, 10, 8), approval: 'pending'),
+      ];
+      expect(
+        recentPastEventsForAttendance(events, now: now).map((e) => e['event_id']),
+        ['held'],
+      );
+    });
+
     test('weekly registrations are grouped Monday through Sunday', () {
       final registrations = [
         {'registered_at': '2026-10-18T12:00:00'}, // previous Sunday

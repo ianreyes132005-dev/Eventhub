@@ -37,6 +37,19 @@ String _bannerContentType(String ext) {
   }
 }
 
+// Removes a banner file by its public URL. Best effort — a file left behind
+// must never fail a save.
+Future<void> _removeBannerFile(SupabaseClient client, String? url) async {
+  if (url == null || url.isEmpty) return;
+  try {
+    final segments = Uri.parse(url).pathSegments;
+    final i = segments.indexOf('event-banners');
+    if (i >= 0 && i < segments.length - 1) {
+      await client.storage.from('event-banners').remove([segments.sublist(i + 1).join('/')]);
+    }
+  } catch (_) {}
+}
+
 // Returns the display status for an event, overriding 'upcoming'/'ongoing'
 // with 'ended' when the event's end time (or whole event day) has passed.
 String _resolveDisplayStatus(Map<String, dynamic> event) {
@@ -83,6 +96,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
 
   final _filters = [
     'All',
+    'Pending review',
     'Upcoming',
     'Ongoing',
     'Ended',
@@ -205,19 +219,14 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
     final q = _search.text.toLowerCase();
     setState(() {
       _displayed = _events.where((e) {
-        final status = _resolveDisplayStatus(e);
-        final approval = approvalStatusOf(e);
         final title  = (e['title'] as String? ?? '').toLowerCase();
         final loc    = (e['location'] as String? ?? '').toLowerCase();
         final type   = (e['event_type'] as String? ?? '').toLowerCase();
-        // Archived events (admin) only show under the Archived filter.
-        final matchFilter = eventIsArchived(e)
-            ? _filter == 'Archived'
-            : _filter == 'All' ||
-                (_filter == 'Rejected'
-                    ? approval == 'rejected'
-                    : approval != 'rejected' &&
-                        status == _filter.toLowerCase());
+        // One filter per event — the menu counts use the same rule. Archived
+        // events (admin) only show under the Archived filter.
+        final matchFilter = _filter == 'All'
+            ? !eventIsArchived(e)
+            : organizerEventFilterOf(e) == _filter;
         final matchSearch = q.isEmpty ||
             title.contains(q) || loc.contains(q) || type.contains(q);
         return matchFilter && matchSearch;
@@ -488,6 +497,14 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                         subtitle: 'The administrator archives finished events. They '
                             'show here, read-only, and you can still export their attendance.',
                       )
+                  : _filter == 'Pending review' && _search.text.isEmpty
+                    // Nothing waiting for the admin is good news too.
+                    ? const WebEmptyState(
+                        icon: Icons.fact_check_outlined,
+                        title: 'Nothing waiting for review',
+                        subtitle: 'New events, and rejected ones you edit and '
+                            'resubmit, wait here until the administrator approves them.',
+                      )
                   : _filter == 'Cancelled' && _search.text.isEmpty
                     // An empty Cancelled tab is good news, not a failed filter.
                     ? const WebEmptyState(
@@ -546,16 +563,13 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   Widget _buildFilterBar() {
     // Live counts per status — displayed as badges on each chip so the
     // organizer sees event distribution at a glance without filtering.
-    final active = _events.where((e) => !eventIsArchived(e));
-    final scheduled = active.where(eventIsApproved);
+    // The same rule as the rows (organizerEventFilterOf), so every number
+    // matches what its filter shows.
     final counts = <String, int>{
-      'All':       active.length,
-      'Upcoming':  scheduled.where((e) => _resolveDisplayStatus(e) == 'upcoming').length,
-      'Ongoing':   scheduled.where((e) => _resolveDisplayStatus(e) == 'ongoing').length,
-      'Ended':     scheduled.where((e) => _resolveDisplayStatus(e) == 'ended').length,
-      'Cancelled': scheduled.where((e) => _resolveDisplayStatus(e) == 'cancelled').length,
-      'Rejected':  active.where((e) => approvalStatusOf(e) == 'rejected').length,
-      'Archived':  _events.length - active.length,
+      for (final f in _filters)
+        f: f == 'All'
+            ? _events.where((e) => !eventIsArchived(e)).length
+            : _events.where((e) => organizerEventFilterOf(e) == f).length,
     };
 
     // One Status menu instead of seven chips: the chips ran off narrower
@@ -591,6 +605,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   // The dot in front of each status in the menu — the table's pill colours.
   static Color _filterColor(String f) => switch (f) {
         'All'       => kGold,
+        'Pending review' => approvalStatusColor('pending'),
         'Rejected'  => approvalStatusColor('rejected'),
         'Archived'  => kArchivedColor,
         _           => eventStatusColor(f),
@@ -1221,30 +1236,15 @@ class _EventDialogState extends State<_EventDialog> {
 
     setState(() { _saving = true; _error = null; });
 
+    final client = SupabaseService.client;
+    // A banner this save uploaded that the event doesn't point at yet. It's
+    // removed again if the save fails, so nothing is left behind.
+    String? newBannerUrl;
     try {
-      final client = SupabaseService.client;
-
-      // Upload banner if new bytes provided
+      // The new banner goes up first. The old one stays until the event is
+      // saved with the new one, so a failed save keeps the event's banner.
       String? imageUrl = _existingBannerUrl;
       if (_bannerBytes != null) {
-        // Delete the old banner so orphaned files don't accumulate in storage.
-        if (_isEdit && _existingBannerUrl != null && _existingBannerUrl!.isNotEmpty) {
-          try {
-            final uri = Uri.tryParse(_existingBannerUrl!);
-            if (uri != null) {
-              final segments  = uri.pathSegments;
-              final bucketIdx = segments.indexOf('event-banners');
-              if (bucketIdx >= 0 && bucketIdx < segments.length - 1) {
-                final oldPath = segments.sublist(bucketIdx + 1).join('/');
-                await client.storage.from('event-banners').remove([oldPath]);
-              }
-            }
-          } catch (_) {
-            // Removal failure is non-fatal — the old file becomes orphaned
-            // but the save should still proceed.
-          }
-        }
-
         final ext  = (_bannerName ?? 'banner.jpg').split('.').last.toLowerCase();
         final path = 'banner_${DateTime.now().millisecondsSinceEpoch}_${webUuid()}.$ext';
         await client.storage.from('event-banners').uploadBinary(
@@ -1252,6 +1252,7 @@ class _EventDialogState extends State<_EventDialog> {
           fileOptions: FileOptions(contentType: _bannerContentType(ext), upsert: false),
         );
         imageUrl = client.storage.from('event-banners').getPublicUrl(path);
+        newBannerUrl = imageUrl;
       }
 
       final dateStr    = _date!.toIso8601String().split('T').first;
@@ -1295,6 +1296,11 @@ class _EventDialogState extends State<_EventDialog> {
           throw Exception('The event wasn’t updated — it may have been removed, '
               'or you don’t have permission to change it.');
         }
+        // Saved with the new banner: the old one can go now.
+        if (newBannerUrl != null) {
+          newBannerUrl = null;
+          await _removeBannerFile(client, _existingBannerUrl);
+        }
         if (wasRejected && (rows.first as Map)['approval_status'] != 'pending') {
           throw Exception('Your changes were saved, but the event couldn’t be sent '
               'back for review. Please try again.');
@@ -1312,6 +1318,7 @@ class _EventDialogState extends State<_EventDialog> {
       } else {
         await client.from('events')
             .insert({...payload, 'organizer_id': widget.orgId!});
+        newBannerUrl = null;   // the new event points at it
         AuditService.logEvent(
           action: 'created',
           eventTitle: _titleCtrl.text.trim(),
@@ -1324,6 +1331,8 @@ class _EventDialogState extends State<_EventDialog> {
         Navigator.of(context).pop(!_isEdit ? 'created' : resubmitted ? 'resubmitted' : 'updated');
       }
     } catch (e) {
+      // The save didn't go through, so nothing points at the new banner.
+      await _removeBannerFile(client, newBannerUrl);
       if (mounted) {
         setState(() => _saving = false);
         showErrorAlert(context, e,

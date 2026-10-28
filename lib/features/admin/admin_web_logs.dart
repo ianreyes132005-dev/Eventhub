@@ -16,6 +16,14 @@ import 'admin_shared.dart';
 // Logs page — helpers
 // ═════════════════════════════════════════════════════════════════════════════
 
+/// Log entries are kept at least this long: Clear only removes older ones.
+/// The database refuses to delete newer ones (admin_delete_event_logs /
+/// admin_delete_login_logs, migration 202610270001) — keep the two the same.
+const Duration kLogRetention = Duration(days: 90);
+
+/// How many of the newest entries each tab loads.
+const int _kLoadedLogs = 500;
+
 String _logRelTime(String? ts) {
   if (ts == null || ts.isEmpty) return '—';
   try {
@@ -218,7 +226,7 @@ class _AdminLogsPageState extends State<AdminLogsPage>
           .from('login_logs')
           .select('id, user_role, full_name, identifier, platform, created_at')
           .order('created_at', ascending: false)
-          .limit(500);
+          .limit(_kLoadedLogs);
       if (!mounted) return;
       _loginAll = List<Map<String, dynamic>>.from(rows as List);
       _applyLogin();
@@ -235,7 +243,7 @@ class _AdminLogsPageState extends State<AdminLogsPage>
           .from('event_logs')
           .select('id, event_title, organizer_id, organizer_name, action, details, created_at')
           .order('created_at', ascending: false)
-          .limit(500);
+          .limit(_kLoadedLogs);
       if (!mounted) return;
       _eventAll = List<Map<String, dynamic>>.from(rows as List);
       _applyEvent();
@@ -324,15 +332,27 @@ class _AdminLogsPageState extends State<AdminLogsPage>
     final table = isLoginTab ? 'login_logs' : 'event_logs';
     final logType = isLoginTab ? 'login' : 'event';
     final tabLabel = isLoginTab ? 'Login' : 'Event';
-    final filteredRows = isLoginTab ? _loginFiltered : _eventFiltered;
-    final matchingIds = filteredRows
+    final loaded = isLoginTab ? _loginAll : _eventAll;
+    // The last 90 days are kept (kLogRetention); the database won't delete
+    // them. A day's margin keeps a computer clock that runs ahead from
+    // picking entries the database still keeps.
+    final cutoff = DateTime.now().subtract(kLogRetention + const Duration(days: 1));
+    bool isOld(Map<String, dynamic> row) =>
+        DateTime.tryParse(row['created_at'] as String? ?? '')?.isBefore(cutoff) ?? false;
+    final oldIds = (hasFilters ? (isLoginTab ? _loginFiltered : _eventFiltered) : loaded)
+        .where(isOld)
         .map((row) => row['id'] as String? ?? '')
         .where((id) => id.isNotEmpty)
         .toList();
+    // Only the newest entries are loaded: without filters, older ones may
+    // be waiting beyond them.
+    final mayHaveMore = !hasFilters && loaded.length >= _kLoadedLogs;
 
-    if (hasFilters && matchingIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('There are no matching logs to clear.'),
+    if (oldIds.isEmpty && !mayHaveMore) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(hasFilters
+            ? 'None of the matching logs are older than 90 days. Logs from the last 90 days are always kept.'
+            : 'Nothing to clear yet. Logs from the last 90 days are always kept.'),
         behavior: SnackBarBehavior.floating,
       ));
       return;
@@ -340,56 +360,51 @@ class _AdminLogsPageState extends State<AdminLogsPage>
 
     final confirmed = await WebAlert.confirm(
       context: context,
-      title: hasFilters ? 'Clear Matching $tabLabel Logs?' : 'Clear $tabLabel Logs?',
+      title: hasFilters ? 'Clear Matching $tabLabel Logs?' : 'Clear Old $tabLabel Logs?',
       message: hasFilters
-          ? 'This permanently deletes ${matchingIds.length} $logType log entries matching the current filters. This action cannot be undone.'
-          : 'This permanently deletes all $logType log entries. This action cannot be undone.',
-      confirmLabel: hasFilters ? 'Clear Matching' : 'Clear Logs',
+          ? 'This permanently deletes ${oldIds.length} matching $logType log '
+              '${oldIds.length == 1 ? 'entry' : 'entries'} older than 90 days. '
+              'Logs from the last 90 days are kept. This action cannot be undone.'
+          : 'This permanently deletes every $logType log entry older than 90 days. '
+              'Logs from the last 90 days are kept. This action cannot be undone.',
+      confirmLabel: hasFilters ? 'Clear Matching' : 'Clear Old Logs',
       icon: Icons.delete_sweep_rounded,
     );
     if (confirmed != true || !mounted) return;
 
     setState(() => _clearingLogs = true);
     try {
-      if (hasFilters) {
-        await SupabaseService.client
-            .from(table)
-            .delete()
-            .in_('id', matchingIds)
-            .select('id');
-      } else {
-        await SupabaseService.client
-            .from(table)
-            .delete()
-            .not('id', 'is', null)
-            .select('id');
+      final deleted = hasFilters
+          ? await SupabaseService.client
+              .from(table)
+              .delete()
+              .in_('id', oldIds)
+              .select('id')
+          : await SupabaseService.client
+              .from(table)
+              .delete()
+              .lt('created_at', cutoff.toUtc().toIso8601String())
+              .select('id');
+      final count = (deleted as List).length;
+      if (count == 0 && oldIds.isNotEmpty) {
+        _blockedDeletion(isLoginTab ? 'admin_delete_login_logs' : 'admin_delete_event_logs');
       }
 
       if (isLoginTab) {
         await _loadLogin(silent: true);
-        if (hasFilters && _loginAll.any((row) => matchingIds.contains(row['id']))) {
-          _blockedDeletion('admin_delete_login_logs');
-        }
-        if (!hasFilters && _loginAll.isNotEmpty) {
-          _blockedDeletion('admin_delete_login_logs');
-        }
       } else {
         await _loadEvent(silent: true);
-        if (hasFilters && _eventAll.any((row) => matchingIds.contains(row['id']))) {
-          _blockedDeletion('admin_delete_event_logs');
-        }
-        if (!hasFilters && _eventAll.isNotEmpty) {
-          _blockedDeletion('admin_delete_event_logs');
-        }
       }
 
       if (mounted) {
         await WebAlert.success(
           context: context,
-          title: 'Logs cleared',
-          message: hasFilters
-              ? '${matchingIds.length} matching $logType log entries were deleted.'
-              : 'All $logType log entries were deleted.',
+          title: count == 0 ? 'Nothing to clear' : 'Logs cleared',
+          message: count == 0
+              ? 'No $logType log entries are older than 90 days yet.'
+              : '$count $logType log ${count == 1 ? 'entry' : 'entries'} older than '
+                  '90 days ${count == 1 ? 'was' : 'were'} deleted. Logs from the '
+                  'last 90 days are kept.',
         );
       }
     } catch (e) {
@@ -403,7 +418,7 @@ class _AdminLogsPageState extends State<AdminLogsPage>
   // delete policy is missing — the technical hint goes to the debug log.
   Never _blockedDeletion(String policy) {
     debugPrint('Log deletion blocked by RLS — apply the $policy policy '
-        'from lib/supabase_schema.sql.');
+        'from supabase/migrations/202610270001_audit_log_integrity.sql.');
     throw const FriendlyException(
         'The logs couldn’t be deleted because this account isn’t allowed to '
         'delete them yet. Please contact the system administrator.');
@@ -657,8 +672,8 @@ class _AdminLogsPageState extends State<AdminLogsPage>
             const Spacer(),
             Tooltip(
               message: _hasLoginFilters
-                  ? 'Delete the login logs matching the current filters'
-                  : 'Delete all login logs',
+                  ? 'Delete the matching login logs older than 90 days'
+                  : 'Delete login logs older than 90 days (the last 90 days are kept)',
               child: MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: GestureDetector(
@@ -890,8 +905,8 @@ class _AdminLogsPageState extends State<AdminLogsPage>
           const SizedBox(width: 12),
           Tooltip(
             message: _hasEventFilters
-                ? 'Delete the event logs matching the current filters'
-                : 'Delete all event logs',
+                ? 'Delete the matching event logs older than 90 days'
+                : 'Delete event logs older than 90 days (the last 90 days are kept)',
             child: MouseRegion(
               cursor: SystemMouseCursors.click,
               child: GestureDetector(
