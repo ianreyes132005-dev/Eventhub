@@ -15,6 +15,8 @@ import '../../../../core/services/app_lang_prefs.dart';
 import '../../../../core/services/organizer_photo.dart';
 import '../../../../core/services/account_session_guard.dart';
 import '../../../../shared/widgets/web/swal.dart';
+import '../../../../shared/widgets/about_eventhub.dart';
+import '../../../auth/auth_screen.dart' show showLegalSheet;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // OrganizerProfileScreen
@@ -39,6 +41,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
   bool _uploadingPhoto = false;
   Object? _loadError;
   String _appVersion = '—';
+  String _appBuild = '';
 
   String _langCode = AppLangPrefs.english;
 
@@ -225,6 +228,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
         _events = eventList;
         _langCode = langCode;
         _appVersion = packageInfo.version;
+        _appBuild = packageInfo.buildNumber;
         _loadError = null;
         _loading = false;
         _loaded = true;
@@ -1958,7 +1962,10 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     onTap: _showAboutDialog,
   );
 
+  // The shared About EventHub content (about_eventhub.dart), in this app's
+  // dialog.
   void _showAboutDialog() {
+    final version = aboutVersionLabel(_appVersion, _appBuild);
     showDialog(
       context: context,
       builder: (ctx) {
@@ -1967,7 +1974,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(24),
           ),
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -2004,7 +2011,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Version $_appVersion',
+                  version,
                   style: const TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 12,
@@ -2013,42 +2020,16 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Text(
-                  'J-Jireh Learning Center\'s official event management platform. Create and manage school events, publish announcements, and track registrations and check-ins — all in one place.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 11.5,
-                    height: 1.6,
-                    color: t.muted,
-                  ),
+                AboutEventHubBody(
+                  audience: AboutAudience.organizer,
+                  onOpenTerms: () => showLegalSheet(ctx, terms: true),
+                  onOpenPrivacy: () => showLegalSheet(ctx, terms: false),
+                  textColor: t.text,
+                  mutedColor: t.muted,
+                  dividerColor: t.divider,
+                  centered: true,
                 ),
-                const SizedBox(height: 16),
-                Divider(color: t.divider),
                 const SizedBox(height: 12),
-                _aboutInfoRow(
-                  Icons.school_rounded,
-                  'School',
-                  'J-Jireh Learning Center',
-                  t,
-                ),
-                const SizedBox(height: 10),
-                _aboutInfoRow(
-                  Icons.build_rounded,
-                  'Build',
-                  'Flutter · Supabase',
-                  t,
-                ),
-                const SizedBox(height: 10),
-                _aboutInfoRow(Icons.devices_rounded, 'Platform', 'Android', t),
-                const SizedBox(height: 10),
-                _aboutInfoRow(
-                  Icons.support_agent_rounded,
-                  'Contact',
-                  'See school admin',
-                  t,
-                ),
-                const SizedBox(height: 16),
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
@@ -2071,42 +2052,6 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
       },
     );
   }
-
-  Widget _aboutInfoRow(IconData icon, String label, String value, AppTk t) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: Row(
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: kGold.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, size: 14, color: kGold),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              '$label  ',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: t.text,
-              ),
-            ),
-            Text(
-              value,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 11.5,
-                color: t.muted,
-              ),
-            ),
-          ],
-        ),
-      );
 
   // ── Logout ─────────────────────────────────────────────────────────────────
 

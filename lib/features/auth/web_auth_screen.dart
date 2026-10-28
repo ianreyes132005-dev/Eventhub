@@ -1995,6 +1995,11 @@ class _TransitionScreenState extends State<_TransitionScreen>
 // Legal dialog (Terms and Conditions / Privacy Policy)
 // ══════════════════════════════════════════════════════════════════════════════
 
+/// The Terms and Conditions ([terms]) or the Privacy Policy dialog, as on the
+/// sign-in page — the organizer profile's About EventHub opens it too.
+Future<void> showWebLegalDialog(BuildContext context, {required bool terms}) =>
+    _WebLegalDialog.show(context, isTerms: terms);
+
 class _WebLegalDialog extends StatelessWidget {
   final bool isTerms;
   const _WebLegalDialog({required this.isTerms});
@@ -2045,7 +2050,8 @@ class _WebLegalDialog extends StatelessWidget {
                       style: const TextStyle(
                         fontFamily: 'Poppins', fontSize: 15,
                         fontWeight: FontWeight.w800, color: Color(0xFF1A1A2E))),
-                    Text(isTerms ? 'J-Jireh EventHub' : 'How we handle your data',
+                    Text('${isTerms ? 'J-Jireh EventHub' : 'How we handle your data'}'
+                        ' · Last updated $eventHubLegalUpdated',
                       style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
                         color: Colors.grey.shade500)),
                   ]),

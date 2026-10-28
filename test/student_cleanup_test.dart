@@ -37,8 +37,9 @@ void main() {
       expect(privacy, contains('Supabase'));
       expect(privacy, contains('Groq'));
       expect(terms, contains('Groq'));
-      // The assistant is in the app too, not only the organizer web portal.
-      expect(terms, contains('in the app and the web portal'));
+      // The assistant is in the app too, and on the organizer web portal
+      // (the admin portal has none).
+      expect(terms, contains('in the mobile app and the organizer web portal'));
       expect(privacy, isNot(contains('personalized')));
     });
 
@@ -46,6 +47,24 @@ void main() {
       expect(terms, contains('Ticket ID'));
       expect(terms, contains('asks before it opens the camera'));
       expect(terms, contains('closes 2 hours after an event starts'));
+    });
+
+    test('match the check-in rules of migration 202610280001', () {
+      // Students can cancel until check-in opens.
+      expect(terms, contains('cancel a registration until check-in opens'));
+      expect(privacy, contains('Cancel a registration until check-in opens'));
+      // Scanning until 30 min after the end, finishing until 2 h after.
+      expect(terms, contains('until 30 minutes after the event ends'));
+      expect(terms, contains('until 2 hours after the end'));
+      // Then it's final, and only the admin corrects it, with a reason.
+      expect(terms, contains('attendance is final'));
+      expect(terms, contains('Only the school administrator can correct attendance'));
+      expect(privacy, contains('corrected by the school administrator'));
+    });
+
+    test('say that notifications are in the app only, and when the text changed', () {
+      expect(terms, contains('does not send push notifications'));
+      expect(eventHubLegalUpdated, isNotEmpty);
     });
   });
 

@@ -11,6 +11,8 @@ export '../../../shared/widgets/web/web_filter_menu.dart';
 export '../../../shared/widgets/web/web_empty_state.dart';
 export '../../../shared/widgets/web/web_status_badge.dart';
 export '../../../shared/widgets/web/web_nav_badge.dart';
+export '../../../shared/widgets/web/web_side_nav.dart';
+export '../../../shared/widgets/web/web_account_menu.dart';
 export '../../../shared/widgets/web/web_alert.dart';
 export '../../../shared/widgets/web/swal.dart';
 export '../../../shared/widgets/error_alert.dart';

@@ -50,18 +50,8 @@ class _STk {
 }
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
-// AdminPage enum now lives in admin_shared.dart (shared by every tab file).
-
-const _kNavItems = [
-  (AdminPage.overview,       Icons.dashboard_rounded,     'Dashboard'),
-  (AdminPage.students,       Icons.people_rounded,        'Students'),
-  (AdminPage.organizers,     Icons.badge_rounded,         'Organizers'),
-  (AdminPage.events,         Icons.event_rounded,         'Events'),
-  (AdminPage.registrations,  Icons.how_to_reg_rounded,    'Registrations'),
-  (AdminPage.announcements,  Icons.campaign_rounded,      'Announcements'),
-  (AdminPage.archives,       Icons.inventory_2_rounded,   'Archives'),
-  (AdminPage.logs,           Icons.history_rounded,       'Logs'),
-];
+// AdminPage enum now lives in admin_shared.dart (shared by every tab file);
+// the sidebar's groups are _navGroups in the shell state.
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Shell
@@ -76,7 +66,10 @@ class AdminWebDashboard extends StatefulWidget {
 class _AdminWebDashboardState extends State<AdminWebDashboard>
     with SingleTickerProviderStateMixin {
   AdminPage _page      = AdminPage.overview;
-  bool      _collapsed = false;
+  // Sidebar left collapsed on wide / medium windows (WebNavPrefs).
+  bool      _collapsedWide   = false;
+  bool      _collapsedMedium = true;
+  final     _scaffoldKey = GlobalKey<ScaffoldState>();
   bool      _loading   = true;
   bool      _error     = false;
   String?   _name;
@@ -120,6 +113,11 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
     _contentFade  = CurvedAnimation(parent: _entryCt,
         curve: const Interval(0.12, 0.78, curve: Curves.easeOut));
     _loadProfile();
+    WebNavPrefs.load('admin').then((v) {
+      if (mounted) {
+        setState(() { _collapsedWide = v.wide; _collapsedMedium = v.medium; });
+      }
+    });
   }
 
   @override
@@ -226,6 +224,7 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
       context: context, title: 'Sign Out?',
       message: 'You will be returned to the login screen.',
       confirmLabel: 'Sign Out',
+      icon: Icons.logout_rounded,
     );
     if (ok != true) return;
     await SupabaseService.client.auth.signOut();
@@ -244,6 +243,147 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
   }
 
   void _navigate(AdminPage p) => setState(() => _page = p);
+
+  bool _collapsedFor(WebNavLayout layout) => switch (layout) {
+    WebNavLayout.wide   => _collapsedWide,
+    WebNavLayout.medium => _collapsedMedium,
+    WebNavLayout.drawer => false,
+  };
+
+  // « Collapse / » Expand, remembered per browser.
+  void _toggleCollapse(WebNavLayout layout) {
+    final next = !_collapsedFor(layout);
+    setState(() {
+      if (layout == WebNavLayout.wide) {
+        _collapsedWide = next;
+      } else {
+        _collapsedMedium = next;
+      }
+    });
+    WebNavPrefs.save('admin', layout, next);
+  }
+
+  // Dark mode from the account menu.
+  Future<void> _toggleTheme() async {
+    try {
+      await ThemeStore.toggle();
+    } catch (e) {
+      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t save theme preference');
+    }
+  }
+
+  static const _pageTitles = <AdminPage, String>{
+    AdminPage.overview:      'Dashboard',
+    AdminPage.students:      'Students',
+    AdminPage.organizers:    'Organizers',
+    AdminPage.events:        'Events',
+    AdminPage.registrations: 'Registrations',
+    AdminPage.announcements: 'Announcements',
+    AdminPage.archives:      'Archives',
+    AdminPage.logs:          'Logs',
+  };
+
+  // Dashboard, then EVENTS, PEOPLE and RECORDS — the layout the user chose.
+  List<WebNavGroup<AdminPage>> get _navGroups {
+    final review = _pendingEventsCount;
+    final ready  = _readyToArchive;
+    return [
+      const WebNavGroup(entries: [
+        WebNavEntry(
+          page: AdminPage.overview,
+          icon: Icons.dashboard_rounded,
+          label: 'Dashboard',
+        ),
+      ]),
+      WebNavGroup(title: 'Events', entries: [
+        WebNavEntry(
+          page: AdminPage.events,
+          icon: Icons.event_rounded,
+          label: 'Events',
+          badge: review,
+          badgeTip: review == 1
+              ? '1 event or change waiting for your review'
+              : '$review events or changes waiting for your review',
+        ),
+        const WebNavEntry(
+          page: AdminPage.registrations,
+          icon: Icons.how_to_reg_rounded,
+          label: 'Registrations',
+        ),
+        const WebNavEntry(
+          page: AdminPage.announcements,
+          icon: Icons.campaign_rounded,
+          label: 'Announcements',
+        ),
+      ]),
+      const WebNavGroup(title: 'People', entries: [
+        WebNavEntry(
+          page: AdminPage.students,
+          icon: Icons.people_rounded,
+          label: 'Students',
+        ),
+        WebNavEntry(
+          page: AdminPage.organizers,
+          icon: Icons.badge_rounded,
+          label: 'Organizers',
+        ),
+      ]),
+      WebNavGroup(title: 'Records', entries: [
+        WebNavEntry(
+          page: AdminPage.archives,
+          icon: Icons.inventory_2_rounded,
+          label: 'Archives',
+          badge: ready,
+          badgeTip: ready == 1
+              ? '1 event ready to archive'
+              : '$ready events ready to archive',
+        ),
+        const WebNavEntry(
+          page: AdminPage.logs,
+          icon: Icons.history_rounded,
+          label: 'Logs',
+        ),
+      ]),
+    ];
+  }
+
+  // [onClose]: the drawer — choosing a page closes it.
+  Widget _sideNav({
+    required bool collapsed,
+    VoidCallback? onToggleCollapse,
+    VoidCallback? onClose,
+  }) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final s    = _STk(dark);
+    return WebSideNav<AdminPage>(
+      portalLabel:      'Admin console',
+      groups:           _navGroups,
+      current:          _page,
+      collapsed:        collapsed,
+      headerHeight:     kWebTopH,
+      onToggleCollapse: onToggleCollapse,
+      onClose:          onClose,
+      logoFallbackIcon: Icons.admin_panel_settings_rounded,
+      onSelect: (page) {
+        onClose?.call();
+        _navigate(page);
+      },
+      palette: WebNavPalette(
+        background:   s.grad,
+        border:       s.border,
+        text:         s.navText,
+        activeText:   dark ? Colors.white : kText,
+        icon:         s.navIcon,
+        // Group titles readable on the dark sidebar too (4.5:1).
+        label:        dark ? const Color(0xFF8E97A5) : s.navLabel,
+        hover:        dark ? Colors.white.withValues(alpha: 0.07) : const Color(0xFFF1F5F9),
+        accent:       _kAccent,
+        accentStrong: dark ? const Color(0xFFFB923C) : const Color(0xFFC2410C),
+        focus:        dark ? const Color(0xFF60A5FA) : const Color(0xFF2563EB),
+      ),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -285,28 +425,42 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
       );
     }
 
+    // Wide: the sidebar (or its icon rail); narrow: no sidebar, a menu button
+    // in the top bar opens it as a drawer.
+    final layout    = webNavLayoutFor(MediaQuery.sizeOf(context).width);
+    final drawer    = layout == WebNavLayout.drawer;
+    final collapsed = _collapsedFor(layout);
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: t.bg,
+      drawer: drawer
+          ? Drawer(
+              width: 288,
+              backgroundColor: Colors.transparent,
+              shape: const RoundedRectangleBorder(),
+              child: _sideNav(
+                collapsed: false,
+                onClose: () => _scaffoldKey.currentState?.closeDrawer(),
+              ),
+            )
+          : null,
       body: Row(children: [
-        FadeTransition(
-          opacity: _sidebarFade,
-          child: SlideTransition(
-            position: _sidebarSlide,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeInOut,
-              width: _collapsed ? kWebSideWc : kWebSideW,
-              child: _AdminSidebar(
-                collapsed:    _collapsed,
-                currentPage:  _page,
-                pendingEventsCount: _pendingEventsCount,
-                readyToArchiveCount: _readyToArchive,
-                onPageChanged: _navigate,
-                onToggle:     () => setState(() => _collapsed = !_collapsed),
+        if (!drawer)
+          FadeTransition(
+            opacity: _sidebarFade,
+            child: SlideTransition(
+              position: _sidebarSlide,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeInOut,
+                width: collapsed ? kWebSideWc : kWebSideW,
+                child: _sideNav(
+                  collapsed: collapsed,
+                  onToggleCollapse: () => _toggleCollapse(layout),
+                ),
               ),
             ),
           ),
-        ),
         Expanded(
           child: Column(children: [
             ClipRect(
@@ -315,11 +469,14 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
                 child: FadeTransition(
                   opacity: _topbarFade,
                   child: _AdminTopBar(
-                    collapsed:  _collapsed,
-                    page:       _page,
-                    name:       _name,
-                    onMenuTap:  () => setState(() => _collapsed = !_collapsed),
-                    onSignOut:  _signOut,
+                    title:         _pageTitles[_page] ?? '',
+                    name:          _name,
+                    compact:       drawer,
+                    onMenuTap:     drawer
+                        ? () => _scaffoldKey.currentState?.openDrawer()
+                        : null,
+                    onToggleTheme: _toggleTheme,
+                    onSignOut:     _signOut,
                   ),
                 ),
               ),
@@ -349,131 +506,94 @@ class _AdminWebDashboardState extends State<AdminWebDashboard>
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Sidebar
+// Top bar
 // ═════════════════════════════════════════════════════════════════════════════
 
-class _AdminSidebar extends StatefulWidget {
-  final bool      collapsed;
-  final AdminPage currentPage;
-  final int       pendingEventsCount;
-  final int       readyToArchiveCount;
-  final ValueChanged<AdminPage> onPageChanged;
-  final VoidCallback onToggle;
+// Page title and the account menu (Dark mode, Sign out). On a narrow window a
+// menu button opens the sidebar as a drawer.
+class _AdminTopBar extends StatelessWidget {
+  final String        title;
+  final String?       name;
+  /// Narrow window: the account button shows only the initials.
+  final bool          compact;
+  /// Set on narrow windows: opens the sidebar drawer.
+  final VoidCallback? onMenuTap;
+  final VoidCallback  onToggleTheme;
+  final VoidCallback  onSignOut;
 
-  const _AdminSidebar({
-    required this.collapsed, required this.currentPage,
-    required this.pendingEventsCount,
-    required this.readyToArchiveCount,
-    required this.onPageChanged, required this.onToggle,
+  const _AdminTopBar({
+    required this.title,
+    required this.name,
+    required this.compact,
+    this.onMenuTap,
+    required this.onToggleTheme,
+    required this.onSignOut,
   });
 
   @override
-  State<_AdminSidebar> createState() => _AdminSidebarState();
-}
-
-class _AdminSidebarState extends State<_AdminSidebar>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _sc;
-
-  @override
-  void initState() {
-    super.initState();
-    _sc = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
-    _sc.forward();
-  }
-
-  @override
-  void dispose() { _sc.dispose(); super.dispose(); }
-
-  Widget _cascade(Widget child, int idx) {
-    final start = (idx * 0.067).clamp(0.0, 1.0);
-    final end   = (start + 0.38).clamp(0.0, 1.0);
-    return AnimatedBuilder(
-      animation: _sc,
-      builder: (_, c) {
-        final raw = ((_sc.value - start) / (end - start)).clamp(0.0, 1.0);
-        final t   = Curves.easeOut.transform(raw);
-        final ts  = Curves.easeOutCubic.transform(raw);
-        return Opacity(
-          opacity: t,
-          child: Transform.translate(offset: Offset(0, 10.0 * (1 - ts)), child: c),
-        );
-      },
-      child: child,
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final s = _STk(Theme.of(context).brightness == Brightness.dark);
-    return Container(
-      decoration: BoxDecoration(
-        gradient: s.grad,
-        border: Border(right: BorderSide(color: s.border, width: 1)),
-      ),
-      child: Column(children: [
-        _cascade(_buildHeader(s), 0),
-        const SizedBox(height: 4),
-        _cascade(_buildNavLabel(s), 1),
-        Expanded(child: _buildNavItems()),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: Divider(color: s.border.withValues(alpha: 0.35), height: 1),
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final avatar = Container(
+      width: 34, height: 34,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFFC2410C), _kAccent, Color(0xFFF97316)],
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
         ),
-        _buildDarkToggle(s),
-        const SizedBox(height: 10),
-      ]),
+        shape: BoxShape.circle,
+      ),
+      child: Center(child: Text(_initials(name),
+        style: const TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
+            fontWeight: FontWeight.w700, color: Colors.white))),
     );
-  }
-
-  Widget _buildHeader(_STk s) {
-    final bDeco = BoxDecoration(
-      border: Border(bottom: BorderSide(
-        color: s.dark ? s.border : s.border.withValues(alpha: 0.40), width: 1)),
-    );
-    if (widget.collapsed) {
-      return Container(
-        height: kWebTopH, decoration: bDeco, alignment: Alignment.center,
-        child: _logoCircle(36),
-      );
-    }
     return Container(
       height: kWebTopH,
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      decoration: bDeco,
+      padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 20),
+      decoration: BoxDecoration(
+        color: t.card,
+        border: Border(bottom: BorderSide(color: t.border)),
+        boxShadow: [BoxShadow(color: t.shadow, blurRadius: 8, offset: const Offset(0, 2))],
+      ),
       child: Row(children: [
-        _logoCircle(38),
-        const SizedBox(width: 12),
+        if (onMenuTap != null) ...[
+          IconButton(
+            onPressed: onMenuTap,
+            tooltip: 'Open menu',
+            icon: Icon(Icons.menu_rounded, size: 20, color: t.sub),
+          ),
+          const SizedBox(width: 4),
+        ],
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('J-Jireh',
-                style: TextStyle(
-                  fontFamily: 'Playball', fontSize: 21,
-                  color: s.navText, fontWeight: FontWeight.w700, height: 1.1,
-                )),
-              const SizedBox(height: 3),
-              Row(children: [
-                Container(
-                  width: 16, height: 1.5,
-                  decoration: BoxDecoration(
-                    color: _kAccent.withValues(alpha: s.dark ? 1.0 : 0.55),
-                    borderRadius: BorderRadius.circular(1),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text('EVENTHUB',
-                  style: TextStyle(
-                    fontFamily: 'Poppins', fontSize: 9.5,
-                    fontWeight: FontWeight.w700,
-                    color: s.dark
-                        ? s.navText.withValues(alpha: 0.70)
-                        : _kAccent.withValues(alpha: 0.70),
-                    letterSpacing: 2.0,
-                  )),
-              ]),
+          child: Semantics(
+            header: true,
+            child: Text(title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 17,
+                  fontWeight: FontWeight.w700, color: t.text)),
+          ),
+        ),
+        ValueListenableBuilder<ThemeMode>(
+          valueListenable: ThemeStore.notifier,
+          builder: (_, mode, _) => WebAccountMenu(
+            name:    name ?? 'Administrator',
+            role:    'Administrator',
+            avatar:  avatar,
+            accent:  _kAccent,
+            compact: compact,
+            actions: [
+              WebAccountAction(
+                icon: Icons.dark_mode_outlined,
+                label: 'Dark mode',
+                toggled: mode == ThemeMode.dark,
+                onSelected: onToggleTheme,
+              ),
+              WebAccountAction(
+                icon: Icons.logout_rounded,
+                label: 'Sign out',
+                danger: true,
+                onSelected: onSignOut,
+              ),
             ],
           ),
         ),
@@ -481,447 +601,11 @@ class _AdminSidebarState extends State<_AdminSidebar>
     );
   }
 
-  Widget _logoCircle(double size) => Container(
-    width: size, height: size,
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      border: Border.all(color: _kAccent.withValues(alpha: 0.40), width: 2.0),
-      boxShadow: [
-        BoxShadow(color: _kAccent.withValues(alpha: 0.20), blurRadius: 10, offset: const Offset(0, 3)),
-      ],
-    ),
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(size / 2),
-      child: Image.asset('assets/logo.jpg', fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFFC2410C), _kAccent, Color(0xFFF97316)],
-              begin: Alignment.topLeft, end: Alignment.bottomRight,
-            ),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(Icons.admin_panel_settings_rounded,
-              color: Colors.white, size: size * 0.44),
-        ),
-      ),
-    ),
-  );
-
-  Widget _buildNavLabel(_STk s) {
-    if (widget.collapsed) return const SizedBox(height: 8);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 10, 18, 2),
-      child: Row(children: [
-        Container(
-          width: 5, height: 5,
-          decoration: BoxDecoration(
-            color: _kAccent.withValues(alpha: 0.50), shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 7),
-        Text('NAVIGATION',
-          style: TextStyle(
-            fontFamily: 'Poppins', fontSize: 9, fontWeight: FontWeight.w700,
-            color: s.navLabel, letterSpacing: 1.8,
-          )),
-      ]),
-    );
-  }
-
-  Widget _buildNavItems() {
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      children: _kNavItems.asMap().entries.map((entry) {
-        final i             = entry.key;
-        final (page, icon, label) = entry.value;
-        final cIdx = widget.collapsed ? i + 1 : i + 2;
-        return _cascade(
-          _AdminNavItem(
-            icon: icon, label: label,
-            isActive:  widget.currentPage == page,
-            collapsed: widget.collapsed,
-            badgeCount: switch (page) {
-              AdminPage.events   => widget.pendingEventsCount,
-              AdminPage.archives => widget.readyToArchiveCount,
-              _                  => 0,
-            },
-            onTap: () => widget.onPageChanged(page),
-          ),
-          cIdx,
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildDarkToggle(_STk s) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: ThemeStore.notifier,
-      builder: (_, mode, __) {
-        final isDark = mode == ThemeMode.dark;
-        if (widget.collapsed) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
-            child: MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: ThemeStore.toggle,
-                child: Container(
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: s.dark
-                        ? Colors.white.withValues(alpha: 0.05)
-                        : const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: s.border.withValues(alpha: s.dark ? 0.70 : 0.50)),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-                      size: 16, color: s.navIcon,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: ThemeStore.toggle,
-              child: Container(
-                height: 38,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: s.dark
-                      ? Colors.white.withValues(alpha: 0.05)
-                      : const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: s.border.withValues(alpha: s.dark ? 0.70 : 0.50)),
-                ),
-                child: Row(children: [
-                  Icon(
-                    isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-                    size: 15, color: s.navIcon,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text('Dark Mode',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                        fontWeight: FontWeight.w500, color: s.navText))),
-                  Switch.adaptive(
-                    value: isDark,
-                    onChanged: (_) => ThemeStore.toggle(),
-                    activeThumbColor: _kAccent,
-                    activeTrackColor: _kAccent.withValues(alpha: 0.35),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ]),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Nav item
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _AdminNavItem extends StatefulWidget {
-  final IconData icon; final String label;
-  final bool isActive; final bool collapsed;
-  final int badgeCount;
-  final VoidCallback onTap;
-
-  const _AdminNavItem({
-    required this.icon, required this.label,
-    required this.isActive, required this.collapsed,
-    this.badgeCount = 0,
-    required this.onTap,
-  });
-
-  @override
-  State<_AdminNavItem> createState() => _AdminNavItemState();
-}
-
-class _AdminNavItemState extends State<_AdminNavItem> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final s      = _STk(Theme.of(context).brightness == Brightness.dark);
-    final active = widget.isActive;
-    final Color itemBg     = active
-        ? _kAccent.withValues(alpha: s.dark ? 0.18 : 0.13)
-        : _hovered
-            ? (s.dark
-                ? Colors.white.withValues(alpha: 0.07)
-                : const Color(0xFFF1F5F9))
-            : Colors.transparent;
-    final Color itemBorder = active
-        ? _kAccent.withValues(alpha: s.dark ? 0.32 : 0.24)
-        : _hovered
-            ? (s.dark
-                ? Colors.white.withValues(alpha: 0.13)
-                : s.border.withValues(alpha: 0.26))
-            : Colors.transparent;
-    final Color iconColor  = active ? _kAccent : _hovered ? s.navText : s.navIcon;
-    final Color labelColor = active
-        ? (s.dark ? Colors.white : kText)
-        : _hovered ? s.navText : s.navIcon;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 3),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit:  (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: Tooltip(
-            message: widget.collapsed ? widget.label : '',
-            preferBelow: false,
-            waitDuration: const Duration(milliseconds: 500),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 170),
-              curve: Curves.easeOut,
-              height: 44,
-              decoration: BoxDecoration(
-                color: itemBg,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: itemBorder, width: 1.0),
-              ),
-              child: widget.collapsed
-                  ? Center(
-                      child: Stack(clipBehavior: Clip.none, children: [
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 170),
-                          width: 32, height: 32,
-                          decoration: BoxDecoration(
-                            color: active ? _kAccent.withValues(alpha: 0.16) : Colors.transparent,
-                            borderRadius: BorderRadius.circular(9),
-                          ),
-                          child: Center(child: Icon(widget.icon, size: 19, color: iconColor)),
-                        ),
-                        if (widget.badgeCount > 0)
-                          Positioned(
-                            top: -4, right: -6,
-                            child: WebNavBadge(count: widget.badgeCount),
-                          ),
-                      ]),
-                    )
-                  : Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 170),
-                          width: 30, height: 30,
-                          decoration: BoxDecoration(
-                            color: active ? _kAccent.withValues(alpha: 0.15) : Colors.transparent,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Center(child: Icon(widget.icon, size: 18, color: iconColor)),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 150),
-                            style: TextStyle(
-                              fontFamily: 'Poppins', fontSize: 13,
-                              fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                              color: labelColor,
-                            ),
-                            child: Text(widget.label),
-                          ),
-                        ),
-                        if (widget.badgeCount > 0)
-                          WebNavBadge(count: widget.badgeCount)
-                        else
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            width:  active ? 6.0 : 0.0,
-                            height: active ? 6.0 : 0.0,
-                            decoration: const BoxDecoration(color: _kAccent, shape: BoxShape.circle),
-                          ),
-                      ]),
-                    ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Top bar
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _AdminTopBar extends StatelessWidget {
-  final bool         collapsed;
-  final AdminPage    page;
-  final String?      name;
-  final VoidCallback onMenuTap;
-  final VoidCallback onSignOut;
-
-  const _AdminTopBar({
-    required this.collapsed, required this.page, required this.name,
-    required this.onMenuTap, required this.onSignOut,
-  });
-
-  String _label() => switch (page) {
-    AdminPage.overview       => 'Dashboard',
-    AdminPage.students       => 'Students',
-    AdminPage.organizers     => 'Organizers',
-    AdminPage.events         => 'Events',
-    AdminPage.registrations  => 'Registrations',
-    AdminPage.announcements  => 'Announcements',
-    AdminPage.archives       => 'Archives',
-    AdminPage.logs           => 'Logs',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    return Container(
-    height: kWebTopH,
-    padding: const EdgeInsets.symmetric(horizontal: 20),
-    decoration: BoxDecoration(
-      color: t.card,
-      border: Border(bottom: BorderSide(color: t.border)),
-      boxShadow: [BoxShadow(color: t.shadow, blurRadius: 8, offset: const Offset(0, 2))],
-    ),
-    child: Row(children: [
-      _TopIconBtn(
-        icon: collapsed ? Icons.menu_open_rounded : Icons.menu_rounded,
-        onTap: onMenuTap,
-      ),
-      const SizedBox(width: 14),
-      Text('Admin',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 13, color: t.muted, fontWeight: FontWeight.w500)),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6),
-        child: Icon(Icons.chevron_right_rounded, size: 16, color: t.muted),
-      ),
-      Text(_label(),
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-            fontWeight: FontWeight.w700, color: t.text)),
-      const Spacer(),
-      // Signed-in admin + sign out — same layout as the organizer top bar.
-      Tooltip(
-        message: 'Signed in as System Admin',
-        waitDuration: const Duration(milliseconds: 600),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Text(name ?? 'Administrator',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
-                fontWeight: FontWeight.w700, color: t.text)),
-          const SizedBox(width: 10),
-          Container(
-            width: 38, height: 38,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFC2410C), _kAccent, Color(0xFFF97316)],
-                begin: Alignment.topLeft, end: Alignment.bottomRight,
-              ),
-              shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: _kAccent.withValues(alpha: 0.30),
-                  blurRadius: 6, offset: const Offset(0, 2))],
-            ),
-            child: Center(child: Text(_initials(name),
-              style: const TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                  fontWeight: FontWeight.w700, color: Colors.white))),
-          ),
-        ]),
-      ),
-      const SizedBox(width: 16),
-      Container(height: 28, width: 1, color: t.border),
-      const SizedBox(width: 16),
-      _TopBarSignOutBtn(onTap: onSignOut),
-    ]),
-  );
-}
-
   static String _initials(String? name) {
     final i = (name ?? 'Admin').trim().split(' ')
         .where((w) => w.isNotEmpty).map((w) => w[0].toUpperCase()).take(2).join();
     return i.isEmpty ? 'A' : i;
   }
-}
-
-/// Outlined red "Sign out" — same as the organizer web top bar.
-class _TopBarSignOutBtn extends StatefulWidget {
-  final VoidCallback onTap;
-  const _TopBarSignOutBtn({required this.onTap});
-  @override State<_TopBarSignOutBtn> createState() => _TopBarSignOutBtnState();
-}
-class _TopBarSignOutBtnState extends State<_TopBarSignOutBtn> {
-  bool _h = false;
-  @override
-  Widget build(BuildContext context) {
-    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _h = true),
-      onExit:  (_) => setState(() => _h = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: _h
-                ? (t.dark ? const Color(0xFFEF4444).withValues(alpha: 0.12) : const Color(0xFFFEF2F2))
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: _h ? const Color(0xFFFCA5A5) : t.border),
-          ),
-          child: const Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.logout_rounded, size: 14, color: Color(0xFFEF4444)),
-            SizedBox(width: 6),
-            Text('Sign out', style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                fontWeight: FontWeight.w700, color: Color(0xFFEF4444))),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
-class _TopIconBtn extends StatefulWidget {
-  final IconData icon; final VoidCallback onTap;
-  const _TopIconBtn({required this.icon, required this.onTap});
-  @override State<_TopIconBtn> createState() => _TopIconBtnState();
-}
-class _TopIconBtnState extends State<_TopIconBtn> {
-  bool _h = false;
-  @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    onEnter: (_) => setState(() => _h = true),
-    onExit:  (_) => setState(() => _h = false),
-    child: GestureDetector(
-      onTap: widget.onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        width: 36, height: 36,
-        decoration: BoxDecoration(
-          color: _h ? const Color(0xFFF1F5F9) : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: _h ? kCardBorder : Colors.transparent),
-        ),
-        child: Icon(widget.icon, size: 18,
-          color: _h ? kText : kSubText),
-      ),
-    ),
-  );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

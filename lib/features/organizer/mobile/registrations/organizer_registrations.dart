@@ -740,7 +740,9 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                                   _buildFilterRow(t, scrolled: scrolled),
                             ),
                           ),
-                          SliverToBoxAdapter(child: _buildResultCount(t)),
+                          // Select ready, only while selfies are waiting.
+                          if (_filteredReviewableIds.isNotEmpty)
+                            SliverToBoxAdapter(child: _buildSelectToolbar(t)),
                           if (_selectedIds.isNotEmpty)
                             SliverToBoxAdapter(child: _buildBulkActionsBar(t)),
                           if (_filtered.isEmpty)
@@ -751,10 +753,12 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
                           else
                             SliverPadding(
                               // Bottom room so the AI assistant button never
-                              // covers the last card's buttons.
-                              padding: const EdgeInsets.fromLTRB(
+                              // covers the last card's buttons. Without the
+                              // Select ready row, the same gap under the
+                              // filters as the Events tab.
+                              padding: EdgeInsets.fromLTRB(
                                 20,
-                                8,
+                                _filteredReviewableIds.isNotEmpty ? 8 : 12,
                                 20,
                                 104,
                               ),
@@ -966,9 +970,7 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
     }).length;
   }
 
-  Widget _buildResultCount(AppTk t) => OrgRegistrationsToolbar(
-    count: _filtered.length,
-    canSelect: _filteredReviewableIds.isNotEmpty,
+  Widget _buildSelectToolbar(AppTk t) => OrgRegistrationsToolbar(
     allSelected: _allReviewableSelected,
     busy: _bulkProcessing,
     onToggleSelectAll: _toggleSelectAllReviewable,

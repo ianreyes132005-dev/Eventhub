@@ -10,6 +10,8 @@ import '../../../core/services/app_lang_prefs.dart';
 import '../../../core/services/organizer_photo.dart';
 import '../../../core/services/account_session_guard.dart';
 import '../../../core/theme_store.dart';
+import '../../../shared/widgets/about_eventhub.dart';
+import '../../auth/web_auth_screen.dart' show showWebLegalDialog;
 import 'web_shared.dart';
 
 class WebProfilePage extends StatefulWidget {
@@ -46,6 +48,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
   String  _organization = 'Not set';
   String  _memberSince = '—';
   String  _appVersion  = '—';
+  String  _appBuild    = '';
   int     _totalEvents = 0;
   int     _activeEvents = 0;
   int     _registeredParticipants = 0;
@@ -130,6 +133,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
           ),
         );
         _appVersion = version.version;
+        _appBuild = version.buildNumber;
         _loading = false;
         _loadError = null;
       });
@@ -345,7 +349,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
   void _openAbout() {
     showDialog(
       context: context,
-      builder: (_) => _AboutDialog(version: _appVersion),
+      builder: (_) => _AboutDialog(version: _appVersion, buildNumber: _appBuild),
     );
   }
 
@@ -396,7 +400,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
         _SettingTile(
           t: t, icon: Icons.info_outline_rounded, color: const Color(0xFF10B981),
           title: 'About EventHub',
-          subtitle: 'Version, build, and support info',
+          subtitle: 'Version, contact, policies and credits',
           trailing: 'v$_appVersion',
           onTap: _openAbout,
         ),
@@ -1379,61 +1383,31 @@ class _AccountInfoDialog extends StatelessWidget {
 
 // ── About dialog ───────────────────────────────────────────────────────────────
 
+// The shared About EventHub content (about_eventhub.dart), in the portal's
+// settings dialog frame.
 class _AboutDialog extends StatelessWidget {
   final String version;
-  const _AboutDialog({required this.version});
+  final String buildNumber;
+  const _AboutDialog({required this.version, required this.buildNumber});
 
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final label = aboutVersionLabel(version, buildNumber);
     return _PrefDialogFrame(
       icon:     Icons.celebration_rounded,
       iconColor: kGold,
       title:    'About EventHub',
-      subtitle: 'Version $version',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'J-Jireh Learning Center\'s official event management platform. '
-            'Create and manage school events, publish announcements, and '
-            'track registrations and check-ins — all in one place.',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
-                color: t.sub, height: 1.6),
-          ),
-          const SizedBox(height: 18),
-          Divider(height: 1, color: t.border),
-          const SizedBox(height: 16),
-          _row(t, Icons.school_rounded, 'School', 'J-Jireh Learning Center'),
-          const SizedBox(height: 12),
-          _row(t, Icons.build_rounded, 'Build', 'Flutter · Supabase'),
-          const SizedBox(height: 12),
-          _row(t, Icons.language_rounded, 'Platform', 'Web'),
-          const SizedBox(height: 12),
-          _row(t, Icons.support_agent_rounded, 'Contact', 'See school admin'),
-        ],
+      subtitle: label,
+      child: AboutEventHubBody(
+        audience: AboutAudience.organizer,
+        onOpenTerms: () => showWebLegalDialog(context, terms: true),
+        onOpenPrivacy: () => showWebLegalDialog(context, terms: false),
+        textColor: t.text,
+        mutedColor: t.sub,
+        dividerColor: t.border,
+        fontSize: 12,
       ),
     );
-  }
-
-  Widget _row(WebTk t, IconData icon, String label, String value) {
-    return Row(children: [
-      Container(
-        width: 28, height: 28,
-        decoration: BoxDecoration(
-          color: kGold.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(icon, size: 14, color: kGold),
-      ),
-      const SizedBox(width: 12),
-      Text('$label  ',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-            fontWeight: FontWeight.w600, color: t.text)),
-      Expanded(
-        child: Text(value,
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted)),
-      ),
-    ]);
   }
 }

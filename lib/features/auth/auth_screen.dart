@@ -131,14 +131,8 @@ class _AuthScreenState extends State<AuthScreen> {
     });
   }
 
-  void _showLegalSheet(_LegalType type) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _LegalSheet(type: type),
-    );
-  }
+  void _showLegalSheet(_LegalType type) =>
+      showLegalSheet(context, terms: type == _LegalType.terms);
 
   // ── Credential persistence ─────────────────────────────────────────────────────
 
@@ -1158,6 +1152,17 @@ class _AuthScreenState extends State<AuthScreen> {
 
 // ── Legal bottom sheet ─────────────────────────────────────────────────────────
 
+/// The Terms and Conditions ([terms]) or the Privacy Policy, as on the sign-in
+/// screen — the profiles' About EventHub opens it too.
+Future<void> showLegalSheet(BuildContext context, {required bool terms}) =>
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) =>
+          _LegalSheet(type: terms ? _LegalType.terms : _LegalType.privacy),
+    );
+
 class _LegalSheet extends StatelessWidget {
   const _LegalSheet({required this.type});
 
@@ -1226,7 +1231,7 @@ class _LegalSheet extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          'Last updated: June 2026',
+                          'Last updated: $eventHubLegalUpdated',
                           style: TextStyle(
                             fontFamily: 'Poppins',
                             fontSize: 11,

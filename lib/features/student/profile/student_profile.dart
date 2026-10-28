@@ -9,8 +9,10 @@ import 'package:eventhub/core/services/supabase_service.dart';
 import 'package:eventhub/shared/widgets/app_loader.dart';
 import '../../../core/app_colors.dart';
 import '../../../core/theme_store.dart';
+import '../../../shared/widgets/about_eventhub.dart';
 import '../../../shared/widgets/error_alert.dart';
 import '../../../shared/widgets/web/swal.dart';
+import '../../auth/auth_screen.dart' show showLegalSheet;
 import '../../../core/services/app_lang_prefs.dart';
 import '../../../core/services/student_notif_prefs.dart';
 
@@ -58,6 +60,7 @@ class _ProfileBodyState extends State<ProfileBody> {
   String _langCode = AppLangPrefs.english;
   /// From the installed build (pubspec version), not typed by hand.
   String _version = '';
+  String _build = '';
 
   // Live: registering, every check-in step, an admin editing the student's
   // name, grade or section, and event changes all refresh the tab.
@@ -74,7 +77,12 @@ class _ProfileBodyState extends State<ProfileBody> {
       if (mounted) setState(() {});
     });
     PackageInfo.fromPlatform().then((info) {
-      if (mounted) setState(() => _version = info.version);
+      if (mounted) {
+        setState(() {
+          _version = info.version;
+          _build = info.buildNumber;
+        });
+      }
     }).catchError((_) {});
   }
 
@@ -1310,14 +1318,17 @@ class _ProfileBodyState extends State<ProfileBody> {
 
   // ── Dialogs ───────────────────────────────────────────────────────────────
 
+  // The shared About EventHub content (about_eventhub.dart), in this app's
+  // dialog.
   void _showAboutDialog() {
+    final version = aboutVersionLabel(_version, _build);
     showDialog(
       context: context,
       builder: (ctx) {
         final t = AppTk(Theme.of(ctx).brightness == Brightness.dark);
         return Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1336,25 +1347,19 @@ class _ProfileBodyState extends State<ProfileBody> {
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: t.text)),
                 const SizedBox(height: 4),
                 if (_version.isNotEmpty)
-                  Text('Version $_version',
+                  Text(version,
                     style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: kGold, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 12),
-                Text(
-                  'J-Jireh Learning Center\'s official event management platform. Browse and register for school events, track your attendance, and scan in with your personal QR code — all in one place.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, height: 1.6, color: t.muted),
+                AboutEventHubBody(
+                  audience: AboutAudience.student,
+                  onOpenTerms: () => showLegalSheet(ctx, terms: true),
+                  onOpenPrivacy: () => showLegalSheet(ctx, terms: false),
+                  textColor: t.text,
+                  mutedColor: t.muted,
+                  dividerColor: t.divider,
+                  centered: true,
                 ),
-                const SizedBox(height: 16),
-                Divider(color: t.divider),
                 const SizedBox(height: 12),
-                _aboutInfoRow(Icons.school_rounded,         'School',   'J-Jireh Learning Center', t),
-                const SizedBox(height: 10),
-                _aboutInfoRow(Icons.build_rounded,          'Build',    'Flutter · Supabase',       t),
-                const SizedBox(height: 10),
-                _aboutInfoRow(Icons.devices_rounded,        'Platform', 'Android',                  t),
-                const SizedBox(height: 10),
-                _aboutInfoRow(Icons.support_agent_rounded,  'Contact',  'See school admin',         t),
-                const SizedBox(height: 16),
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
@@ -1370,27 +1375,6 @@ class _ProfileBodyState extends State<ProfileBody> {
       },
     );
   }
-
-  Widget _aboutInfoRow(IconData icon, String label, String value, AppTk t) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 2),
-    child: Row(
-      children: [
-        Container(
-          width: 28, height: 28,
-          decoration: BoxDecoration(
-            color: kGold.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, size: 14, color: kGold),
-        ),
-        const SizedBox(width: 12),
-        Text('$label  ',
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, fontWeight: FontWeight.w600, color: t.text)),
-        Text(value,
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted)),
-      ],
-    ),
-  );
 
   void _showLogoutDialog() {
     Swal.fire(

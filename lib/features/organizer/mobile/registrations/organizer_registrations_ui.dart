@@ -774,20 +774,18 @@ class _MoreButton extends StatelessWidget {
   }
 }
 
-// ── Count + select, bulk actions ─────────────────────────────────────────────
+// ── Select, bulk actions ─────────────────────────────────────────────────────
 
-/// "12 registrations found" and, when selfies are waiting, Select ready.
+/// Select ready, above the list while selfies are waiting for review. (No
+/// "12 registrations found" line — the user had it removed, as the Events
+/// tab's summary.)
 class OrgRegistrationsToolbar extends StatelessWidget {
-  final int count;
-  final bool canSelect;
   final bool allSelected;
   final bool busy;
   final VoidCallback onToggleSelectAll;
   final AppTk t;
   const OrgRegistrationsToolbar({
     super.key,
-    required this.count,
-    required this.canSelect,
     required this.allSelected,
     required this.busy,
     required this.onToggleSelectAll,
@@ -799,41 +797,25 @@ class OrgRegistrationsToolbar extends StatelessWidget {
     final ink = readableStatusColor(kRegSelectColor, t.dark);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
-      child: SizedBox(
-        height: 36,
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                '$count registration${count == 1 ? '' : 's'} found',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: t.sub,
-                ),
-              ),
-            ),
-            if (canSelect)
-              OutlinedButton.icon(
-                onPressed: busy ? null : onToggleSelectAll,
-                icon: Icon(
-                  allSelected ? Icons.check_box_rounded : Icons.select_all_rounded,
-                  size: 16,
-                ),
-                label: Text(allSelected ? 'Clear ready' : 'Select ready'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: ink,
-                  backgroundColor: kRegSelectColor.withValues(alpha: t.dark ? 0.10 : 0.06),
-                  side: BorderSide(color: kRegSelectColor.withValues(alpha: 0.40), width: 1.2),
-                  minimumSize: const Size(0, 34),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  shape: const StadiumBorder(),
-                  textStyle: const TextStyle(
-                      fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w700),
-                ),
-              ),
-          ],
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: OutlinedButton.icon(
+          onPressed: busy ? null : onToggleSelectAll,
+          icon: Icon(
+            allSelected ? Icons.check_box_rounded : Icons.select_all_rounded,
+            size: 16,
+          ),
+          label: Text(allSelected ? 'Clear ready' : 'Select ready'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: ink,
+            backgroundColor: kRegSelectColor.withValues(alpha: t.dark ? 0.10 : 0.06),
+            side: BorderSide(color: kRegSelectColor.withValues(alpha: 0.40), width: 1.2),
+            minimumSize: const Size(0, 34),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            shape: const StadiumBorder(),
+            textStyle: const TextStyle(
+                fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w700),
+          ),
         ),
       ),
     );
