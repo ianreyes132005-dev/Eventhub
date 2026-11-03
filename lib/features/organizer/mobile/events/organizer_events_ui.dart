@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../core/event_audience.dart';
 import '../../../../shared/utils/event_labels.dart';
 import '../org_tab_ui.dart';
 
@@ -100,6 +101,7 @@ class OrganizerEventCard extends StatelessWidget {
         : dateRangeLabel(start, DateTime.tryParse(event['end_date'] as String? ?? ''));
     final time = timeRangeLabel(
         event['start_time'] as String?, event['end_time'] as String?);
+    final audience = EventAudience.of(event);
     final shortId = eventId.length > 8
         ? '…${eventId.substring(eventId.length - 8)}'
         : eventId;
@@ -174,6 +176,11 @@ class OrganizerEventCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     _MetaLine(icon: Icons.place_outlined, text: location, t: t),
+                    // Only for some students: say who.
+                    if (!audience.isEveryone) ...[
+                      const SizedBox(height: 6),
+                      _MetaLine(icon: Icons.groups_outlined, text: audience.label, t: t),
+                    ],
                     const SizedBox(height: 14),
                     _StatsPanel(
                       registered: registered,

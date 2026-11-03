@@ -11,12 +11,15 @@
 --   ✗ run it  something it creates is missing — run that file from
 --             supabase/migrations/, then this check again
 -- Run them oldest first: a later file may need an earlier one.
+-- An old file can also hold an older copy of a function a later file
+-- replaced; rerunning it puts the older copy back. Where that's the case the
+-- row says which file to run instead.
 -- ═════════════════════════════════════════════════════════════════════════════
 
 WITH fn AS (
   SELECT p.proname, p.prosrc
   FROM pg_proc p
-  JOIN pg_namespace n ON n.oid = p.pronamespace
+  JOIN pg_namespace n ON n.oid = p.pronamespac
   WHERE n.nspname = 'public'
 ),
 col AS (
@@ -105,7 +108,9 @@ checks (migration, what, ok) AS (
     EXISTS (SELECT 1 FROM fn WHERE proname = 'organizer_owns_event')
     AND EXISTS (SELECT 1 FROM pol WHERE policyname = 'organizer_select_own_event_registrations')
     AND NOT EXISTS (SELECT 1 FROM pol WHERE policyname IN ('organizer_select_all', 'organizer_update_status'))),
-  ('202610230003_archive_records', 'archives keep real, complete records; archive notices',
+  -- Not rerunnable since 202610280001 (it would put back older check-in rules):
+  -- when ✗, run 202611030002_reapply_archive_records.sql instead.
+  ('202610230003_archive_records', 'archives keep real, complete records; archive notices — if ✗, run 202611030002_reapply_archive_records.sql instead of this file',
     EXISTS (SELECT 1 FROM fn WHERE proname = 'admin_delete_unused_event')
     AND EXISTS (SELECT 1 FROM fn WHERE proname = 'notify_archive_changes')
     AND EXISTS (SELECT 1 FROM fn WHERE proname = 'event_archive_rules'
@@ -127,7 +132,21 @@ checks (migration, what, ok) AS (
     AND EXISTS (SELECT 1 FROM fn WHERE proname = 'event_scan_problem')
     AND EXISTS (SELECT 1 FROM fn WHERE proname = 'enforce_registration_update_rules'
                                    AND prosrc ILIKE '%attendance is final%')
-    AND EXISTS (SELECT 1 FROM pol WHERE policyname = 'student_cancel_own_registration'))
+    AND EXISTS (SELECT 1 FROM pol WHERE policyname = 'student_cancel_own_registration')),
+  ('202611030001_event_audience', 'events can be open to some grades and strands only',
+    EXISTS (SELECT 1 FROM col WHERE table_name = 'events' AND column_name = 'audience_grades')
+    AND EXISTS (SELECT 1 FROM col WHERE table_name = 'events' AND column_name = 'audience_strands')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'active_student_counts')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'enforce_registration_insert_rules'
+                                   AND prosrc ILIKE '%event_audience_allows%')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'approve_event_revision'
+                                   AND prosrc ILIKE '%audience_grades%')),
+  -- The same objects as 202610230003: ✗ together, fixed together by this file.
+  ('202611030002_reapply_archive_records', 'archive rules and notices re-applied (fixes a ✗ on 202610230003)',
+    EXISTS (SELECT 1 FROM fn WHERE proname = 'admin_delete_unused_event')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'notify_archive_changes')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'event_archive_rules'
+                                   AND prosrc ILIKE '%nothing to archive%'))
 )
 SELECT CASE WHEN ok THEN '✓' ELSE '✗ run it' END AS status, migration, what
 FROM checks

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import '../../core/event_audience.dart';
 
 /// Fields of the organizer's create / edit event form (web dialog and mobile
 /// screen), in the order they appear on screen. There's no capacity field —
-/// capacity is the number of active students (StudentCountService).
-enum EventFormField { title, otherType, startDate, endDate, startTime, endTime, location }
+/// capacity is the number of active students in the event's group
+/// (StudentCountService); [audience] is who can register.
+enum EventFormField { title, otherType, startDate, endDate, startTime, endTime, location, audience }
 
 /// Every problem with the form at once, keyed by field, in screen order.
 /// Empty when the form can be saved. Mirrors the database schedule rules
@@ -18,6 +20,8 @@ Map<EventFormField, String> validateEventForm({
   required TimeOfDay? startTime,
   required TimeOfDay? endTime,
   required String     location,
+  /// Who can register — checked when the form has the picker.
+  EventAudience?      audience,
   DateTime?           now,
 }) {
   final e = <EventFormField, String>{};
@@ -51,6 +55,9 @@ Map<EventFormField, String> validateEventForm({
   }
 
   if (location.trim().isEmpty) e[EventFormField.location] = 'Enter where the event will be held.';
+  if (audience != null && !audience.isValid) {
+    e[EventFormField.audience] = 'Pick at least one grade.';
+  }
 
   return Map.fromEntries(e.entries.toList()
     ..sort((a, b) => a.key.index.compareTo(b.key.index)));

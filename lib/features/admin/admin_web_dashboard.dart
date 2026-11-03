@@ -3,8 +3,10 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/app_colors.dart';
+import '../../core/event_audience.dart';
 import '../../core/theme_store.dart';
 import '../../core/services/event_archive_service.dart';
+import '../../core/services/student_count_service.dart';
 import '../../core/services/supabase_service.dart';
 import '../organizer/web/web_shared.dart';
 import '../../shared/widgets/event_phase_pill.dart';
@@ -570,10 +572,11 @@ class _AdminTopBar extends StatelessWidget {
 // ═════════════════════════════════════════════════════════════════════════════
 
 class _TopEvent {
-  final String title;
-  final int    count;
-  final int    capacity;
-  const _TopEvent({required this.title, required this.count, required this.capacity});
+  final String  title;
+  final int     count;
+  final int     capacity;
+  final String? group;   // who can register, when not every student
+  const _TopEvent({required this.title, required this.count, required this.capacity, this.group});
 }
 
 class _AdminOverviewPage extends StatefulWidget {
@@ -647,10 +650,13 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
         // real, student-visible event.
         client.from('events')
             .select('event_id, title, event_status, approval_status, archived_at, event_date, '
-                'end_date, start_time, end_time, current_participants, organizers(full_name)')
+                'end_date, start_time, end_time, current_participants, '
+                'audience_grades, audience_strands, organizers(full_name)')
             .eq('approval_status', 'approved')
             .order('event_date', ascending: true),
       ]);
+      // Capacity of an event for some grades or strands only.
+      final gradeCounts = await StudentCountService.gradeCounts();
 
       // Two lightweight reg queries in parallel:
       // 1. Stat counts — 3 columns, all rows (much less data than full rows)
@@ -735,11 +741,17 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
             ..sort((a, b) => (b['current_participants'] as int? ?? 0)
                 .compareTo(a['current_participants'] as int? ?? 0)))
           .take(5)
-          .map((e) => _TopEvent(
+          .map((e) {
+            final audience = EventAudience.of(e);
+            return _TopEvent(
               title:    e['title'] as String? ?? '—',
               count:    e['current_participants'] as int? ?? 0,
-              // Every event's capacity is the active student count.
-              capacity: studentActive))
+              // The active students in the event's group (0 = not known).
+              capacity: audience.capacity(
+                      allStudents: studentActive, counts: gradeCounts) ?? 0,
+              group:    audience.isEveryone ? null : audience.label,
+            );
+          })
           .toList();
 
       if (mounted) {
@@ -1454,10 +1466,12 @@ class _TopEventsChart extends StatelessWidget {
         final e        = entry.value;
         final hasCap   = e.capacity > 0;
         final fillRate = capacityFill(e.count, e.capacity);
-        // One colour: capacity is the whole student body, so a fuller event
-        // is just a popular one — nobody is ever turned away.
+        // One colour: capacity is every student who can register (the whole
+        // student body, or the event's group), so a fuller event is just a
+        // popular one — nobody is ever turned away.
         final barColor = hasCap ? const Color(0xFF10B981) : _kAccent;
-        final pct      = hasCap ? '${(fillRate * 100).round()}% of students' : '';
+        final pct      = hasCap
+            ? '${(fillRate * 100).round()}% of ${e.group ?? 'students'}' : '';
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 16),
@@ -1509,7 +1523,8 @@ class _TopEventsChart extends StatelessWidget {
               const SizedBox(height: 3),
               Text(pct,
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5,
-                    fontWeight: FontWeight.w600, color: barColor)),
+                    fontWeight: FontWeight.w600, color: barColor),
+                maxLines: 1, overflow: TextOverflow.ellipsis),
             ],
           ]),
         );

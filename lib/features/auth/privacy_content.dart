@@ -22,7 +22,7 @@ const eventHubPrivacy = <({IconData icon, String title, String body})>[
     title: 'How It Is Used',
     body: 'Only to run school events:\n\n'
         '• Signing you in and keeping your account secure\n'
-        '• Registering you for events and issuing your ticket\n'
+        '• Registering you for events and issuing your ticket — your grade and strand decide which events you can register for, as some are only for certain grades or strands\n'
         '• Checking you in, including the check-in selfie\n'
         '• Showing announcements and event updates\n'
         '• Attendance records and reports for organizers and the school\n'

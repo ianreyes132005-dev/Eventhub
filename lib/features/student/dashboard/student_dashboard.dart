@@ -6,7 +6,8 @@ import '../events/student_all_events.dart';
 import '../events/event_details_page.dart';
 import '../events/my_registered_events_page.dart';
 import '../profile/student_profile.dart';
-import '../notifications/notifications_screen.dart';
+import '../notifications/notifications_sheet.dart';
+import '../announcements/announcements.dart';
 import '../notifications/student_feed.dart';
 import '../check_in/photo_consent.dart';
 import '../check_in/selfie_screen.dart';
@@ -23,6 +24,7 @@ import 'package:eventhub/core/app_colors.dart';
 import 'package:eventhub/core/friendly_error.dart';
 import 'package:eventhub/shared/utils/event_labels.dart';
 import 'package:eventhub/shared/widgets/error_alert.dart';
+import 'package:eventhub/shared/widgets/web/swal.dart' show kSwalGold;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -41,20 +43,6 @@ String _todayFormatted() {
   return '${days[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
 }
 
-String _fmtTime(String? ts) {
-  if (ts == null || ts.isEmpty) return 'Just now';
-  try {
-    final d = DateTime.parse(ts);
-    final diff = DateTime.now().difference(d);
-    if (diff.inSeconds < 60)  return 'Just now';
-    if (diff.inMinutes < 60)  return '${diff.inMinutes}m ago';
-    if (diff.inHours   < 24)  return '${diff.inHours}h ago';
-    if (diff.inDays    < 7)   return '${diff.inDays}d ago';
-    return '${diff.inDays ~/ 7}w ago';
-  } catch (_) { return 'Recently'; }
-}
-
-
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 class StudentDashboard extends StatefulWidget {
@@ -68,6 +56,8 @@ class _StudentDashboardState extends State<StudentDashboard>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _selectedIndex     = 0;
   int _notificationCount = 0;
+  /// What the bell lists — the open sheet follows it live.
+  final _bellNotifs = ValueNotifier<List<StudentNotif>>(const []);
 
   late final AnimationController _staggerCtrl;
 
@@ -84,6 +74,8 @@ class _StudentDashboardState extends State<StudentDashboard>
   int     _finishedCount      = 0;
   int     _finishedAttended   = 0;
 
+  /// The latest announcements (Home lists the first three; the rest are
+  /// counted in "N new" — the bell doesn't count announcements).
   List<Map<String, dynamic>> _announcements         = [];
   List<Map<String, dynamic>> _upcomingRegistrations = [];
   /// Every registration from the last load, so the clock can re-sort them
@@ -148,6 +140,7 @@ class _StudentDashboardState extends State<StudentDashboard>
     _clock?.cancel();
     _staggerCtrl.dispose();
     NotifReadStore.unreadNotifier.removeListener(_onNotifCountChanged);
+    _bellNotifs.dispose();
     if (_regChannel != null) Supabase.instance.client.removeChannel(_regChannel!);
     if (_homeRegChannel != null) Supabase.instance.client.removeChannel(_homeRegChannel!);
     if (_annChannel != null) Supabase.instance.client.removeChannel(_annChannel!);
@@ -276,9 +269,9 @@ class _StudentDashboardState extends State<StudentDashboard>
         return null;
       }
 
-      // The name, plus the same feed the Notifications screen loads —
-      // announcements with their authors, registrations with their events,
-      // and the notification list — so the bell number always matches it.
+      // The name, plus the student's feed — announcements with their
+      // authors, registrations with their events, and the bell's list — so
+      // the bell number always matches the sheet.
       final nameFuture = client
           .from('students')
           .select('full_name, is_active')
@@ -292,15 +285,17 @@ class _StudentDashboardState extends State<StudentDashboard>
         context,
         isActive: profile['is_active'] == true,
       )) return null;
+      if (!mounted) return null;   // signed out or left meanwhile
 
       NotifReadStore.setAll(feed.notifications.map((n) => n.id));
+      _bellNotifs.value = feed.notifications;
 
       final recovering = _homeError != null;
       setState(() {
         _studentName           = profile?['full_name'] as String? ?? 'Student';
         _allRegistrations      = feed.registrations;
         _applyClock();
-        _announcements         = feed.announcements.take(3).toList();
+        _announcements         = feed.announcements;
         _notificationCount     = NotifReadStore.unreadNotifier.value;
         _homeLoading           = false;
         _homeRefreshing        = false;
@@ -399,99 +394,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 
   void _showAnnouncementDetail(Map<String, dynamic> ann) {
-    final title     = ann['title']   as String? ?? '—';
-    final message   = ann['message'] as String? ?? '';
-    final createdAt = ann['created_at'] as String?;
-
-    NotifReadStore.mark('ann_${ann['id']}');
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.55,
-        minChildSize: 0.35,
-        maxChildSize: 0.9,
-        builder: (_, scrollCtrl) {
-          final t = AppTk(Theme.of(context).brightness == Brightness.dark);
-          return Container(
-            decoration: BoxDecoration(
-              color: t.card,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 12, bottom: 4),
-                  child: Container(
-                    width: 40, height: 4,
-                    decoration: BoxDecoration(
-                      color: t.divider,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 10, 12, 0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 40, height: 40,
-                        decoration: BoxDecoration(
-                          color: kGold.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.campaign_rounded, color: kGold, size: 20),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(title, style: TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w700, color: t.text)),
-                            if (createdAt != null)
-                              Text(_fmtTime(createdAt), style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
-                            if ((ann['_org'] as String?) != null && ann['_org'] != '—')
-                              Row(
-                                children: [
-                                  Icon(Icons.person_outline_rounded, size: 10, color: t.muted),
-                                  const SizedBox(width: 3),
-                                  Text('by ${ann['_org']}', style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted)),
-                                ],
-                              ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.close_rounded, color: t.sub, size: 20),
-                        onPressed: () => Navigator.pop(ctx),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                    ],
-                  ),
-                ),
-                Divider(height: 24, indent: 20, endIndent: 20, color: t.divider),
-                Expanded(
-                  child: ListView(
-                    controller: scrollCtrl,
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-                    children: [
-                      Text(
-                        message.isNotEmpty ? message : 'No message content.',
-                        style: TextStyle(fontFamily: 'Poppins', fontSize: 14, color: t.sub, height: 1.75),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    ).then((_) { if (mounted) setState(() {}); });
+    showAnnouncementSheet(context, ann).then((_) { if (mounted) setState(() {}); });
   }
 
   void _showNextEventQR(Map<String, dynamic> reg) {
@@ -738,69 +641,74 @@ class _StudentDashboardState extends State<StudentDashboard>
     );
   }
 
+  // Opens the same sheet as the organizer app's bell. Opening it doesn't read
+  // anything: a row stays gold until it's tapped or "Mark all as read".
   Widget _buildNotificationBell(AppTk t) {
+    final unread    = _notificationCount;
+    final hasUnread = unread > 0;
     return GestureDetector(
       onTap: () {
         HapticFeedback.lightImpact();
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => const NotificationsScreen(),
-          ),
-        );
+        showStudentNotifications(context, _bellNotifs);
       },
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: t.card,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: _notificationCount > 0
-                    ? kGold.withValues(alpha: 0.35)
-                    : t.border,
-              ),
-              boxShadow: [
-                BoxShadow(color: t.shadow, blurRadius: 10, offset: const Offset(0, 3)),
-              ],
-            ),
-            child: Center(
-              child: Icon(
-                _notificationCount > 0
-                    ? Icons.notifications_active_rounded
-                    : Icons.notifications_none_rounded,
-                color: _notificationCount > 0 ? kGold : t.sub,
-                size: 22,
-              ),
-            ),
-          ),
-          if (_notificationCount > 0)
-            Positioned(
-              top: -2, right: -2,
-              child: Container(
-                width: 18, height: 18,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEF4444),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: t.bg, width: 2),
+      child: Semantics(
+        button: true,
+        label: hasUnread
+            ? '$unread new notification${unread == 1 ? '' : 's'}'
+            : 'Notifications',
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: t.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: hasUnread ? kGold.withValues(alpha: 0.35) : t.border,
                 ),
-                child: Center(
-                  child: Text(
-                    _notificationCount > 9 ? '9+' : '$_notificationCount',
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 8,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
+                boxShadow: [
+                  BoxShadow(color: t.shadow, blurRadius: 10, offset: const Offset(0, 3)),
+                ],
+              ),
+              child: Center(
+                child: Icon(
+                  hasUnread
+                      ? Icons.notifications_active_rounded
+                      : Icons.notifications_none_rounded,
+                  color: hasUnread ? kGold : t.sub,
+                  size: 22,
+                ),
+              ),
+            ),
+            if (hasUnread)
+              Positioned(
+                top: -2, right: -2,
+                child: Container(
+                  width: 18, height: 18,
+                  decoration: BoxDecoration(
+                    // #DC2626 keeps the white count at 4.8:1 (organizer bell).
+                    color: const Color(0xFFDC2626),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: t.bg, width: 2),
+                  ),
+                  child: Center(
+                    child: Text(
+                      unread > 9 ? '9+' : '$unread',
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 8,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1395,6 +1303,10 @@ class _StudentDashboardState extends State<StudentDashboard>
   // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildAnnouncementsSection(AppTk t) {
+    final latest = _announcements.take(3).toList();
+    final unread = _announcements
+        .where((a) => !NotifReadStore.isRead(announcementReadId(a)))
+        .length;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
       child: Column(
@@ -1403,11 +1315,29 @@ class _StudentDashboardState extends State<StudentDashboard>
           Row(
             children: [
               _SectionLabel(label: 'ANNOUNCEMENTS', t: t),
+              if (unread > 0) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: kGold.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '$unread new',
+                    style: TextStyle(
+                      fontFamily: 'Poppins', fontSize: 10, fontWeight: FontWeight.w700,
+                      // Darker gold on light backgrounds for contrast.
+                      color: t.dark ? kGold : kSwalGold,
+                    ),
+                  ),
+                ),
+              ],
               const Spacer(),
               GestureDetector(
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const NotificationsScreen()),
-                ),
+                onTap: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => const AnnouncementsScreen()))
+                    .then((_) { if (mounted) setState(() {}); }),
                 child: Row(
                   children: [
                     Text('See all', style: TextStyle(fontFamily: 'Poppins', fontSize: 12, fontWeight: FontWeight.w700, color: kGold)),
@@ -1435,11 +1365,11 @@ class _StudentDashboardState extends State<StudentDashboard>
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: Column(
-                    children: _announcements.asMap().entries.map((entry) {
-                      return _announcementItem(
-                        entry.value,
-                        showDivider: entry.key < _announcements.length - 1,
-                        t: t,
+                    children: latest.asMap().entries.map((entry) {
+                      return AnnouncementTile(
+                        ann: entry.value,
+                        showDivider: entry.key < latest.length - 1,
+                        onTap: () => _showAnnouncementDetail(entry.value),
                       );
                     }).toList(),
                   ),
@@ -1448,98 +1378,6 @@ class _StudentDashboardState extends State<StudentDashboard>
       ),
     );
   }
-
-  Widget _announcementItem(Map<String, dynamic> ann, {required bool showDivider, required AppTk t}) {
-    final title     = ann['title']      as String? ?? '—';
-    final createdAt = ann['created_at'] as String?;
-    final annId     = ann['id']?.toString() ?? '';
-    final isRead    = NotifReadStore.isRead('ann_$annId');
-
-    return GestureDetector(
-      onTap: () => _showAnnouncementDetail(ann),
-      child: Column(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              border: Border(
-                left: BorderSide(
-                  color: isRead ? t.divider : kGold,
-                  width: 3,
-                ),
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(
-                      color: isRead
-                          ? t.shimmer1
-                          : kGold.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      Icons.campaign_rounded,
-                      size: 17,
-                      color: isRead ? t.muted : kGold,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 13,
-                            fontWeight: isRead ? FontWeight.w500 : FontWeight.w700,
-                            color: isRead ? t.sub : t.text,
-                            height: 1.35,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(Icons.person_outline_rounded, size: 10, color: t.muted),
-                            const SizedBox(width: 3),
-                            Flexible(
-                              child: Text(
-                                ann['_org'] as String? ?? '—',
-                                style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Text(' · ', style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted)),
-                            Text(
-                              _fmtTime(createdAt),
-                              style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.muted),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(Icons.chevron_right_rounded, size: 18, color: t.muted),
-                ],
-              ),
-            ),
-          ),
-          if (showDivider)
-            Divider(height: 1, color: t.divider, indent: 16, endIndent: 0),
-        ],
-      ),
-    );
-  }
-
-
 
   // ── Shared helpers ────────────────────────────────────────────────────────
 

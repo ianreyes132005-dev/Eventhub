@@ -5,10 +5,13 @@ import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
+import '../../../../shared/widgets/audience_picker.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../core/event_audience.dart';
 import '../../../../core/services/audit_service.dart';
 import '../../../../core/services/event_cancellation_service.dart';
 import '../../../../core/services/event_change_request_service.dart';
+import '../../../../core/services/registration_service.dart';
 import '../../../../core/services/student_count_service.dart';
 import '../../../../core/services/supabase_service.dart';
 import '../../../../shared/utils/date_utils.dart' show genUuid;
@@ -82,8 +85,17 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
   bool       _isPublishing  = false;
   bool       _showCalendar  = false;
   bool       _showEndCalendar = false;
-  // Capacity isn't entered — it's every active student.
+  // Who can register (the shared AudiencePicker, as on the web).
+  AudienceChoice _audChoice = const AudienceChoice();
+  // Capacity isn't entered — it's the active students in that group.
   int?       _studentCount = StudentCountService.cached;
+  List<GradeCount>? _gradeCounts = StudentCountService.cachedCounts;
+  // Editing: each registered student's grade and strand, to say how many a
+  // narrower group would leave outside it (they stay registered).
+  List<StudentGroup>? _registrants;
+
+  EventAudience get _audience => _audChoice.audience;
+  int get _outsideGroup => _audience.outside(_registrants ?? const []);
 
   // ── Edit mode ────────────────────────────────────────────────────────────────
   bool get _isEdit => widget.existing != null;
@@ -110,6 +122,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     EventFormField.startTime: 'Start time',
     EventFormField.endTime:   'End time',
     EventFormField.location:  'Venue',
+    EventFormField.audience:  'Who can register',
   };
 
   Map<EventFormField, String> _validate() => validateEventForm(
@@ -117,7 +130,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         otherType: _otherTypeCtrl.text,
         startDate: _selectedDate, endDate: _selectedEndDate,
         startTime: _startTime, endTime: _endTime,
-        location: _venueCtrl.text);
+        location: _venueCtrl.text,
+        audience: _audience);
 
   Map<EventFormField, String> get _errors => _submitted ? _validate() : const {};
 
@@ -169,6 +183,22 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     StudentCountService.activeStudents().then((n) {
       if (mounted && n != _studentCount) setState(() => _studentCount = n);
     });
+    StudentCountService.gradeCounts().then((c) {
+      if (mounted && c != null) setState(() => _gradeCounts = c);
+    });
+    _loadRegistrants();
+  }
+
+  // The students already registered, with their grade and strand — only a
+  // heads-up, so a failure is ignored.
+  Future<void> _loadRegistrants() async {
+    final id = widget.existing?['event_id'] as String?;
+    final count = (widget.existing?['current_participants'] as num?)?.toInt() ?? 0;
+    if (id == null || count == 0) return;
+    try {
+      final groups = await RegistrationService.registrantGroups(id);
+      if (mounted) setState(() => _registrants = groups);
+    } catch (_) {}
   }
 
   @override
@@ -200,6 +230,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     _endTime   = _parseTime(e['end_time']);
     final img = e['event_image_url'] as String?;
     _existingBannerUrl = img != null && img.isNotEmpty ? img : null;
+    _audChoice = AudienceChoice.of(EventAudience.of(e));
   }
 
   // Changes still waiting for the admin are filled in, so saving again keeps
@@ -260,7 +291,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       : '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:00';
 
   /// The form in events-table columns (the banner is handled separately).
-  /// No capacity — it's the number of active students.
+  /// No capacity number — it's the active students in the group.
   Map<String, dynamic> _formValues() {
     final start = _selectedDate!;
     return {
@@ -273,6 +304,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       'end_date':         _isoDate(_selectedEndDate ?? start),
       'start_time':       _isoTime(_startTime),
       'end_time':         _isoTime(_endTime),
+      // Who can register.
+      ..._audience.columns,
     };
   }
 
@@ -468,6 +501,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         final count = EventChangeRequestService.touchesSchedule(changes)
             ? await EventCancellationService.registrationCount(eventId)
             : 0;
+        // A narrower group keeps the students already registered.
+        final outside = _outsideGroup;
         if (!mounted) return;
         setState(() => _isPublishing = false);   // the alert shows its own loader
 
@@ -479,7 +514,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           text: 'This event is approved, so an admin needs to approve your '
               'changes. It keeps its current details until then.'
               '${count > 0 ? '\n\n$count registered student${count == 1 ? '' : 's'} will be '
-                  'notified of the new date, time or venue once it’s approved.' : ''}',
+                  'notified of the new date, time or venue once it’s approved.' : ''}'
+              '${outside > 0 ? '\n\n$outside registered student${outside == 1 ? '' : 's'} outside the '
+                  'new group will stay registered.' : ''}',
           showCancelButton: true,
           confirmButtonText: 'Yes, submit it',
           cancelButtonText: 'Keep editing',
@@ -1276,15 +1313,36 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     return _sectionCard(
       icon: Icons.place_rounded, iconBg: const Color(0x1A16A34A), iconColor: const Color(0xFF16A34A),
       title: 'Venue & Capacity',
-      errorCount: errs.containsKey(EventFormField.location) ? 1 : 0,
+      errorCount: [EventFormField.location, EventFormField.audience].where(errs.containsKey).length,
       t: t,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _inputField(label: 'Venue / Location', required: true, controller: _venueCtrl,
               hint: 'e.g. School Gymnasium', icon: Icons.location_on_outlined, t: t,
               fieldKey: _fieldKeys[EventFormField.location], error: errs[EventFormField.location]),
           const SizedBox(height: 18),
+          KeyedSubtree(key: _fieldKeys[EventFormField.audience],
+              child: _fieldLabel('Who can register', t: t)),
+          const SizedBox(height: 8),
+          AudiencePicker(
+            value: _audChoice,
+            onChanged: (c) {
+              HapticFeedback.selectionClick();
+              setState(() => _audChoice = c);
+            },
+            colors: AudiencePickerColors(dark: t.dark, surface: t.inputBg,
+                border: t.border, text: t.text, muted: t.muted),
+            touch: true,
+          ),
+          if (errs[EventFormField.audience] != null)
+            FormFieldError(errs[EventFormField.audience]!, dark: t.dark),
+          const SizedBox(height: 14),
           _buildCapacityInfo(t),
+          if (_outsideGroup > 0) ...[
+            const SizedBox(height: 10),
+            _buildOutsideNote(t),
+          ],
           const SizedBox(height: 12),
           _buildRegistrationNote(t),
         ],
@@ -1292,16 +1350,63 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  // Capacity is fixed to the student body: every active student can register,
-  // and it grows as students are added — so it's shown, not entered.
+  // Edited after students registered and the group no longer includes some
+  // of them: they keep their registration.
+  Widget _buildOutsideNote(AppTk t) {
+    final n = _outsideGroup;
+    final c = t.dark ? const Color(0xFFFBBF24) : const Color(0xFFB45309);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF59E0B).withValues(alpha: t.dark ? 0.12 : 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.35)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(Icons.info_outline_rounded, size: 16, color: c),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '$n student${n == 1 ? '' : 's'} who already registered '
+            '${n == 1 ? 'isn’t' : 'aren’t'} in this group. They stay registered.',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                fontWeight: FontWeight.w600, color: c, height: 1.4)),
+        ),
+      ]),
+    );
+  }
+
+  // Capacity = the active students in the group — it grows as students are
+  // added, so it's shown, not entered.
   Widget _buildCapacityInfo(AppTk t) {
-    final n = _studentCount;
+    final audience = _audience;
+    final n = audience.isValid
+        ? audience.capacity(allStudents: _studentCount, counts: _gradeCounts)
+        : null;
     final registered = (widget.existing?['current_participants'] as num?)?.toInt() ?? 0;
+    final title = n != null
+        ? '$n student${n == 1 ? '' : 's'}'
+        : audience.isEveryone
+            ? 'All students'
+            : audience.isValid
+                ? audience.label
+                : 'Pick the grades above';
+    final who = !audience.isValid
+        ? 'Then you’ll see how many students can register'
+        : n == 0
+            ? 'No active students are in this group yet'
+            : audience.isEveryone
+                ? 'Every student can register'
+                : n == null
+                    ? 'Only students in this group can register'
+                    : '${audience.label} can register';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _fieldLabel('Capacity', t: t),
-        const SizedBox(height: 8),
         Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1322,14 +1427,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(n != null ? '$n students' : 'All students',
+                Text(title,
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
                       fontWeight: FontWeight.w700, color: t.text)),
                 const SizedBox(height: 2),
-                Text(
-                  registered > 0
-                      ? 'Every student can register · $registered registered so far'
-                      : 'Every student can register',
+                Text(registered > 0 ? '$who · $registered registered so far' : who,
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.sub)),
               ]),
             ),
@@ -1338,8 +1440,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           ]),
         ),
         const SizedBox(height: 6),
-        Text('Set automatically — it grows as students are added.',
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
+        Text(audience.isEveryone
+            ? 'Counted automatically — it grows as students are added.'
+            : 'Counted automatically — it grows as students are added. Students '
+              'outside the group see the event but can’t register.',
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted, height: 1.4)),
       ],
     );
   }

@@ -41,7 +41,7 @@ const _kBarW   = 3.0;                  // left accent bar (archived rows)
 const _kPadH   = 20.0;
 const _kCheckW = 32.0;
 const _kGap    = 12.0;
-const _kActW   = 4 * 32.0 + 3 * 6.0;   // four action slots
+const _kActW   = 3 * 32.0 + 2 * 6.0;   // three action slots
 const _kFlexEvent = 4, _kFlexDate = 2, _kFlexOrg = 3, _kFlexAtt = 3, _kFlexStatus = 2;
 
 // Same type colours and icons as the organizer's event form.
@@ -352,58 +352,6 @@ class _AdminArchivesPageState extends State<AdminArchivesPage> {
           : '$what ${one ? 'is' : 'are'} back in the active lists. $organizers notified.',
       confirmButtonColor: _kOkBtn,
       timer: const Duration(seconds: 3),
-      timerProgressBar: true,
-    );
-  }
-
-  /// Permanently deletes an archived event (its attendance goes with it).
-  Future<void> _delete(Map<String, dynamic> e) async {
-    final title = (e['title'] as String? ?? '').trim();
-    final n = _regs(e);
-    final r = await Swal.fire(context,
-      icon: SwalIcon.warning,
-      title: 'Delete permanently?',
-      text: n == 0
-          ? 'This deletes ${_quoted(e)} and its banner. It has no registrations. '
-            'The organizer is notified. You won’t be able to revert this!'
-          : 'This deletes ${_quoted(e)} with its $n registration${n == 1 ? '' : 's'} and '
-            'attendance records, and the organizer is notified. You won’t be able to revert this!',
-      input: true,
-      inputLabel: 'Type the event title to confirm',
-      inputPlaceholder: title,
-      inputValidator: (v) => v.trim().toLowerCase() == title.toLowerCase()
-          ? null
-          : 'The title you typed doesn’t match the event title.',
-      showCancelButton: true,
-      confirmButtonText: 'Yes, delete it!',
-      confirmButtonColor: kSwalDenyColor,
-      allowOutsideClick: false,
-      footer: WebBtn(
-        label: 'Export the attendance first',
-        icon: Icons.download_rounded,
-        small: true,
-        outlined: true,
-        onTap: () => _export(e),
-      ),
-      preConfirm: (v) async {
-        try {
-          await EventArchiveService.deletePermanently(e, (v ?? '').trim());
-          return null;
-        } catch (err) {
-          return friendlyError(err);
-        }
-      },
-    );
-    if (!r.isConfirmed) return;
-    if (!mounted) return;
-    unawaited(_load(silent: true));
-    await Swal.fire(context,
-      icon: SwalIcon.success,
-      title: 'Deleted!',
-      text: '${_quoted(e)} and its records have been permanently deleted. '
-          'The organizer was notified, and the deletion is recorded in the Logs.',
-      confirmButtonColor: _kOkBtn,
-      timer: const Duration(seconds: 4),
       timerProgressBar: true,
     );
   }
@@ -813,11 +761,6 @@ class _AdminArchivesPageState extends State<AdminArchivesPage> {
         ArchiveGroup.archived => () => _setArchived([e], archive: false),
         ArchiveGroup.empty    => null,
       },
-      onDelete: switch (group) {
-        ArchiveGroup.archived => () => _delete(e),
-        ArchiveGroup.empty    => () => _deleteUnused([e]),
-        ArchiveGroup.ready    => null,
-      },
     );
   }
 
@@ -995,11 +938,11 @@ class _ArchiveRow extends StatefulWidget {
   final bool selected;
   final ValueChanged<bool> onSelect;
   // Null = not offered for this event (its slot stays empty).
-  final VoidCallback? onView, onExport, onArchive, onDelete;
+  final VoidCallback? onView, onExport, onArchive;
   const _ArchiveRow({
     required this.event, required this.group, required this.summary,
     required this.selected, required this.onSelect, required this.onView,
-    required this.onExport, required this.onArchive, required this.onDelete,
+    required this.onExport, required this.onArchive,
   });
 
   @override
@@ -1161,12 +1104,6 @@ class _ArchiveRowState extends State<_ArchiveRow> {
                           color: archived ? _kArchivedColor : kAdminAccent,
                           tip: archived ? 'Restore to active lists' : 'Archive',
                           onTap: widget.onArchive!)),
-                      const SizedBox(width: 6),
-                      slot(widget.onDelete == null ? null : AdminActBtn(
-                          icon: archived ? Icons.delete_forever_rounded : Icons.delete_outline_rounded,
-                          color: kAdminErrorRed,
-                          tip: archived ? 'Delete permanently' : 'Delete — nothing to keep',
-                          onTap: widget.onDelete!)),
                     ],
                   )),
                 ]),

@@ -22,7 +22,10 @@
 -- lib/core/app_colors.dart — keep the two the same.
 --
 -- Run once in the Supabase SQL editor, after 202610180010_event_archives.sql
--- and 202610180009_announcement_deletion_notifications.sql. Safe to rerun.
+-- and 202610180009_announcement_deletion_notifications.sql.
+-- Don't rerun it since 202610280001: its enforce_registration_update_rules()
+-- is older than that file's. To re-apply the rest, run
+-- 202611030002_reapply_archive_records.sql.
 -- ═════════════════════════════════════════════════════════════════════════════
 
 -- ── 1. What can be archived ──────────────────────────────────────────────────

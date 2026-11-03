@@ -14,7 +14,7 @@ import '../../../../shared/widgets/ai_chat_fab.dart';
 import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../shared/widgets/live_countdown.dart';
-import '../../../../shared/widgets/mark_all_read_button.dart';
+import '../../../../shared/widgets/notification_sheet.dart';
 import '../../../../core/app_colors.dart';
 import '../../../../core/services/org_notif_prefs.dart';
 import '../../../../core/services/account_session_guard.dart';
@@ -50,34 +50,6 @@ String _todayFormatted() {
     'Dec',
   ];
   return '${days[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
-}
-
-// ── Notification data model ───────────────────────────────────────────────────
-
-class _AppNotif {
-  final String id;
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Color color;
-
-  /// When it happened — set for admin decisions; reminders have none.
-  final DateTime? at;
-  const _AppNotif({
-    required this.id,
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.color,
-  }) : at = null;
-
-  _AppNotif.notice(OrgNotice n)
-    : id = n.id,
-      title = n.title,
-      subtitle = n.message,
-      icon = n.icon,
-      color = n.color,
-      at = n.at;
 }
 
 String _fmtNotifTime(String? t) {
@@ -124,7 +96,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
   List<Map<String, dynamic>> _eventAttendance = [];
 
   Map<String, dynamic>? _nextEvent;
-  List<_AppNotif> _notifs = [];
+  List<NotificationItem> _notifs = [];
   Set<String> _unreadIds = {};
 
   /// Read in this session — counted as read even before the prefs write
@@ -406,16 +378,16 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       final notifTomDt = now.add(const Duration(days: 1));
       final notifTomStr =
           '${notifTomDt.year}-${notifTomDt.month.toString().padLeft(2, '0')}-${notifTomDt.day.toString().padLeft(2, '0')}';
-      final notifResult = <_AppNotif>[];
+      final notifResult = <NotificationItem>[];
 
       final todayRegCount = weeklyRegistrations[now.weekday - 1];
       if (todayRegCount > 0) {
         notifResult.add(
-          _AppNotif(
+          NotificationItem(
             id: 'signups_today_$notifTodayStr',
             title:
                 '$todayRegCount new sign-up${todayRegCount == 1 ? '' : 's'} today',
-            subtitle: 'Students registered for your events',
+            message: 'Students registered for your events',
             icon: Icons.how_to_reg_rounded,
             color: const Color(0xFF8B5CF6),
           ),
@@ -431,10 +403,10 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
               )
               .take(3)) {
         notifResult.add(
-          _AppNotif(
+          NotificationItem(
             id: 'event_live_${e['event_id']}',
             title: e['title'] as String? ?? '—',
-            subtitle: 'Event is live · check in students now',
+            message: 'Event is live · check in students now',
             icon: Icons.radio_button_checked_rounded,
             color: const Color(0xFF10B981),
           ),
@@ -452,10 +424,10 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
               .take(3)) {
         final t = _fmtNotifTime(e['start_time'] as String?);
         notifResult.add(
-          _AppNotif(
+          NotificationItem(
             id: 'event_today_${e['event_id']}',
             title: e['title'] as String? ?? '—',
-            subtitle: 'Starting today${t.isNotEmpty ? ' at $t' : ''}',
+            message: 'Starting today${t.isNotEmpty ? ' at $t' : ''}',
             icon: Icons.today_rounded,
             color: const Color(0xFF3B82F6),
           ),
@@ -473,10 +445,10 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
               .take(2)) {
         final t = _fmtNotifTime(e['start_time'] as String?);
         notifResult.add(
-          _AppNotif(
+          NotificationItem(
             id: 'event_tomorrow_${e['event_id']}',
             title: e['title'] as String? ?? '—',
-            subtitle: 'Starting tomorrow${t.isNotEmpty ? ' at $t' : ''}',
+            message: 'Starting tomorrow${t.isNotEmpty ? ' at $t' : ''}',
             icon: Icons.calendar_month_rounded,
             color: const Color(0xFFF59E0B),
           ),
@@ -493,7 +465,14 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           organizerId: organizerId,
           events: allEvents,
         ))
-          _AppNotif.notice(n),
+          NotificationItem(
+            id: n.id,
+            title: n.title,
+            message: n.message,
+            icon: n.icon,
+            color: n.color,
+            at: n.at,
+          ),
       ];
 
       // Respect per-user preferences (Profile → Notifications).
@@ -990,11 +969,12 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _NotifSheet(
-        notifs: _notifs,
+      builder: (_) => NotificationSheet(
+        items: _notifs,
         // Not a tear-off: _markRead swaps in a new set.
         isUnread: (id) => _unreadIds.contains(id),
         onRead: _markRead,
+        emptyHint: 'Admin approvals, sign-ups and event reminders show up here.',
       ),
     );
   }
@@ -2433,275 +2413,6 @@ class _OrganizerBottomNavItem extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ── Notification bottom sheet (mobile) ────────────────────────────────────────
-
-class _NotifSheet extends StatefulWidget {
-  final List<_AppNotif> notifs;
-
-  /// Not read yet (highlighted). Asks the dashboard, so the sheet and the
-  /// bell always agree.
-  final bool Function(String id) isUnread;
-
-  /// Marks rows read on the dashboard.
-  final void Function(Iterable<String> ids) onRead;
-
-  const _NotifSheet({
-    required this.notifs,
-    required this.isUnread,
-    required this.onRead,
-  });
-
-  @override
-  State<_NotifSheet> createState() => _NotifSheetState();
-}
-
-class _NotifSheetState extends State<_NotifSheet> {
-  void _read(Iterable<String> ids) {
-    widget.onRead(ids);
-    if (mounted) setState(() {}); // the gold fades
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final t = AppTk(Theme.of(context).brightness == Brightness.dark);
-    final notifs = widget.notifs;
-    final unread = [
-      for (final n in notifs)
-        if (widget.isUnread(n.id)) n.id,
-    ];
-
-    return Container(
-      decoration: BoxDecoration(
-        color: t.card,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            // Drag handle
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: t.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: [
-                  Icon(Icons.notifications_rounded, size: 18, color: t.text),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Notifications',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: t.text,
-                      ),
-                    ),
-                  ),
-                  if (unread.isNotEmpty) ...[
-                    Text(
-                      '${unread.length} new',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: t.sub,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                  ],
-                  // Mark all as read → All read
-                  MarkAllReadButton(
-                    unread: unread.length,
-                    onTap: () => _read(unread),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            Divider(height: 1, color: t.divider),
-            // Content
-            if (notifs.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 36,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF10B981).withValues(alpha: 0.08),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.check_circle_outline_rounded,
-                        size: 26,
-                        color: Color(0xFF10B981),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      "You're all caught up!",
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: t.text,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Admin approvals, sign-ups and event reminders show up here.',
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 12,
-                        color: t.sub,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              )
-            else
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.sizeOf(context).height * 0.65,
-                ),
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  shrinkWrap: true,
-                  itemCount: notifs.length,
-                  separatorBuilder: (_, _) =>
-                      Divider(height: 1, color: t.divider),
-                  itemBuilder: (_, i) => _buildItem(notifs[i], t),
-                ),
-              ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildItem(_AppNotif n, AppTk t) {
-    final isNew = widget.isUnread(n.id);
-    final gold = kGold.withValues(alpha: t.dark ? 0.10 : 0.07);
-    // Tapping an unread row reads it (the web reads on hover or click).
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => _read([n.id]),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOut,
-        color: isNew ? gold : gold.withValues(alpha: 0),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: n.color.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(n.icon, size: 19, color: n.color),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          n.title,
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: t.text,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (n.at != null) ...[
-                        const SizedBox(width: 8),
-                        Text(
-                          noticeTimeAgo(n.at!),
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 10.5,
-                            color: t.sub,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  // Admin decisions carry the reason — show it in full.
-                  Text(
-                    n.subtitle,
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 11.5,
-                      height: 1.45,
-                      color: t.sub,
-                    ),
-                    maxLines: n.at != null ? 6 : 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            // Kept in place once read (just faded) so the text doesn't shift.
-            Padding(
-              padding: const EdgeInsets.only(left: 10, top: 6),
-              child: ExcludeSemantics(
-                excluding: !isNew,
-                child: Semantics(
-                  label: 'New',
-                  child: AnimatedOpacity(
-                    opacity: isNew ? 1 : 0,
-                    duration: const Duration(milliseconds: 350),
-                    child: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: kGold,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

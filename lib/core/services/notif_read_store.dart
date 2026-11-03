@@ -4,7 +4,7 @@ import '../app_colors.dart' show countsAsRegistered;
 import 'user_settings_cloud.dart';
 
 /// Notification id for "an event you registered for was cancelled" — shared
-/// by the notifications screen and the dashboard bell badge so both agree.
+/// by the bell's sheet and the bell's number so both agree.
 String cancelledNotifId(String eventId) => 'evcancel_$eventId';
 
 /// Notification id for "an event you registered for changed its date, time or

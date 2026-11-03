@@ -1205,16 +1205,6 @@ class _LeftPanel extends StatelessWidget {
             letterSpacing: -0.5,
           ),
         ),
-        const SizedBox(height: 10),
-        Text(
-          'Streamline every step — from creation to check-in.',
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 13,
-            color: Colors.white.withValues(alpha: 0.60),
-            height: 1.5,
-          ),
-        ),
       ],
     );
   }

@@ -4,8 +4,8 @@ import 'web/swal.dart' show kSwalGold;
 
 /// The notification header's "Mark all as read". Once nothing is left
 /// unread (right after it's tapped, or when every item was read one by one)
-/// it turns into a green "All read". Shared by the student Notifications
-/// screen and the organizer app's notification sheet.
+/// it turns into a green "All read". Used by the bell's sheet (organizer and
+/// student apps, NotificationSheet) and the student Announcements page.
 class MarkAllReadButton extends StatelessWidget {
   const MarkAllReadButton({super.key, required this.unread, required this.onTap});
 

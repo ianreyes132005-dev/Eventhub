@@ -12,6 +12,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/app_colors.dart';
+import '../../core/event_audience.dart';
 import '../../core/friendly_error.dart';
 import '../../core/services/supabase_service.dart';
 import '../../core/services/audit_service.dart';
@@ -1057,8 +1058,9 @@ class _EventReviewDialogState extends State<_EventReviewDialog>
                       const SizedBox(height: 14),
                       Row(children: [
                         _infoTile(context, Icons.location_on_outlined, 'VENUE', location),
-                        // Capacity is fixed: every active student can register.
-                        _infoTile(context, Icons.groups_outlined, 'CAPACITY', 'All students'),
+                        // Every active student in the group can register.
+                        _infoTile(context, Icons.groups_outlined, 'WHO CAN REGISTER',
+                            EventAudience.of(e).label),
                       ]),
                       if (desc.isNotEmpty) ...[
                         const SizedBox(height: 16),
@@ -1478,6 +1480,8 @@ const _kFieldLabels = <String, String>{
   'end_time':         'End time',
   'max_participants': 'Capacity', // legacy — only in requests sent before capacity became "all students"
   'allow_walk_in':    'Walk-ins', // legacy — only in requests sent before walk-ins were removed
+  'audience_grades':  'Who can register',
+  'audience_strands': 'Strands',
   'event_image_url':  'Banner',
 };
 
@@ -1496,6 +1500,10 @@ String _fmtChangeValue(String key, Object? v) {
       return n == null || n <= 0 ? 'Unlimited' : '$n participants';
     case 'allow_walk_in':
       return v == true ? 'Allowed' : 'Not allowed';
+    case 'audience_grades':
+      return EventAudience.of({'audience_grades': v}).label;
+    case 'audience_strands':
+      return EventAudience.strandsLabel(v);
     case 'event_type':
       return s.isEmpty ? '—' : '${s[0].toUpperCase()}${s.substring(1)}';
     default:

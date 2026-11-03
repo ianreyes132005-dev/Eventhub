@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/app_colors.dart';
+import '../../../core/event_audience.dart';
 import '../../../core/friendly_error.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/services/audit_service.dart';
 import '../../../core/services/event_cancellation_service.dart';
 import '../../../core/services/event_change_request_service.dart';
+import '../../../core/services/registration_service.dart';
 import '../../../core/services/student_count_service.dart';
+import '../../../shared/widgets/audience_picker.dart';
 import '../../../shared/widgets/cancel_event_dialog.dart';
 import 'web_shared.dart';
 import 'student_registration_panel.dart';
@@ -90,8 +93,10 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
   String _sortField = 'event_date';
   bool _sortAsc = false;
   bool _sortTouched = false;
-  // Capacity of every event = active students (StudentCountService).
+  // Capacity = the active students who can register: all of them
+  // (_studentCount), or the event's grades and strands (_gradeCounts).
   int?   _studentCount = StudentCountService.cached;
+  List<GradeCount>? _gradeCounts = StudentCountService.cachedCounts;
   final  _search  = TextEditingController();
   final  _tableScroll = ScrollController();   // sideways, on narrow screens
   List<Map<String, dynamic>> _events    = [];
@@ -202,11 +207,13 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
       final more = await Future.wait<Object?>([
         EventChangeRequestService.latestFor(events.map((e) => e['event_id'] as String)),
         StudentCountService.activeStudents(),
+        StudentCountService.gradeCounts(),
       ]);
       if (!mounted) return;
       _events = events;
       _revisions = more[0] as Map<String, Map<String, dynamic>>;
       _studentCount = more[1] as int?;
+      _gradeCounts = more[2] as List<GradeCount>?;
       _applyFilter();
       setState(() => _loading = false);
       _staggerCtrl.forward(from: 0);
@@ -855,6 +862,7 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
             orElse: () => _kTypes.last,
           );
           final current  = e['current_participants'] as int? ?? 0;
+          final audience = EventAudience.of(e);
           final actions  = _rowActions(e, resolved);
           final s        = 0.55 + (i * 0.07).clamp(0.0, 0.27);
 
@@ -920,6 +928,14 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                                     color: typeData.$3,
                                     fontWeight: FontWeight.w600,
                                   )),
+                                // Only for some students: say who.
+                                if (!audience.isEveryone)
+                                  Flexible(
+                                    child: Text(' · ${audience.label}',
+                                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontFamily: 'Poppins',
+                                          fontSize: 11, color: t.sub)),
+                                  ),
                               ]),
                             ],
                           ),
@@ -932,7 +948,9 @@ class _WebEventsPageState extends State<WebEventsPage> with SingleTickerProvider
                       style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
                           color: t.sub, height: 1.35))),
                     _fixed(_kRegW, EventRegistrationsCell(
-                        registered: current, capacity: _studentCount)),
+                        registered: current,
+                        capacity: audience.capacity(
+                            allStudents: _studentCount, counts: _gradeCounts))),
                     _fixed(_kStatusW, EventStatusCell(view: _statusView(e))),
                     SizedBox(
                       width: _kActionsW,
@@ -977,8 +995,14 @@ class _EventDialogState extends State<_EventDialog> {
   final _descCtrl      = TextEditingController();
   final _locationCtrl  = TextEditingController();
   final _otherTypeCtrl = TextEditingController();
-  // Capacity isn't entered — it's every active student.
-  int?      _studentCount = StudentCountService.cached;
+  // Who can register (the shared AudiencePicker).
+  AudienceChoice    _audChoice    = const AudienceChoice();
+  // Capacity isn't entered — it's the active students in that group.
+  int?              _studentCount = StudentCountService.cached;
+  List<GradeCount>? _gradeCounts  = StudentCountService.cachedCounts;
+  // Editing: each registered student's grade and strand, to say how many a
+  // narrower group would leave outside it (they stay registered).
+  List<StudentGroup>? _registrants;
 
   String    _type         = 'Concert';
   String    _status       = 'upcoming';
@@ -1011,6 +1035,7 @@ class _EventDialogState extends State<_EventDialog> {
     EventFormField.startTime: 'Start time',
     EventFormField.endTime:   'End time',
     EventFormField.location:  'Location',
+    EventFormField.audience:  'Who can register',
   };
 
   Map<EventFormField, String> _validate() => validateEventForm(
@@ -1018,7 +1043,14 @@ class _EventDialogState extends State<_EventDialog> {
         otherType: _otherTypeCtrl.text,
         startDate: _date, endDate: _endDate,
         startTime: _startTime, endTime: _endTime,
-        location: _locationCtrl.text);
+        location: _locationCtrl.text,
+        audience: _audience);
+
+  /// The group the picker shows, tidied the way it's saved.
+  EventAudience get _audience => _audChoice.audience;
+
+  /// Students already registered who aren't in the picked group.
+  int get _outsideGroup => _audience.outside(_registrants ?? const []);
 
   Map<EventFormField, String> get _errors => _submitted ? _validate() : const {};
 
@@ -1081,6 +1113,10 @@ class _EventDialogState extends State<_EventDialog> {
     StudentCountService.activeStudents().then((n) {
       if (mounted && n != _studentCount) setState(() => _studentCount = n);
     });
+    StudentCountService.gradeCounts().then((c) {
+      if (mounted && c != null) setState(() => _gradeCounts = c);
+    });
+    _loadRegistrants();
     final e = widget.existing == null
         ? null
         : <String, dynamic>{...widget.existing!, ...?widget.pendingChanges};
@@ -1113,7 +1149,20 @@ class _EventDialogState extends State<_EventDialog> {
         final p = et.split(':');
         _endTime = TimeOfDay(hour: int.parse(p[0]), minute: int.parse(p[1]));
       }
+      _audChoice = AudienceChoice.of(EventAudience.of(e));
     }
+  }
+
+  // The students already registered, with their grade and strand — only a
+  // heads-up, so a failure is ignored.
+  Future<void> _loadRegistrants() async {
+    final id = widget.existing?['event_id'] as String?;
+    final count = (widget.existing?['current_participants'] as num?)?.toInt() ?? 0;
+    if (id == null || count == 0) return;
+    try {
+      final groups = await RegistrationService.registrantGroups(id);
+      if (mounted) setState(() => _registrants = groups);
+    } catch (_) {}
   }
 
   @override
@@ -1177,6 +1226,7 @@ class _EventDialogState extends State<_EventDialog> {
         'end_date':         _endDate!.toIso8601String().split('T').first,
         'start_time':       _fmtTimeOfDay(_startTime),
         'end_time':         _fmtTimeOfDay(_endTime),
+        ..._audience.columns,
         'event_image_url':  _bannerBytes != null ? _kNewBanner : _existingBannerUrl,
       });
       if (changes.isEmpty) {
@@ -1188,6 +1238,8 @@ class _EventDialogState extends State<_EventDialog> {
       final count = EventChangeRequestService.touchesSchedule(changes)
           ? await EventCancellationService.registrationCount(eventId)
           : 0;
+      // A narrower group keeps the students already registered.
+      final outside = _outsideGroup;
       if (!mounted) return;
       setState(() => _saving = false);   // the alert shows its own loader
 
@@ -1197,7 +1249,9 @@ class _EventDialogState extends State<_EventDialog> {
         text: 'This event is approved, so an admin needs to approve your changes. '
             'It keeps its current details until then.'
             '${count > 0 ? '\n\n$count registered student${count == 1 ? '' : 's'} will be notified '
-                'of the new date, time or venue once it’s approved.' : ''}',
+                'of the new date, time or venue once it’s approved.' : ''}'
+            '${outside > 0 ? '\n\n$outside registered student${outside == 1 ? '' : 's'} outside the '
+                'new group will stay registered.' : ''}',
         showCancelButton: true,
         confirmButtonText: 'Yes, submit it',
         cancelButtonText: 'Keep editing',
@@ -1305,7 +1359,12 @@ class _EventDialogState extends State<_EventDialog> {
         'start_time':         startStr,
         'end_time':           endStr,
         'event_image_url':    imageUrl,
-        // No capacity — it's the number of active students.
+        // Who can register (no capacity number — it's the active students in
+        // that group). Left out for an event that is, and always was, open to
+        // every student, so saving works before migration 202611030001 is run.
+        if (!_audience.isEveryone ||
+            (widget.existing?.containsKey('audience_grades') ?? false))
+          ..._audience.columns,
       };
 
       var resubmitted = false;
@@ -1731,7 +1790,7 @@ class _EventDialogState extends State<_EventDialog> {
                       iconBg: const Color(0x1A16A34A),
                       iconColor: const Color(0xFF16A34A),
                       title: 'Location & Capacity',
-                      errorCount: errorsIn(const [EventFormField.location]),
+                      errorCount: errorsIn(const [EventFormField.location, EventFormField.audience]),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1747,13 +1806,28 @@ class _EventDialogState extends State<_EventDialog> {
                           ),
                           fieldError(EventFormField.location),
                           const SizedBox(height: 14),
-                          _label('Capacity'),
-                          const SizedBox(height: 6),
+                          KeyedSubtree(key: _fieldKeys[EventFormField.audience],
+                              child: _label('Who can register')),
+                          const SizedBox(height: 8),
+                          AudiencePicker(
+                            value: _audChoice,
+                            onChanged: (c) => setState(() => _audChoice = c),
+                            colors: AudiencePickerColors(dark: t.dark, surface: t.inputBg,
+                                border: t.border, text: t.text, muted: t.muted),
+                          ),
+                          fieldError(EventFormField.audience),
+                          const SizedBox(height: 12),
                           _buildCapacityInfo(t),
+                          if (_outsideGroup > 0) ...[
+                            const SizedBox(height: 8),
+                            _buildOutsideNote(t),
+                          ],
                           const SizedBox(height: 5),
-                          Text('Set automatically — it grows as students are added. '
+                          Text('Counted automatically — it grows as students are added. '
+                              'Students outside the group see the event but can’t register. '
                               'Registration closes 2 hours after the event starts.',
-                            style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted)),
+                            style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
+                                color: t.muted, height: 1.45)),
                         ],
                       ),
                     ),
@@ -2036,11 +2110,60 @@ class _EventDialogState extends State<_EventDialog> {
     );
   }
 
-  // Capacity is fixed to the student body — every active student can
-  // register, and it grows as students are added — so it's shown, not entered.
+  // Edited after students registered and the group no longer includes some
+  // of them: they keep their registration.
+  Widget _buildOutsideNote(WebTk t) {
+    final n = _outsideGroup;
+    final c = t.dark ? const Color(0xFFFBBF24) : const Color(0xFFB45309);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF59E0B).withValues(alpha: t.dark ? 0.12 : 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.35)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(Icons.info_outline_rounded, size: 15, color: c),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '$n student${n == 1 ? '' : 's'} who already registered '
+            '${n == 1 ? 'isn’t' : 'aren’t'} in this group. They stay registered.',
+            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
+                fontWeight: FontWeight.w600, color: c, height: 1.4)),
+        ),
+      ]),
+    );
+  }
+
+  // Capacity = the active students in the group — it grows as students are
+  // added, so it's shown, not entered.
   Widget _buildCapacityInfo(WebTk t) {
-    final n          = _studentCount;
+    final audience   = _audience;
+    final n          = audience.isValid
+        ? audience.capacity(allStudents: _studentCount, counts: _gradeCounts)
+        : null;
     final registered = widget.existing?['current_participants'] as int? ?? 0;
+    final title = n != null
+        ? '$n student${n == 1 ? '' : 's'}'
+        : audience.isEveryone
+            ? 'All students'
+            : audience.isValid
+                ? audience.label
+                : 'Pick the grades above';
+    final who = !audience.isValid
+        ? 'Then you’ll see how many students can register'
+        : n == 0
+            ? 'No active students are in this group yet'
+            : audience.isEveryone
+                ? 'Every student can register'
+                : n == null
+                    ? 'Only students in this group can register'
+                    : '${audience.label} can register';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -2058,18 +2181,15 @@ class _EventDialogState extends State<_EventDialog> {
         const SizedBox(width: 10),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(n != null ? '$n students' : 'All students',
+            Text(title,
               style: TextStyle(fontFamily: 'Poppins', fontSize: 13.5,
                   fontWeight: FontWeight.w700, color: t.text)),
-            Text(
-              registered > 0
-                  ? 'Every student can register · $registered registered so far'
-                  : 'Every student can register',
+            Text(registered > 0 ? '$who · $registered registered so far' : who,
               style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.sub)),
           ]),
         ),
         Tooltip(
-          message: 'Set automatically from the number of active students',
+          message: 'Counted automatically from the active students in this group',
           child: Icon(Icons.lock_outline_rounded, size: 14, color: t.muted),
         ),
       ]),
@@ -2994,6 +3114,7 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
   bool _refetch = false;      // …and a change arrived meanwhile
   String? _organizerName;
   int?    _studentCount = StudentCountService.cached;
+  List<GradeCount>? _gradeCounts = StudentCountService.cachedCounts;
 
   // Student profiles (photo, grade, strand, section) keyed by user_id.
   Map<String, Map<String, dynamic>> _profiles = {};
@@ -3094,6 +3215,7 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
       final more = await Future.wait<Object?>([
         loadRegistrantProfiles(regs.map((r) => r['student_user_id'] as String?)),
         StudentCountService.activeStudents(),
+        StudentCountService.gradeCounts(),
       ]);
 
       if (!mounted) return;
@@ -3101,6 +3223,7 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
         _registrations = regs;
         _profiles      = more[0] as Map<String, Map<String, dynamic>>;
         _studentCount  = more[1] as int?;
+        _gradeCounts   = more[2] as List<GradeCount>?;
         _organizerName = orgName;
         _loading = false;
       });
@@ -3123,9 +3246,11 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
   String get _desc     => _e['description'] as String? ?? '';
   String? get _imgUrl  => _e['event_image_url'] as String?;
 
-  // Capacity = every active student (0 until the count is known, which hides
-  // the "of N" parts).
-  int get _capacity   => _studentCount ?? 0;
+  // Who can register, and capacity = the active students in that group (0
+  // until the count is known, which hides the "of N" parts).
+  EventAudience get _audience => EventAudience.of(_e);
+  int get _capacity =>
+      _audience.capacity(allStudents: _studentCount, counts: _gradeCounts) ?? 0;
   // Declined registrations don't count (countsAsRegistered).
   int get _registered => _registrations.isNotEmpty
       ? _registrations.where(countsAsRegistered).length
@@ -3321,6 +3446,9 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
                               _divider(t),
                               _infoRow(Icons.location_on_rounded, kGold, 'Venue', _location, t),
                               _divider(t),
+                              _infoRow(Icons.groups_rounded, const Color(0xFF7C3AED),
+                                  'Who can register', _audience.label, t),
+                              _divider(t),
                               _infoRow(Icons.person_rounded, const Color(0xFFEA580C), 'Organizer', _organizerName ?? '—', t),
                             ]),
                           ),
@@ -3420,8 +3548,9 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
   }
 
   Widget _buildFill(WebTk t) {
-    // One colour: capacity is the whole student body, so a fuller event is
-    // just a popular one — nobody is ever turned away.
+    // One colour: capacity is every student who can register (the whole
+    // student body, or the event's group), so a fuller event is just a
+    // popular one — nobody is ever turned away.
     const fillColor = kGold;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// When the Terms and Conditions or the Privacy Policy last changed — shown
 /// in both legal dialogs (app and web portal). Update it with the text.
-const eventHubLegalUpdated = 'October 28, 2026';
+const eventHubLegalUpdated = 'November 3, 2026';
 
 /// The Terms and Conditions shown from the login screens (app and web
 /// portal). Keep them true to how EventHub works — see also
@@ -31,7 +31,7 @@ const eventHubTerms = <({IconData icon, String title, String body})>[
   (
     icon: Icons.event_available_outlined,
     title: 'Student Event Use',
-    body: 'Students may use EventHub to browse available school events, review event information, register while registration is open (it closes 2 hours after an event starts, or when the event ends if that is sooner), view their registrations, and receive event announcements and updates. You can cancel a registration until check-in opens, 1 hour before the event starts, as long as your ticket hasn’t been scanned; please cancel if you can’t attend. Organizers may change or cancel an event, so check the app for the latest details. Event details and attendance requirements are determined by the school or event organizer. A registration is subject to the event’s published requirements and does not override them.',
+    body: 'Students may use EventHub to browse available school events, review event information, register while registration is open (it closes 2 hours after an event starts, or when the event ends if that is sooner), view their registrations, and receive event announcements and updates. Some events are open only to certain grades or Senior High strands: you can see them, but you can register only if your grade (and strand) in the school’s records is included. You can cancel a registration until check-in opens, 1 hour before the event starts, as long as your ticket hasn’t been scanned; please cancel if you can’t attend. Organizers may change or cancel an event, so check the app for the latest details. Event details and attendance requirements are determined by the school or event organizer. A registration is subject to the event’s published requirements and does not override them.',
   ),
   (
     icon: Icons.qr_code_2_rounded,
@@ -51,7 +51,7 @@ const eventHubTerms = <({IconData icon, String title, String body})>[
   (
     icon: Icons.admin_panel_settings_outlined,
     title: 'Organizer and Administrator Tools',
-    body: 'Authorized organizers may create events, review registrations, run check-in, send event announcements, and view and export attendance records. A new event must be approved by an administrator before students can see it, and changes to an approved event are sent for approval too. A check-in or a decline is final, and checking a student in without an approved selfie requires a reason, which is recorded. Administrators manage accounts, approve or reject events and changes, may remove announcements (with a reason), archive finished events, may correct attendance after check-in closes (with a recorded reason), and review activity logs, which record actions such as approvals, check-ins and corrections. Use these tools only for your authorized school responsibilities and their intended event-management purposes. Exported files, such as attendance records and student login lists, contain personal information, and login lists also contain initial passwords: share them only with the people they are meant for, and delete them when they are no longer needed.',
+    body: 'Authorized organizers may create events (for every student, or for some grades and Senior High strands), review registrations, run check-in, send event announcements, and view and export attendance records. A new event must be approved by an administrator before students can see it, and changes to an approved event are sent for approval too. A check-in or a decline is final, and checking a student in without an approved selfie requires a reason, which is recorded. Administrators manage accounts, approve or reject events and changes, may remove announcements (with a reason), archive finished events, may correct attendance after check-in closes (with a recorded reason), and review activity logs, which record actions such as approvals, check-ins and corrections. Use these tools only for your authorized school responsibilities and their intended event-management purposes. Exported files, such as attendance records and student login lists, contain personal information, and login lists also contain initial passwords: share them only with the people they are meant for, and delete them when they are no longer needed.',
   ),
   (
     icon: Icons.campaign_outlined,

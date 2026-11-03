@@ -2,7 +2,7 @@ import 'package:eventhub/shared/widgets/mark_all_read_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// Student Notifications screen and the organizer app's notification sheet:
+// The bell's sheet (organizer and student apps) and student Announcements:
 // "Mark all as read" turns into "All read" once it's tapped.
 void main() {
   testWidgets('tapping Mark all as read turns it into All read', (tester) async {

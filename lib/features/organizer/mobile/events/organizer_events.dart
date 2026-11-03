@@ -10,6 +10,7 @@ import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../shared/widgets/error_alert.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../core/event_audience.dart';
 import '../../../../core/services/audit_service.dart';
 import '../../../../core/services/event_cancellation_service.dart';
 import '../../../../core/services/student_count_service.dart';
@@ -38,8 +39,10 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
   final Map<String, int> _registrationCountMap = {};
   // event_id → checked-in count (loaded alongside events)
   final Map<String, int> _checkedInMap = {};
-  // Every event's capacity = active students (StudentCountService).
+  // Capacity = the active students who can register: all of them
+  // (_studentCount), or the event's grades and strands (_gradeCounts).
   int? _studentCount = StudentCountService.cached;
+  List<GradeCount>? _gradeCounts = StudentCountService.cachedCounts;
 
   static const _filterOptions = [
     'All',
@@ -159,6 +162,7 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
       }
 
       final studentCount = StudentCountService.activeStudents(); // in parallel
+      final gradeCounts  = StudentCountService.gradeCounts();
       final rows = await client
           .from('events')
           .select()
@@ -187,11 +191,13 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
         }
       }
       final students = await studentCount;
+      final counts   = await gradeCounts;
 
       if (mounted) {
         setState(() {
           _events = events;
           _studentCount = students;
+          _gradeCounts = counts;
           _registrationCountMap
             ..clear()
             ..addAll(registrationCounts);
@@ -612,8 +618,9 @@ class _OrganizerEventsScreenState extends State<OrganizerEventsScreen> {
       registered:
           _registrationCountMap[eventId] ??
           (e['current_participants'] as int? ?? 0),
-      // Capacity = every active student (null until the count loads).
-      capacity: _studentCount,
+      // Capacity = the active students in its group (null until counted).
+      capacity: EventAudience.of(e)
+          .capacity(allStudents: _studentCount, counts: _gradeCounts),
       checkedIn: _checkedInMap[eventId] ?? 0,
       canEdit: organizerCanEditEvent(e),
       // Ended live events are part of the record — no delete.

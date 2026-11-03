@@ -8,6 +8,7 @@ import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/utils/date_utils.dart' show timeAgo;
 import '../../../../shared/utils/realtime_utils.dart';
 import '../../../../core/app_colors.dart';
+import '../../../../core/event_audience.dart';
 import '../../../../core/services/student_count_service.dart';
 import '../../../../core/services/supabase_service.dart';
 
@@ -29,7 +30,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   List<Map<String, dynamic>> _registrations = [];
   String? _organizerName;
   String? _organizerId;
-  int?    _studentCount = StudentCountService.cached;   // = capacity
+  int?    _studentCount = StudentCountService.cached;   // capacity, all students
+  List<GradeCount>? _gradeCounts = StudentCountService.cachedCounts;   // …or a group
   bool _actionBusy = false;   // cancel / restore in progress
 
   RealtimeChannel? _channel;
@@ -133,11 +135,13 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
             .eq('event_id', eventId)
             .order('registered_at', ascending: false),
         StudentCountService.activeStudents(),
+        StudentCountService.gradeCounts(),
       ]);
 
       final eventRow = results[0] as Map?;
       final regs     = results[1] as List;
       final students = results[2] as int?;
+      final counts   = results[3] as List<GradeCount>?;
 
       // The organizer's name doesn't change while this screen is open.
       var orgName = _organizerName;
@@ -157,6 +161,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         _registrations = List<Map<String, dynamic>>.from(regs);
         _organizerName = orgName;
         _studentCount  = students;
+        _gradeCounts   = counts;
         _loading       = false;
         _loadError     = false;
       });
@@ -209,9 +214,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   String  get _approval => approvalStatusOf(_d);
   String? get _rejectionReason => rejectionReasonOf(_d);
 
-  // Capacity = every active student (0 until the count is known, which hides
-  // the "of N" parts).
-  int get _capacity   => _studentCount ?? 0;
+  // Who can register, and capacity = the active students in that group (0
+  // until the count is known, which hides the "of N" parts).
+  EventAudience get _audience => EventAudience.of(_d);
+  int get _capacity =>
+      _audience.capacity(allStudents: _studentCount, counts: _gradeCounts) ?? 0;
   // Use registrations count as ground truth; fall back to DB column.
   // Declined registrations don't count (countsAsRegistered).
   int get _registered => _registrations.isNotEmpty
@@ -675,6 +682,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       (icon: Icons.calendar_today_rounded, color: const Color(0xFF2563EB), label: 'Date',                value: _fmtDate),
       (icon: Icons.access_time_rounded,    color: const Color(0xFF16A34A), label: 'Time',                value: _fmtTime),
       (icon: Icons.location_on_rounded,    color: kGold,                   label: 'Venue',               value: _location),
+      (icon: Icons.groups_rounded,         color: const Color(0xFF7C3AED), label: 'Who can register',    value: _audience.label),
       (icon: Icons.category_rounded,       color: const Color(0xFF7C3AED), label: 'Event Type',          value: _type),
       (icon: Icons.person_rounded,         color: const Color(0xFFEA580C), label: 'Organizer',           value: _organizerName ?? '—'),
       (icon: Icons.lock_clock_rounded,     color: t.muted,                 label: 'Registration closes', value: _fmtDeadline),
@@ -886,8 +894,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   // ── Registration fill card ─────────────────────────────────────────────────
 
   Widget _buildFillCard(AppTk t) {
-    // One colour: capacity is the whole student body, so a fuller event is
-    // just a popular one — nobody is ever turned away.
+    // One colour: capacity is every student who can register (the whole
+    // student body, or the event's group), so a fuller event is just a
+    // popular one — nobody is ever turned away.
     const fillColor = kGold;
 
     return _sectionCard(t,

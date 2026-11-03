@@ -12,6 +12,7 @@ import '../../../core/services/supabase_service.dart';
 import '../../../core/services/registration_service.dart';
 import '../../../core/services/student_count_service.dart';
 import '../../../core/app_colors.dart';
+import '../../../core/event_audience.dart';
 import '../../../shared/widgets/error_alert.dart';
 import '../../../shared/widgets/compact_filter_menu.dart';
 
@@ -38,8 +39,14 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   List<Map<String, dynamic>> _events = [];
   final Map<String, Map<String, dynamic>> _regByEventId = {};
   String? _registeringId;
-  // Every event's capacity = active students (StudentCountService).
+  // Capacity = the active students who can register: all of them
+  // (_studentCount), or the event's grades and strands (_gradeCounts).
   int? _studentCount = StudentCountService.cached;
+  List<GradeCount>? _gradeCounts = StudentCountService.cachedCounts;
+  // The student's grade and strand: an event for other grades or strands
+  // shows "Senior High only" instead of Register. Until they're known, the
+  // button shows and the database decides.
+  StudentGroup? _me;
 
   RealtimeChannel? _channel;
   Timer? _debounce;
@@ -95,6 +102,8 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
     }
     try {
       final studentCount = StudentCountService.activeStudents(); // in parallel
+      final gradeCounts  = StudentCountService.gradeCounts();
+      final profile      = SupabaseService.getProfile();
       final results = await Future.wait([
         SupabaseService.getEvents(),
         RegistrationService.getMyRegistrations(),
@@ -103,6 +112,8 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
       final events = results[0];
       final regs = results[1];
       final students = await studentCount;
+      final counts   = await gradeCounts;
+      final me       = await profile;
 
       final regMap = <String, Map<String, dynamic>>{};
       for (final r in regs) {
@@ -114,6 +125,11 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
         setState(() {
           _events = events;
           _studentCount = students;
+          _gradeCounts = counts;
+          if (me != null) {
+            _me = (grade: (me['year_level'] as num?)?.toInt(),
+                   strand: me['strand'] as String?);
+          }
           _regByEventId
             ..clear()
             ..addAll(regMap);
@@ -248,16 +264,26 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  // Capacity = every active student. Each student registers once, so one who
-  // hasn't registered always has a spot — an event is never "full" for them.
+  // Capacity = the active students in the event's group. Each student
+  // registers once, so one in the group who hasn't registered always has a
+  // spot — an event is never "full" for them.
   int _registered(Map<String, dynamic> e) =>
       e['current_participants'] as int? ?? 0;
 
+  int? _capacity(Map<String, dynamic> e) => EventAudience.of(e)
+      .capacity(allStudents: _studentCount, counts: _gradeCounts);
+
   String _capacityText(Map<String, dynamic> e) {
-    final cap = _studentCount;
+    final cap = _capacity(e);
     return cap != null
         ? '${_registered(e)} of $cap students registered'
         : '${_registered(e)} registered';
+  }
+
+  /// The event is for other grades or strands than the student's.
+  bool _notForMe(Map<String, dynamic> e) {
+    final me = _me;
+    return me != null && !EventAudience.of(e).allows(grade: me.grade, strand: me.strand);
   }
 
   String _fmtDate(Map<String, dynamic> e) {
@@ -844,10 +870,10 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                           _CapacityBar(
                             fill: capacityFill(
                               _registered(event),
-                              _studentCount,
+                              _capacity(event),
                             ),
                             label: _capacityText(event),
-                            showBar: _studentCount != null,
+                            showBar: _capacity(event) != null,
                             t: t,
                           ),
                         ],
@@ -874,43 +900,51 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
                             ),
                           ),
                         ),
-                        const Spacer(),
-                        // Primary action button
-                        if (showQr)
-                          _PrimaryBtn(
-                            label: 'My QR',
-                            icon: Icons.qr_code_2_rounded,
-                            color: const Color(0xFF16A34A),
-                            onTap: () => _showQR(event),
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF15803D), Color(0xFF22C55E)],
-                              begin: Alignment.centerLeft,
-                              end: Alignment.centerRight,
-                            ),
-                          )
-                        else if (regState != RegistrationState.open)
-                          Tooltip(
-                            message: registrationClosedReason(regState) ?? '',
-                            child: _PrimaryBtn(
-                              label: 'Closed',
-                              icon: Icons.lock_clock_rounded,
-                              color: t.muted,
-                              onTap: null,
-                              ghost: true,
-                            ),
-                          )
-                        else
-                          _PrimaryBtn(
-                            label: isRegistering ? 'Registering…' : 'Register',
-                            icon: isRegistering
-                                ? null
-                                : Icons.how_to_reg_rounded,
-                            color: kGold,
-                            onTap: isRegistering
-                                ? null
-                                : () => _confirmRegister(event),
-                            loading: isRegistering,
+                        const SizedBox(width: 12),
+                        // Primary action, on the right
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: showQr
+                                ? _PrimaryBtn(
+                                    label: 'My QR',
+                                    icon: Icons.qr_code_2_rounded,
+                                    color: const Color(0xFF16A34A),
+                                    onTap: () => _showQR(event),
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF15803D), Color(0xFF22C55E)],
+                                      begin: Alignment.centerLeft,
+                                      end: Alignment.centerRight,
+                                    ),
+                                  )
+                                // For other grades or strands: who it's for, no Register.
+                                : !isRegistered && _notForMe(event)
+                                    ? _LockedLabel(
+                                        label: EventAudience.of(event).onlyLabel, t: t)
+                                    : regState != RegistrationState.open
+                                        ? Tooltip(
+                                            message: registrationClosedReason(regState) ?? '',
+                                            child: _PrimaryBtn(
+                                              label: 'Closed',
+                                              icon: Icons.lock_clock_rounded,
+                                              color: t.muted,
+                                              onTap: null,
+                                              ghost: true,
+                                            ),
+                                          )
+                                        : _PrimaryBtn(
+                                            label: isRegistering ? 'Registering…' : 'Register',
+                                            icon: isRegistering
+                                                ? null
+                                                : Icons.how_to_reg_rounded,
+                                            color: kGold,
+                                            onTap: isRegistering
+                                                ? null
+                                                : () => _confirmRegister(event),
+                                            loading: isRegistering,
+                                          ),
                           ),
+                        ),
                       ],
                     ),
                   ),
@@ -1245,8 +1279,9 @@ class _CapacityBar extends StatelessWidget {
     required this.t,
   });
 
-  // One colour: capacity is the whole student body, so a fuller event is
-  // just a popular one — nobody is ever turned away.
+  // One colour: capacity is every student who can register (the whole
+  // student body, or the event's group), so a fuller event is just a popular
+  // one — nobody is ever turned away.
   static const _barColor = Color(0xFF10B981);
 
   @override
@@ -1293,6 +1328,52 @@ class _CapacityBar extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+// ── "Senior High only" ────────────────────────────────────────────────────────
+
+/// In place of Register, for a student outside the event's group: who the
+/// event is for. They can still open it and read the details.
+class _LockedLabel extends StatelessWidget {
+  final String label;
+  final AppTk t;
+  const _LockedLabel({required this.label, required this.t});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '$label. You can’t register for this event.',
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: t.shimmer1,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: t.border, width: 1.2),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.lock_rounded, size: 14, color: t.sub),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: t.sub,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

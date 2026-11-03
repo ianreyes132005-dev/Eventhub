@@ -62,6 +62,12 @@ void main() {
       expect(privacy, contains('corrected by the school administrator'));
     });
 
+    test('say that some events are only for certain grades or strands', () {
+      // EventAudience / migration 202611030001: visible to all, open to some.
+      expect(terms, contains('open only to certain grades or Senior High strands'));
+      expect(privacy, contains('your grade and strand decide which events you can register for'));
+    });
+
     test('say that notifications are in the app only, and when the text changed', () {
       expect(terms, contains('does not send push notifications'));
       expect(eventHubLegalUpdated, isNotEmpty);

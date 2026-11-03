@@ -819,8 +819,9 @@ class _WebDashboardPageState extends State<WebDashboardPage>
 
     final totalCheckedIn       = _eventAttendance.fold<int>(0, (s, e) => s + (e['checkedIn']       as int));
     final totalRegistered      = _eventAttendance.fold<int>(0, (s, e) => s + (e['total']           as int));
-    // Checked in out of registered. Capacity is now the whole student body,
-    // so measuring against it would make a full event look poorly attended.
+    // Checked in out of registered. Capacity is every student who can
+    // register, so measuring against it would make a full event look poorly
+    // attended.
     final hasRateData = totalRegistered > 0;
     final rate = hasRateData ? (totalCheckedIn / totalRegistered * 100).round() : 0;
     final rateColor = !hasRateData

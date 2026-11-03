@@ -8,10 +8,10 @@ import 'user_settings_cloud.dart';
 /// Categories default to enabled — only disabled ones are persisted.
 /// Verification requests (selfie required / photo submitted) are intentionally
 /// NOT a category: organizers depend on them for attendance, so they can
-/// never be silenced.
+/// never be silenced. Announcements aren't one either — they're on Home, not
+/// under the bell (an old saved 'announcements' entry is simply ignored).
 class StudentNotifPrefs {
-  static const announcements = 'announcements';
-  static const checkins      = 'checkins';
+  static const checkins = 'checkins';
 
   static String _key(String userId) => 'student_notif_prefs_$userId';
 

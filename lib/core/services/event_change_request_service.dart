@@ -15,8 +15,8 @@ class EventChangeRequestService {
 
   static SupabaseClient get _db => SupabaseService.client;
 
-  /// Columns a change request may change. (Not capacity — that's the number
-  /// of active students, see StudentCountService.)
+  /// Columns a change request may change. (Not a capacity number — that's
+  /// the active students in the event's group, see StudentCountService.)
   static const editableFields = [
     'title',
     'description',
@@ -26,6 +26,8 @@ class EventChangeRequestService {
     'end_date',
     'start_time',
     'end_time',
+    'audience_grades',   // who can register (EventAudience)
+    'audience_strands',
     'event_image_url',
   ];
 

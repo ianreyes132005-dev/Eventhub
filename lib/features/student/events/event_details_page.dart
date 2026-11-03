@@ -7,7 +7,9 @@ import '../check_in/selfie_screen.dart';
 import '../../../shared/widgets/qr_code_dialog.dart';
 import '../../../core/services/registration_service.dart';
 import '../../../core/services/student_count_service.dart';
+import '../../../core/services/supabase_service.dart';
 import '../../../core/app_colors.dart';
+import '../../../core/event_audience.dart';
 import '../../../shared/widgets/error_alert.dart';
 import 'cancel_registration.dart';
 
@@ -34,7 +36,12 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   late Map<String, dynamic> _event = widget.event;
   Map<String, dynamic>? _reg;
   bool _registering = false;
-  int? _studentCount = StudentCountService.cached;   // = capacity
+  int? _studentCount = StudentCountService.cached;   // capacity, all students
+  List<GradeCount>? _gradeCounts = StudentCountService.cachedCounts;   // …or a group
+  // The student's grade and strand: an event for other grades or strands
+  // shows "Senior High only" instead of Register. Until they're known, the
+  // button shows and the database decides.
+  StudentGroup? _me;
 
   RealtimeChannel? _channel;
   Timer? _debounce;
@@ -105,14 +112,23 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
           .eq('student_user_id', uid)
           .maybeSingle();
       final countFuture = StudentCountService.activeStudents();
+      final groupsFuture = StudentCountService.gradeCounts();
+      final meFuture = _me == null ? SupabaseService.getProfile() : null;
       final ev = await eventFuture;
       final Map? reg = await regFuture;
       final count = await countFuture;
+      final groups = await groupsFuture;
+      final me = await meFuture;
       if (!mounted) return;
       setState(() {
         if (ev != null) _event = Map<String, dynamic>.from(ev);
         _reg = reg == null ? null : Map<String, dynamic>.from(reg);
         _studentCount = count ?? _studentCount;
+        _gradeCounts = groups ?? _gradeCounts;
+        if (me != null) {
+          _me = (grade: (me['year_level'] as num?)?.toInt(),
+                 strand: me['strand'] as String?);
+        }
       });
     } catch (e) {
       // Offline for a moment: keep what's on screen.
@@ -134,9 +150,17 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
   String get _type => _e['event_type'] as String? ?? '';
   String get _imageUrl => _e['event_image_url'] as String? ?? '';
   int get _registered => _e['current_participants'] as int? ?? 0;
-  // Capacity = every active student (0 until the count is known, which hides
-  // the "of N" parts). A student who hasn't registered always has a spot.
-  int get _capacity => _studentCount ?? 0;
+  // Who can register, and capacity = the active students in that group (0
+  // until the count is known, which hides the "of N" parts). A student in the
+  // group who hasn't registered always has a spot.
+  EventAudience get _audience => EventAudience.of(_e);
+  int get _capacity =>
+      _audience.capacity(allStudents: _studentCount, counts: _gradeCounts) ?? 0;
+  // For other grades or strands than the student's: no Register.
+  bool get _notForMe {
+    final me = _me;
+    return me != null && !_audience.allows(grade: me.grade, strand: me.strand);
+  }
   double get _fillRatio => capacityFill(_registered, _capacity);
 
   String get _statusLabel => eventStatusLabel(_e);
@@ -538,6 +562,15 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
             label: 'Venue',
             value: _location,
           ),
+          // Only for some students: say who.
+          if (!_audience.isEveryone) ...[
+            const SizedBox(height: 14),
+            _infoTile(
+              icon: Icons.groups_rounded,
+              label: 'Who can register',
+              value: _audience.label,
+            ),
+          ],
         ],
       ),
     );
@@ -619,8 +652,9 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
 
   // ── Capacity ───────────────────────────────────────────────────────────────
 
-  // Capacity is the whole student body, so a fuller event is just a popular
-  // one — one colour, and never "Full".
+  // Capacity is every student who can register (the whole student body, or
+  // the event's group), so a fuller event is just a popular one — one colour,
+  // and never "Full".
   Widget _buildCapacitySection() {
     final pct = (_fillRatio * 100).toInt();
     final spotsLeft = _capacity > 0 ? (_capacity - _registered).clamp(0, _capacity) : null;
@@ -687,7 +721,7 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                   ),
                 ),
                 Text(
-                  '$pct% of students',
+                  _audience.isEveryone ? '$pct% of students' : '$pct% of the group',
                   style: const TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 11,
@@ -706,10 +740,15 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  _capacity > 0
-                      ? 'Every student can register — the $_capacity spots are '
-                        'the school’s total number of students.'
-                      : 'Every student can register.',
+                  _audience.isEveryone
+                      ? _capacity > 0
+                          ? 'Every student can register — the $_capacity spots are '
+                            'the school’s total number of students.'
+                          : 'Every student can register.'
+                      : _capacity > 0
+                          ? 'Open to ${_audience.label} — the $_capacity spots are '
+                            'the students in that group.'
+                          : 'Open to ${_audience.label}.',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
                       color: _t.sub, height: 1.45),
                 ),
@@ -950,11 +989,59 @@ class _EventDetailsPageState extends State<EventDetailsPage> {
                 ],
               ],
             )
-          : !_canRegister
-              ? _closedButton()
-              : _isDeadlinePassed
-                  ? _deadlinePassedButton()
-                  : _registerButton(),
+          : _notForMe
+              ? _notForMeBar()
+              : !_canRegister
+                  ? _closedButton()
+                  : _isDeadlinePassed
+                      ? _deadlinePassedButton()
+                      : _registerButton(),
+    );
+  }
+
+  // In place of Register, for a student outside the event's group: who it's
+  // for, and why they can't register.
+  Widget _notForMeBar() {
+    final noGrade = _me?.grade == null;
+    return Semantics(
+      container: true,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: _t.shimmer2,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.lock_rounded, size: 20, color: _t.sub),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _audience.onlyLabel,
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 15,
+                        fontWeight: FontWeight.w700, color: _t.text),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    noGrade
+                        ? 'Your grade level isn’t on file yet, so you can’t register. '
+                          'Ask the school administrator to add it.'
+                        : 'You can see this event, but only ${_audience.label} '
+                          'students can register.',
+                    style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
+                        color: _t.sub, height: 1.4),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

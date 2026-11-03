@@ -774,8 +774,6 @@ class _ProfileBodyState extends State<ProfileBody> {
     if (!mounted) return;
 
     final enabled = {
-      StudentNotifPrefs.announcements:
-          !disabled.contains(StudentNotifPrefs.announcements),
       StudentNotifPrefs.checkins:
           !disabled.contains(StudentNotifPrefs.checkins),
     };
@@ -835,16 +833,9 @@ class _ProfileBodyState extends State<ProfileBody> {
           return _sheetShell(ctx, t,
             icon:     Icons.notifications_rounded,
             title:    'Notification Preferences',
-            subtitle: 'Choose what appears in your inbox',
+            subtitle: 'Choose what appears under the bell',
             children: [
               const SizedBox(height: 8),
-              toggle(
-                cat:      StudentNotifPrefs.announcements,
-                icon:     Icons.campaign_rounded,
-                color:    const Color(0xFF8B5CF6),
-                title:    'Announcements',
-                subtitle: 'School updates from organizers',
-              ),
               toggle(
                 cat:      StudentNotifPrefs.checkins,
                 icon:     Icons.how_to_reg_rounded,
@@ -898,9 +889,9 @@ class _ProfileBodyState extends State<ProfileBody> {
               ),
               const SizedBox(height: 10),
               _sheetNote(t,
-                  'Applies to your notification bell and inbox. Verification '
-                  'requests can\'t be turned off — organizers need them to '
-                  'confirm your attendance.'),
+                  'Applies to your notification bell; announcements are always '
+                  'on Home. Verification requests can\'t be turned off — '
+                  'organizers need them to confirm your attendance.'),
             ],
           );
         });

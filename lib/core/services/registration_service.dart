@@ -6,6 +6,7 @@ import 'supabase_service.dart';
 import 'audit_service.dart';
 import '../friendly_error.dart';
 import '../app_colors.dart';
+import '../event_audience.dart';
 import '../ticket_code.dart';
 import '../../shared/utils/realtime_utils.dart';
 
@@ -99,6 +100,17 @@ class RegistrationService {
     final closed = registrationClosedReason(
         registrationState(Map<String, dynamic>.from(eventRow)));
     if (closed != null) throw Exception(closed);
+
+    // Who can register — the database refuses everyone else
+    // (event_audience_allows); checked here only for a clearer message.
+    final audience = EventAudience.of(Map<String, dynamic>.from(eventRow));
+    final grade = (profile['year_level'] as num?)?.toInt();
+    if (!audience.allows(grade: grade, strand: profile['strand'] as String?)) {
+      throw FriendlyException(grade == null
+          ? 'This event is only for ${audience.label}, and your grade level isn’t on '
+              'file yet. Ask the school administrator to add it.'
+          : 'This event is only for ${audience.label}.');
+    }
 
     // Generate the UUID client-side so id and qr_code are set atomically in one
     // insert — no race window where qr_code = 'PENDING' can be read or scanned.
@@ -220,6 +232,31 @@ class RegistrationService {
         'or the registration is already gone.',
       );
     }
+  }
+
+  /// The grade and strand of each student registered for [eventId] (declined
+  /// registrations left out) — so the event form can say how many a narrower
+  /// group would leave outside it. From the event_registrant_profiles view
+  /// (the organizer's own events); students it can't find are left out.
+  static Future<List<StudentGroup>> registrantGroups(String eventId) async {
+    final rows = await _db
+        .from('registrations')
+        .select('student_user_id, status')
+        .eq('event_id', eventId);
+    final ids = [
+      for (final r in rows as List)
+        if (countsAsRegistered(Map<String, dynamic>.from(r as Map)))
+          r['student_user_id'] as String?,
+    ].whereType<String>().toSet().toList();
+    if (ids.isEmpty) return const [];
+    final profiles = await _db
+        .from('event_registrant_profiles')
+        .select('user_id, year_level, strand')
+        .in_('user_id', ids);
+    return [
+      for (final p in profiles as List)
+        (grade: (p['year_level'] as num?)?.toInt(), strand: p['strand'] as String?),
+    ];
   }
 
   /// Every event of [organizerId] — including ones nobody has registered
