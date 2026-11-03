@@ -20,8 +20,26 @@ import '../../../shared/widgets/compact_filter_menu.dart';
 // Page
 // ══════════════════════════════════════════════════════════════════════════════
 
+class StudentEventsController {
+  Future<void> Function(String eventId)? _openEvent;
+
+  void _attach(Future<void> Function(String eventId) callback) {
+    _openEvent = callback;
+  }
+
+  void _detach(Future<void> Function(String eventId) callback) {
+    if (identical(_openEvent, callback)) _openEvent = null;
+  }
+
+  Future<void> openEvent(String eventId) async {
+    await _openEvent?.call(eventId);
+  }
+}
+
 class StudentAllEventsPage extends StatefulWidget {
-  const StudentAllEventsPage({super.key});
+  const StudentAllEventsPage({super.key, this.controller});
+
+  final StudentEventsController? controller;
 
   @override
   State<StudentAllEventsPage> createState() => _StudentAllEventsPageState();
@@ -52,12 +70,15 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   Timer? _debounce;
   // Upcoming → Ongoing → Ended and Register → Closed follow the clock.
   Timer? _clock;
+  late final Future<void> Function(String eventId) _openEventHandler =
+      _openEventById;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
+    widget.controller?._attach(_openEventHandler);
     _loadData();
     _subscribeRealtime();
     _clock = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -66,12 +87,45 @@ class _StudentAllEventsPageState extends State<StudentAllEventsPage> {
   }
 
   @override
+  void didUpdateWidget(covariant StudentAllEventsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller == widget.controller) return;
+    oldWidget.controller?._detach(_openEventHandler);
+    widget.controller?._attach(_openEventHandler);
+  }
+
+  @override
   void dispose() {
+    widget.controller?._detach(_openEventHandler);
     _clock?.cancel();
     _debounce?.cancel();
     if (_channel != null) Supabase.instance.client.removeChannel(_channel!);
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _openEventById(String eventId) async {
+    if (_loading) await _loadData();
+    if (!mounted) return;
+    var match = _events.where((event) => event['event_id'] == eventId);
+    if (match.isEmpty) {
+      await _loadData(silent: true);
+      if (!mounted) return;
+      match = _events.where((event) => event['event_id'] == eventId);
+    }
+    if (match.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('This event is no longer available.'),
+      ));
+      return;
+    }
+
+    setState(() {
+      _filter = 'All';
+      _searchQuery = '';
+      _searchCtrl.clear();
+    });
+    _openDetails(match.first, eventId);
   }
 
   void _subscribeRealtime() {

@@ -30,14 +30,14 @@ class OrganizerWebDashboard extends StatefulWidget {
 
 class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
     with SingleTickerProviderStateMixin {
-  OrganizerPage _page         = OrganizerPage.dashboard;
-  final         _scaffoldKey = GlobalKey<ScaffoldState>();
-  AppTheme      _theme        = const AppTheme();
-  String?       _orgId;
-  String?       _name;
-  String?       _email;
-  String?       _organization;
-  String?       _photoUrl;
+  OrganizerPage _page = OrganizerPage.dashboard;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+  AppTheme _theme = const AppTheme();
+  String? _orgId;
+  String? _name;
+  String? _email;
+  String? _organization;
+  String? _photoUrl;
   RealtimeChannel? _accountChannel;
 
   // Selfies waiting for this organizer's review — the badge on Registrations,
@@ -45,40 +45,54 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   int              _reviewCount = 0;
   bool             _reviewFirst = false; // open Registrations on those selfies
   String?          _openEventId;         // open Events on this event's details
-  Set<String>      _myEventIds  = {};
+  Set<String> _myEventIds = {};
   RealtimeChannel? _reviewChannel;
-  Timer?           _reviewDebounce;
-  Timer?           _reviewClock;
-  bool          _loading      = true;
-  bool          _profileError = false;
+  Timer? _reviewDebounce;
+  Timer? _reviewClock;
+  bool _loading = true;
+  bool _profileError = false;
 
   // ── Shell entrance animations (run once when profile finishes loading) ─────
   late final AnimationController _entryCt;
-  late final Animation<double>   _sidebarFade;
-  late final Animation<Offset>   _sidebarSlide;
-  late final Animation<double>   _topbarFade;
-  late final Animation<Offset>   _topbarSlide;
-  late final Animation<double>   _contentFade;
+  late final Animation<double> _sidebarFade;
+  late final Animation<Offset> _sidebarSlide;
+  late final Animation<double> _topbarFade;
+  late final Animation<Offset> _topbarSlide;
+  late final Animation<double> _contentFade;
 
   @override
   void initState() {
     super.initState();
     _entryCt = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 520));
-    _sidebarFade  = CurvedAnimation(parent: _entryCt,
-        curve: const Interval(0.00, 0.65, curve: Curves.easeOut));
-    _sidebarSlide = Tween<Offset>(
-            begin: const Offset(-0.04, 0), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _entryCt,
-            curve: const Interval(0.00, 0.65, curve: Curves.easeOutCubic)));
-    _topbarFade   = CurvedAnimation(parent: _entryCt,
-        curve: const Interval(0.00, 0.60, curve: Curves.easeOut));
-    _topbarSlide  = Tween<Offset>(
-            begin: const Offset(0, -0.65), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _entryCt,
-            curve: const Interval(0.00, 0.60, curve: Curves.easeOutCubic)));
-    _contentFade  = CurvedAnimation(parent: _entryCt,
-        curve: const Interval(0.12, 0.78, curve: Curves.easeOut));
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
+    _sidebarFade = CurvedAnimation(
+      parent: _entryCt,
+      curve: const Interval(0.00, 0.65, curve: Curves.easeOut),
+    );
+    _sidebarSlide =
+        Tween<Offset>(begin: const Offset(-0.04, 0), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entryCt,
+            curve: const Interval(0.00, 0.65, curve: Curves.easeOutCubic),
+          ),
+        );
+    _topbarFade = CurvedAnimation(
+      parent: _entryCt,
+      curve: const Interval(0.00, 0.60, curve: Curves.easeOut),
+    );
+    _topbarSlide =
+        Tween<Offset>(begin: const Offset(0, -0.65), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entryCt,
+            curve: const Interval(0.00, 0.60, curve: Curves.easeOutCubic),
+          ),
+        );
+    _contentFade = CurvedAnimation(
+      parent: _entryCt,
+      curve: const Interval(0.12, 0.78, curve: Curves.easeOut),
+    );
     final userId = SupabaseService.currentUser?.id;
     if (userId != null) {
       _accountChannel = AccountSessionGuard.watch(
@@ -90,7 +104,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
         onUpdate: (row) {
           if (!mounted) return;
           setState(() {
-            if (row.containsKey('full_name')) _name = row['full_name'] as String?;
+            if (row.containsKey('full_name'))
+              _name = row['full_name'] as String?;
             if (row.containsKey('organization')) {
               _organization = row['organization'] as String?;
             }
@@ -122,7 +137,10 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   Future<void> _loadProfile() async {
     try {
       final user = SupabaseService.currentUser;
-      if (user == null) { _goLogin(); return; }
+      if (user == null) {
+        _goLogin();
+        return;
+      }
       _email = user.email;
       final row = await SupabaseService.client
           .from('organizers')
@@ -130,37 +148,47 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
           .eq('user_id', user.id)
           .maybeSingle();
       if (!mounted) return;
-      if (row == null) { _goLogin(); return; }
+      if (row == null) {
+        _goLogin();
+        return;
+      }
       setState(() {
-        _orgId        = row['organizer_id']     as String?;
-        _name         = row['full_name']        as String?;
-        _organization = row['organization']     as String?;
-        _photoUrl     = row['profile_image_url'] as String?;
-        _loading      = false;
+        _orgId = row['organizer_id'] as String?;
+        _name = row['full_name'] as String?;
+        _organization = row['organization'] as String?;
+        _photoUrl = row['profile_image_url'] as String?;
+        _loading = false;
       });
       _entryCt.forward();
       _loadReviewCount();
       if (_reviewChannel == null) _watchReviewCount();
     } catch (_) {
-      if (mounted) setState(() { _loading = false; _profileError = true; });
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _profileError = true;
+        });
     }
   }
 
   // ── Theme persistence ─────────────────────────────────────────────────────
 
   Future<void> _loadTheme() async {
-    final prefs      = await SharedPreferences.getInstance();
-    final primary    = prefs.getInt('org_theme_primary_v2');
-    final secondary  = prefs.getInt('org_theme_secondary_v2');
+    final prefs = await SharedPreferences.getInstance();
+    final primary = prefs.getInt('org_theme_primary_v2');
+    final secondary = prefs.getInt('org_theme_secondary_v2');
     final variantIdx = prefs.getInt('org_theme_variant_v2');
     if (primary == null && secondary == null && variantIdx == null) return;
     if (!mounted) return;
     setState(() {
       _theme = _theme.copyWith(
-        primaryColor:   primary    != null ? Color(primary)   : null,
-        secondaryColor: secondary  != null ? Color(secondary)  : null,
-        variant:        variantIdx != null
-            ? SidebarVariant.values[variantIdx.clamp(0, SidebarVariant.values.length - 1)]
+        primaryColor: primary != null ? Color(primary) : null,
+        secondaryColor: secondary != null ? Color(secondary) : null,
+        variant: variantIdx != null
+            ? SidebarVariant.values[variantIdx.clamp(
+                0,
+                SidebarVariant.values.length - 1,
+              )]
             : null,
       );
     });
@@ -170,11 +198,11 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
 
   Future<void> _signOut() async {
     final ok = await WebAlert.confirm(
-      context:      context,
-      title:        'Sign Out?',
-      message:      'You will be returned to the login screen.',
+      context: context,
+      title: 'Sign Out?',
+      message: 'You will be returned to the login screen.',
       confirmLabel: 'Sign Out',
-      icon:         Icons.logout_rounded,
+      icon: Icons.logout_rounded,
     );
     if (ok != true) return;
     await SupabaseService.signOut();
@@ -197,7 +225,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
     try {
       await ThemeStore.toggle();
     } catch (e) {
-      if (mounted) showErrorAlert(context, e, title: 'Couldn’t save theme preference');
+      if (mounted)
+        showErrorAlert(context, e, title: 'Couldn’t save theme preference');
     }
   }
 
@@ -229,7 +258,8 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
             .in_('event_id', open);
         count = (rows as List).length;
       }
-      if (mounted && count != _reviewCount) setState(() => _reviewCount = count);
+      if (mounted && count != _reviewCount)
+        setState(() => _reviewCount = count);
     } catch (_) {
       // A shortcut, not the source of truth: the Registrations page reports
       // a failed load itself, so the badge just keeps its last number.
@@ -237,8 +267,9 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   }
 
   void _watchReviewCount() {
-    final channel =
-        SupabaseService.client.channel('organizer-shell-review-$_orgId');
+    final channel = SupabaseService.client.channel(
+      'organizer-shell-review-$_orgId',
+    );
     for (final table in ['registrations', 'events']) {
       channel.on(
         RealtimeListenTypes.postgresChanges,
@@ -274,17 +305,17 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   // While selfies are waiting, Registrations opens on them (the Photo
   // Submitted filter); every other time it opens as usual.
   void _openPage(OrganizerPage p) => setState(() {
-        _reviewFirst = p == OrganizerPage.registrations && _reviewCount > 0;
-        _openEventId = null;
-        _page = p;
-      });
+    _reviewFirst = p == OrganizerPage.registrations && _reviewCount > 0;
+    _openEventId = null;
+    _page = p;
+  });
 
   // The dashboard's Next event card opens that event on the Events tab.
   void _openEvent(String eventId) => setState(() {
-        _reviewFirst = false;
-        _openEventId = eventId;
-        _page = OrganizerPage.events;
-      });
+    _reviewFirst = false;
+    _openEventId = eventId;
+    _page = OrganizerPage.events;
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -303,12 +334,15 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 72, height: 72,
+                width: 72,
+                height: 72,
                 decoration: BoxDecoration(
                   color: const Color(0xFFFEF2F2),
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: const Color(0xFFFCA5A5), width: 1.5),
+                    color: const Color(0xFFFCA5A5),
+                    width: 1.5,
+                  ),
                 ),
                 child: const Icon(
                   Icons.cloud_off_rounded,
@@ -317,22 +351,33 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
                 ),
               ),
               const SizedBox(height: 20),
-              Text('Could not load your profile',
+              Text(
+                'Could not load your profile',
                 style: TextStyle(
-                  fontFamily: 'Poppins', fontSize: 17,
-                  fontWeight: FontWeight.w800, color: t.text,
-                )),
+                  fontFamily: 'Poppins',
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: t.text,
+                ),
+              ),
               const SizedBox(height: 8),
-              Text('Check your connection and try again.',
+              Text(
+                'Check your connection and try again.',
                 style: TextStyle(
-                  fontFamily: 'Poppins', fontSize: 13, color: t.sub,
-                )),
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  color: t.sub,
+                ),
+              ),
               const SizedBox(height: 28),
               WebBtn(
                 label: 'Retry',
-                icon:  Icons.refresh_rounded,
+                icon: Icons.refresh_rounded,
                 onTap: () {
-                  setState(() { _profileError = false; _loading = true; });
+                  setState(() {
+                    _profileError = false;
+                    _loading = true;
+                  });
                   _loadProfile();
                 },
               ),
@@ -363,157 +408,177 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
   // Wide: the sidebar; narrow ([drawer]): no sidebar, a menu button in the
   // top bar opens it as a drawer.
   Widget _buildBody(bool drawer) {
-    return Stack(children: [
-      Row(children: [
-        if (!drawer)
-          // Sidebar: fade + subtle left slide
-          FadeTransition(
-            opacity: _sidebarFade,
-            child: SlideTransition(
-              position: _sidebarSlide,
-              child: SizedBox(width: kWebSideW, child: _sideNav()),
-            ),
-          ),
-        Expanded(
-          child: Column(children: [
-            // Top bar: clips overflow, slides down from above
-            ClipRect(
-              child: SlideTransition(
-                position: _topbarSlide,
-                child: FadeTransition(
-                  opacity: _topbarFade,
-                  child: _TopBar(
-                    theme:         _theme,
-                    name:          _name,
-                    orgId:         _orgId,
-                    photoUrl:      _photoUrl,
-                    title:         _pageTitles[_page] ?? '',
-                    compact:       drawer,
-                    onMenuTap:     drawer
-                        ? () => _scaffoldKey.currentState?.openDrawer()
-                        : null,
-                    onToggleTheme: _toggleTheme,
-                    onSignOut:     _signOut,
-                  ),
+    return Stack(
+      children: [
+        Row(
+          children: [
+            if (!drawer)
+              // Sidebar: fade + subtle left slide
+              FadeTransition(
+                opacity: _sidebarFade,
+                child: SlideTransition(
+                  position: _sidebarSlide,
+                  child: SizedBox(width: kWebSideW, child: _sideNav()),
                 ),
               ),
-            ),
-            // Content: fade in with slight delay
             Expanded(
-              child: FadeTransition(
-                opacity: _contentFade,
-                child: _buildPage(),
+              child: Column(
+                children: [
+                  // Top bar: clips overflow, slides down from above
+                  ClipRect(
+                    child: SlideTransition(
+                      position: _topbarSlide,
+                      child: FadeTransition(
+                        opacity: _topbarFade,
+                        child: _TopBar(
+                          theme: _theme,
+                          name: _name,
+                          orgId: _orgId,
+                          photoUrl: _photoUrl,
+                          title: _pageTitles[_page] ?? '',
+                          compact: drawer,
+                          onMenuTap: drawer
+                              ? () => _scaffoldKey.currentState?.openDrawer()
+                              : null,
+                          onToggleTheme: _toggleTheme,
+                          onSignOut: _signOut,
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Content: fade in with slight delay
+                  Expanded(
+                    child: FadeTransition(
+                      opacity: _contentFade,
+                      child: _buildPage(),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ]),
+          ],
         ),
-      ]),
-      WebAiChatbot(orgId: _orgId),
-    ]);
+        WebAiChatbot(orgId: _orgId),
+      ],
+    );
   }
 
   static const _pageTitles = <OrganizerPage, String>{
-    OrganizerPage.dashboard:     'Dashboard',
-    OrganizerPage.events:        'Events',
+    OrganizerPage.dashboard: 'Dashboard',
+    OrganizerPage.events: 'Events',
     OrganizerPage.registrations: 'Registrations',
     OrganizerPage.announcements: 'Announcements',
-    OrganizerPage.profile:       'Profile',
+    OrganizerPage.profile: 'Profile',
   };
 
   // Dashboard, then MANAGE and ACCOUNT — the layout the user chose.
   List<WebNavGroup<OrganizerPage>> get _navGroups => [
-    const WebNavGroup(entries: [
-      WebNavEntry(
-        page: OrganizerPage.dashboard,
-        icon: Icons.dashboard_rounded,
-        label: 'Dashboard',
-      ),
-    ]),
-    WebNavGroup(title: 'Manage', entries: [
-      const WebNavEntry(
-        page: OrganizerPage.events,
-        icon: Icons.event_rounded,
-        label: 'Events',
-      ),
-      WebNavEntry(
-        page: OrganizerPage.registrations,
-        icon: Icons.how_to_reg_rounded,
-        label: 'Registrations',
-        badge: _reviewCount,
-        badgeTip: '$_reviewCount selfie${_reviewCount == 1 ? '' : 's'} '
-            'waiting for your review',
-      ),
-      const WebNavEntry(
-        page: OrganizerPage.announcements,
-        icon: Icons.campaign_rounded,
-        label: 'Announcements',
-      ),
-    ]),
-    const WebNavGroup(title: 'Account', entries: [
-      WebNavEntry(
-        page: OrganizerPage.profile,
-        icon: Icons.person_rounded,
-        label: 'Profile',
-      ),
-    ]),
+    const WebNavGroup(
+      entries: [
+        WebNavEntry(
+          page: OrganizerPage.dashboard,
+          icon: Icons.dashboard_rounded,
+          label: 'Dashboard',
+        ),
+      ],
+    ),
+    WebNavGroup(
+      title: 'Manage',
+      entries: [
+        const WebNavEntry(
+          page: OrganizerPage.events,
+          icon: Icons.event_rounded,
+          label: 'Events',
+        ),
+        WebNavEntry(
+          page: OrganizerPage.registrations,
+          icon: Icons.how_to_reg_rounded,
+          label: 'Registrations',
+          badge: _reviewCount,
+          badgeTip:
+              '$_reviewCount selfie${_reviewCount == 1 ? '' : 's'} '
+              'waiting for your review',
+        ),
+        const WebNavEntry(
+          page: OrganizerPage.announcements,
+          icon: Icons.campaign_rounded,
+          label: 'Announcements',
+        ),
+      ],
+    ),
+    const WebNavGroup(
+      title: 'Account',
+      entries: [
+        WebNavEntry(
+          page: OrganizerPage.profile,
+          icon: Icons.person_rounded,
+          label: 'Profile',
+        ),
+      ],
+    ),
   ];
 
   // [onClose]: the drawer — choosing a page closes it.
   Widget _sideNav({VoidCallback? onClose}) {
     // The sidebar follows dark mode, whatever accent the organizer chose.
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final s    = _theme.copyWith(dark: dark);
-    final hsl  = HSLColor.fromColor(s.primaryColor);
+    final s = _theme.copyWith(dark: dark);
+    final hsl = HSLColor.fromColor(s.primaryColor);
     return WebSideNav<OrganizerPage>(
-      portalLabel:  'Organizer portal',
-      groups:       _navGroups,
-      current:      _page,
+      portalLabel: 'Organizer portal',
+      groups: _navGroups,
+      current: _page,
       headerHeight: kWebTopH,
-      onClose:      onClose,
+      onClose: onClose,
       onSelect: (page) {
         onClose?.call();
         _openPage(page);
       },
       palette: WebNavPalette(
-        background:   s.sideGradient,
-        border:       s.sideBorder,
-        text:         s.navText,
-        activeText:   dark ? Colors.white : kText,
-        icon:         s.navIcon,
+        background: s.sideGradient,
+        border: s.sideBorder,
+        text: s.navText,
+        activeText: dark ? Colors.white : kText,
+        icon: s.navIcon,
         // Group titles readable on the dark sidebar too (4.5:1).
-        label:        dark ? const Color(0xFF8E97A5) : s.navLabel,
-        hover:        s.navHoverColor,
-        accent:       s.primaryColor,
+        label: dark ? const Color(0xFF8E97A5) : s.navLabel,
+        hover: s.navHoverColor,
+        accent: s.primaryColor,
         accentStrong: dark
             ? s.primaryColor
-            : hsl.withLightness((hsl.lightness - 0.22).clamp(0.0, 1.0)).toColor(),
-        focus:        dark ? const Color(0xFF60A5FA) : const Color(0xFF2563EB),
+            : hsl
+                  .withLightness((hsl.lightness - 0.22).clamp(0.0, 1.0))
+                  .toColor(),
+        focus: dark ? const Color(0xFF60A5FA) : const Color(0xFF2563EB),
       ),
     );
   }
 
   Widget _buildPage() {
     return switch (_page) {
-      OrganizerPage.dashboard     => WebDashboardPage(
-          orgId:      _orgId,
-          name:       _name,
-          onNavigate: _openPage,
-          onOpenEvent: _openEvent,
-        ),
-      OrganizerPage.events        => WebEventsPage(orgId: _orgId, openEventId: _openEventId),
+      OrganizerPage.dashboard => WebDashboardPage(
+        orgId:      _orgId,
+        name:       _name,
+        onNavigate: _openPage,
+        onOpenEvent: _openEvent,
+      ),
+      OrganizerPage.events => WebEventsPage(
+        orgId: _orgId,
+        openEventId: _openEventId,
+      ),
       OrganizerPage.registrations => WebRegistrationsPage(
-          orgId:         _orgId,
-          initialStatus: _reviewFirst ? 'Photo Submitted' : null,
-        ),
+        orgId:         _orgId,
+        initialStatus: _reviewFirst ? 'Photo Submitted' : null,
+      ),
       OrganizerPage.announcements => WebAnnouncementsPage(orgId: _orgId),
-      OrganizerPage.profile       => WebProfilePage(
-          orgId:        _orgId,
-          name:         _name,
-          email:        _email,
-          organization: _organization,
-          onPhotoUpdated: (url) => setState(() => _photoUrl = url),
-          onNavigate:     _openPage,
-        ),
+      OrganizerPage.profile => WebProfilePage(
+        orgId: _orgId,
+        name: _name,
+        email: _email,
+        organization: _organization,
+        onPhotoUpdated: (url) => setState(() => _photoUrl = url),
+        onNavigate: _openPage,
+      ),
     };
   }
 }
@@ -526,17 +591,19 @@ class _OrganizerWebDashboardState extends State<OrganizerWebDashboard>
 // out — the same as the admin's; Profile is in the sidebar). On a narrow
 // window a menu button opens the sidebar as a drawer.
 class _TopBar extends StatelessWidget {
-  final AppTheme      theme;
-  final String?       name;
-  final String?       orgId;
-  final String?       photoUrl;
-  final String        title;
+  final AppTheme theme;
+  final String? name;
+  final String? orgId;
+  final String? photoUrl;
+  final String title;
+
   /// Narrow window: the account button shows only the photo.
-  final bool          compact;
+  final bool compact;
+
   /// Set on narrow windows: opens the sidebar drawer.
   final VoidCallback? onMenuTap;
-  final VoidCallback  onToggleTheme;
-  final VoidCallback  onSignOut;
+  final VoidCallback onToggleTheme;
+  final VoidCallback onSignOut;
 
   const _TopBar({
     required this.theme,
@@ -553,19 +620,23 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final initials = (name ?? '?').trim().split(' ')
+    final initials = (name ?? '?')
+        .trim()
+        .split(' ')
         .where((w) => w.isNotEmpty)
         .map((w) => w[0].toUpperCase())
         .take(2)
         .join();
     final initialsText = Center(
-      child: Text(initials,
+      child: Text(
+        initials,
         style: const TextStyle(
           fontFamily: 'Poppins',
           fontSize: 12.5,
           fontWeight: FontWeight.w700,
           color: Colors.white,
-        )),
+        ),
+      ),
     );
     final avatar = Container(
       width: 34,
@@ -576,8 +647,11 @@ class _TopBar extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: (photoUrl != null && photoUrl!.isNotEmpty)
-          ? Image.network(photoUrl!, fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => initialsText)
+          ? Image.network(
+              photoUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => initialsText,
+            )
           : initialsText,
     );
 
@@ -587,11 +661,7 @@ class _TopBar extends StatelessWidget {
         color: t.card,
         border: Border(bottom: BorderSide(color: t.border)),
         boxShadow: [
-          BoxShadow(
-            color: t.shadow,
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
+          BoxShadow(color: t.shadow, blurRadius: 8, offset: const Offset(0, 2)),
         ],
       ),
       padding: EdgeInsets.symmetric(horizontal: compact ? 12 : kWebPad),
@@ -608,7 +678,8 @@ class _TopBar extends StatelessWidget {
           Expanded(
             child: Semantics(
               header: true,
-              child: Text(title,
+              child: Text(
+                title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -616,7 +687,8 @@ class _TopBar extends StatelessWidget {
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
                   color: t.text,
-                )),
+                ),
+              ),
             ),
           ),
           _NotificationBell(orgId: orgId),
@@ -624,10 +696,10 @@ class _TopBar extends StatelessWidget {
           ValueListenableBuilder<ThemeMode>(
             valueListenable: ThemeStore.notifier,
             builder: (_, mode, _) => WebAccountMenu(
-              name:    name ?? 'Organizer',
-              role:    'Organizer',
-              avatar:  avatar,
-              accent:  theme.primaryColor,
+              name: name ?? 'Organizer',
+              role: 'Organizer',
+              avatar: avatar,
+              accent: theme.primaryColor,
               compact: compact,
               actions: [
                 WebAccountAction(
@@ -656,11 +728,12 @@ class _TopBar extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AppNotif {
-  final String    id;
-  final String    title;
-  final String    subtitle;
-  final IconData  icon;
-  final Color     color;
+  final String id;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+
   /// When it happened — set for admin decisions; reminders have none.
   final DateTime? at;
   const _AppNotif({
@@ -672,12 +745,12 @@ class _AppNotif {
   }) : at = null;
 
   _AppNotif.notice(OrgNotice n)
-      : id = n.id,
-        title = n.title,
-        subtitle = n.message,
-        icon = n.icon,
-        color = n.color,
-        at = n.at;
+    : id = n.id,
+      title = n.title,
+      subtitle = n.message,
+      icon = n.icon,
+      color = n.color,
+      at = n.at;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -694,24 +767,27 @@ class _NotificationBell extends StatefulWidget {
 
 class _NotificationBellState extends State<_NotificationBell> {
   final _layerLink = LayerLink();
-  OverlayEntry?    _entry;
-  Timer?           _refreshTimer;
-  Timer?           _debounce;
+  OverlayEntry? _entry;
+  Timer? _refreshTimer;
+  Timer? _debounce;
   RealtimeChannel? _channel;
-  bool             _open     = false;
-  bool             _loaded   = false;
-  bool             _fetching = false;
-  bool             _again    = false;
-  List<_AppNotif>  _notifs   = [];
+  bool _open = false;
+  bool _loaded = false;
+  bool _fetching = false;
+  bool _again = false;
+  List<_AppNotif> _notifs = [];
+
   /// Not read yet: gold in the panel and counted on the bell. A row is read
   /// once the pointer rests on it or it's clicked, or with "Mark all as
   /// read" — opening the panel doesn't read anything by itself.
-  Set<String>      _unreadIds = {};
+  Set<String> _unreadIds = {};
+
   /// Read ids for [_readUser], kept in memory so quick hovers can't undo
   /// each other's saves.
-  Set<String>      _read = {};
-  String?          _readUser;
+  Set<String> _read = {};
+  String? _readUser;
   final Map<String, Timer> _hoverTimers = {};
+
   /// How long the pointer rests on a row before it counts as read, so
   /// sweeping across the list on the way to something else doesn't.
   static const _readAfterHover = Duration(milliseconds: 500);
@@ -805,9 +881,9 @@ class _NotificationBellState extends State<_NotificationBell> {
   Future<void> _saveRead() async {
     final userId = _readUser;
     if (userId == null) return;
-    final list    = _read.toList();
+    final list = _read.toList();
     final trimmed = list.length > 200 ? list.sublist(list.length - 200) : list;
-    final prefs   = await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_prefKey(userId), trimmed);
   }
 
@@ -861,18 +937,18 @@ class _NotificationBellState extends State<_NotificationBell> {
       if (mounted) setState(() => _loaded = true);
       return;
     }
-    final orgId  = widget.orgId!;
+    final orgId = widget.orgId!;
     final userId = _uid;
-    final now    = DateTime.now();
+    final now = DateTime.now();
 
     String fmtDate(DateTime d) =>
         '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-    final todayStr    = fmtDate(now);
+    final todayStr = fmtDate(now);
     final tomorrowStr = fmtDate(now.add(const Duration(days: 1)));
-    final todayStart  = '${todayStr}T00:00:00';
-    final decisions   = <_AppNotif>[];
-    final reminders   = <_AppNotif>[];
+    final todayStart = '${todayStr}T00:00:00';
+    final decisions = <_AppNotif>[];
+    final reminders = <_AppNotif>[];
 
     try {
       final client = SupabaseService.client;
@@ -880,20 +956,25 @@ class _NotificationBellState extends State<_NotificationBell> {
       // Query 1 — all org events (id + display fields, capped at 200)
       final evtRows = await client
           .from('events')
-          .select('event_id, title, event_date, end_date, start_time, end_time, '
-              'event_status, approval_status, rejection_reason, reviewed_at')
+          .select(
+            'event_id, title, event_date, end_date, start_time, end_time, '
+            'event_status, approval_status, rejection_reason, reviewed_at',
+          )
           .eq('organizer_id', orgId)
           .order('event_date', ascending: true)
           .limit(200);
 
-      final evts   = List<Map<String, dynamic>>.from(evtRows as List);
+      final evts = List<Map<String, dynamic>>.from(evtRows as List);
       final evtIds = evts.map((e) => e['event_id'] as String).toList();
 
       // Admin decisions (approved / rejected events and change requests,
       // removed announcements) — first, newest first. Deliberately NOT gated
       // by OrgNotifPrefs: what happened to your own submission isn't
       // something to silence. Same items as the mobile app.
-      for (final n in await OrganizerNotices.load(organizerId: orgId, events: evts)) {
+      for (final n in await OrganizerNotices.load(
+        organizerId: orgId,
+        events: evts,
+      )) {
         decisions.add(_AppNotif.notice(n));
       }
 
@@ -906,61 +987,78 @@ class _NotificationBellState extends State<_NotificationBell> {
             .gte('registered_at', todayStart);
         final count = (regRows as List).length;
         if (count > 0) {
-          reminders.add(_AppNotif(
-            id:       'signups_today_$todayStr',
-            title:    '$count new sign-up${count == 1 ? '' : 's'} today',
-            subtitle: 'Students registered for your events',
-            icon:     Icons.how_to_reg_rounded,
-            color:    const Color(0xFF8B5CF6),
-          ));
+          reminders.add(
+            _AppNotif(
+              id: 'signups_today_$todayStr',
+              title: '$count new sign-up${count == 1 ? '' : 's'} today',
+              subtitle: 'Students registered for your events',
+              icon: Icons.how_to_reg_rounded,
+              color: const Color(0xFF8B5CF6),
+            ),
+          );
         }
       }
 
       // Ongoing (live) events — status from the clock, like mobile.
-      for (final e in evts
-          .where((e) => eventIsApproved(e) && eventStatusValue(e) == 'ongoing')
-          .take(3)) {
-        reminders.add(_AppNotif(
-          id:       'event_live_${e['event_id']}',
-          title:    e['title'] as String? ?? '—',
-          subtitle: 'Event is live · check in students now',
-          icon:     Icons.radio_button_checked_rounded,
-          color:    const Color(0xFF10B981),
-        ));
+      for (final e
+          in evts
+              .where(
+                (e) => eventIsApproved(e) && eventStatusValue(e) == 'ongoing',
+              )
+              .take(3)) {
+        reminders.add(
+          _AppNotif(
+            id: 'event_live_${e['event_id']}',
+            title: e['title'] as String? ?? '—',
+            subtitle: 'Event is live · check in students now',
+            icon: Icons.radio_button_checked_rounded,
+            color: const Color(0xFF10B981),
+          ),
+        );
       }
 
       // Upcoming events starting today
-      for (final e in evts
-          .where((e) =>
-              eventIsApproved(e) &&
-              eventStatusValue(e) == 'upcoming' &&
-              (e['event_date'] as String?) == todayStr)
-          .take(3)) {
+      for (final e
+          in evts
+              .where(
+                (e) =>
+                    eventIsApproved(e) &&
+                    eventStatusValue(e) == 'upcoming' &&
+                    (e['event_date'] as String?) == todayStr,
+              )
+              .take(3)) {
         final t = webFmtTime(e['start_time'] as String?);
-        reminders.add(_AppNotif(
-          id:       'event_today_${e['event_id']}',
-          title:    e['title'] as String? ?? '—',
-          subtitle: 'Starting today${t.isNotEmpty ? ' at $t' : ''}',
-          icon:     Icons.today_rounded,
-          color:    const Color(0xFF3B82F6),
-        ));
+        reminders.add(
+          _AppNotif(
+            id: 'event_today_${e['event_id']}',
+            title: e['title'] as String? ?? '—',
+            subtitle: 'Starting today${t.isNotEmpty ? ' at $t' : ''}',
+            icon: Icons.today_rounded,
+            color: const Color(0xFF3B82F6),
+          ),
+        );
       }
 
       // Upcoming events starting tomorrow
-      for (final e in evts
-          .where((e) =>
-              eventIsApproved(e) &&
-              eventStatusValue(e) == 'upcoming' &&
-              (e['event_date'] as String?) == tomorrowStr)
-          .take(2)) {
+      for (final e
+          in evts
+              .where(
+                (e) =>
+                    eventIsApproved(e) &&
+                    eventStatusValue(e) == 'upcoming' &&
+                    (e['event_date'] as String?) == tomorrowStr,
+              )
+              .take(2)) {
         final t = webFmtTime(e['start_time'] as String?);
-        reminders.add(_AppNotif(
-          id:       'event_tomorrow_${e['event_id']}',
-          title:    e['title'] as String? ?? '—',
-          subtitle: 'Starting tomorrow${t.isNotEmpty ? ' at $t' : ''}',
-          icon:     Icons.calendar_month_rounded,
-          color:    const Color(0xFFF59E0B),
-        ));
+        reminders.add(
+          _AppNotif(
+            id: 'event_tomorrow_${e['event_id']}',
+            title: e['title'] as String? ?? '—',
+            subtitle: 'Starting tomorrow${t.isNotEmpty ? ' at $t' : ''}',
+            icon: Icons.calendar_month_rounded,
+            color: const Color(0xFFF59E0B),
+          ),
+        );
       }
 
       // Respect per-user preferences (Profile → Notifications) — same
@@ -968,15 +1066,17 @@ class _NotificationBellState extends State<_NotificationBell> {
       if (userId != null) {
         final disabledCats = await OrgNotifPrefs.disabled(userId);
         if (disabledCats.isNotEmpty) {
-          reminders.removeWhere((n) =>
-              (disabledCats.contains(OrgNotifPrefs.signups) &&
-                  n.id.startsWith('signups_today_')) ||
-              (disabledCats.contains(OrgNotifPrefs.live) &&
-                  n.id.startsWith('event_live_')) ||
-              (disabledCats.contains(OrgNotifPrefs.today) &&
-                  n.id.startsWith('event_today_')) ||
-              (disabledCats.contains(OrgNotifPrefs.tomorrow) &&
-                  n.id.startsWith('event_tomorrow_')));
+          reminders.removeWhere(
+            (n) =>
+                (disabledCats.contains(OrgNotifPrefs.signups) &&
+                    n.id.startsWith('signups_today_')) ||
+                (disabledCats.contains(OrgNotifPrefs.live) &&
+                    n.id.startsWith('event_live_')) ||
+                (disabledCats.contains(OrgNotifPrefs.today) &&
+                    n.id.startsWith('event_today_')) ||
+                (disabledCats.contains(OrgNotifPrefs.tomorrow) &&
+                    n.id.startsWith('event_tomorrow_')),
+          );
         }
       }
     } catch (e) {
@@ -996,7 +1096,10 @@ class _NotificationBellState extends State<_NotificationBell> {
       _notifs = result;
       _loaded = true;
       // New arrivals stay unread (gold) even while the panel is open.
-      _unreadIds = {for (final n in result) if (!_read.contains(n.id)) n.id};
+      _unreadIds = {
+        for (final n in result)
+          if (!_read.contains(n.id)) n.id,
+      };
     });
     _entry?.markNeedsBuild();
   }
@@ -1029,21 +1132,18 @@ class _NotificationBellState extends State<_NotificationBell> {
 
   Widget _buildOverlay() {
     return GestureDetector(
-      onTap:    _close,
+      onTap: _close,
       behavior: HitTestBehavior.opaque,
       child: SizedBox.expand(
         child: Stack(
           children: [
             CompositedTransformFollower(
-              link:             _layerLink,
+              link: _layerLink,
               showWhenUnlinked: false,
-              targetAnchor:     Alignment.bottomRight,
-              followerAnchor:   Alignment.topRight,
-              offset:           const Offset(0, 8),
-              child: GestureDetector(
-                onTap: () {},
-                child: _buildPanel(),
-              ),
+              targetAnchor: Alignment.bottomRight,
+              followerAnchor: Alignment.topRight,
+              offset: const Offset(0, 8),
+              child: GestureDetector(onTap: () {}, child: _buildPanel()),
             ),
           ],
         ),
@@ -1066,9 +1166,9 @@ class _NotificationBellState extends State<_NotificationBell> {
           border: Border.all(color: t.border),
           boxShadow: [
             BoxShadow(
-              color:      t.shadow,
+              color: t.shadow,
               blurRadius: 20,
-              offset:     const Offset(0, 8),
+              offset: const Offset(0, 8),
             ),
           ],
         ),
@@ -1078,53 +1178,64 @@ class _NotificationBellState extends State<_NotificationBell> {
             // ── Header ───────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 13, 12, 11),
-              child: Row(children: [
-                Icon(Icons.notifications_rounded, size: 15, color: t.text),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('Notifications',
-                    style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                      fontWeight: FontWeight.w700, color: t.text)),
-                ),
-                Text(
-                  newCount > 0 ? '$newCount new' : 'Recent activity',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 10.5,
-                    fontWeight: newCount > 0 ? FontWeight.w600 : FontWeight.w400,
-                    color: t.sub,
-                  ),
-                ),
-                if (newCount > 0) ...[
-                  const SizedBox(width: 10),
-                  Semantics(
-                    button: true,
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        onTap: () => _markRead([..._unreadIds]),
-                        child: Text('Mark all as read',
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w600,
-                            // Darker gold on light cards for contrast.
-                            color: t.dark ? kGold : kSwalGold,
-                          )),
+              child: Row(
+                children: [
+                  Icon(Icons.notifications_rounded, size: 15, color: t.text),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Notifications',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: t.text,
                       ),
                     ),
                   ),
-                ],
-                const SizedBox(width: 8),
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    onTap: _close,
-                    child: Icon(Icons.close_rounded,
-                      size: 15, color: t.sub),
+                  Text(
+                    newCount > 0 ? '$newCount new' : 'Recent activity',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 10.5,
+                      fontWeight: newCount > 0
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                      color: t.sub,
+                    ),
                   ),
-                ),
-              ]),
+                  if (newCount > 0) ...[
+                    const SizedBox(width: 10),
+                    Semantics(
+                      button: true,
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          onTap: () => _markRead([..._unreadIds]),
+                          child: Text(
+                            'Mark all as read',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              // Darker gold on light cards for contrast.
+                              color: t.dark ? kGold : kSwalGold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(width: 8),
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTap: _close,
+                      child: Icon(Icons.close_rounded, size: 15, color: t.sub),
+                    ),
+                  ),
+                ],
+              ),
             ),
             Divider(height: 1, color: t.border),
 
@@ -1132,29 +1243,46 @@ class _NotificationBellState extends State<_NotificationBell> {
             if (_notifs.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 24, vertical: 28),
+                  horizontal: 24,
+                  vertical: 28,
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
-                      width: 48, height: 48,
+                      width: 48,
+                      height: 48,
                       decoration: BoxDecoration(
                         color: const Color(0xFF10B981).withValues(alpha: 0.08),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.check_circle_outline_rounded,
-                        size: 24, color: Color(0xFF10B981)),
+                      child: const Icon(
+                        Icons.check_circle_outline_rounded,
+                        size: 24,
+                        color: Color(0xFF10B981),
+                      ),
                     ),
                     const SizedBox(height: 12),
-                    Text("You're all caught up!",
-                      style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                        fontWeight: FontWeight.w600, color: t.text),
-                      textAlign: TextAlign.center),
+                    Text(
+                      "You're all caught up!",
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: t.text,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: 4),
-                    Text('Admin approvals, sign-ups and event reminders show up here.',
-                      style: TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11, color: t.sub),
-                      textAlign: TextAlign.center),
+                    Text(
+                      'Admin approvals, sign-ups and event reminders show up here.',
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 11,
+                        color: t.sub,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ],
                 ),
               )
@@ -1177,11 +1305,11 @@ class _NotificationBellState extends State<_NotificationBell> {
 
   Widget _buildItem(_AppNotif n, WebTk t) {
     final isNew = _unreadIds.contains(n.id);
-    final gold  = kGold.withValues(alpha: t.dark ? 0.10 : 0.07);
+    final gold = kGold.withValues(alpha: t.dark ? 0.10 : 0.07);
     // Resting the pointer on an unread row (or clicking it) reads it.
     return MouseRegion(
       onEnter: (_) => _hoverStart(n.id),
-      onExit:  (_) => _hoverEnd(n.id),
+      onExit: (_) => _hoverEnd(n.id),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => _markRead([n.id]),
@@ -1194,7 +1322,8 @@ class _NotificationBellState extends State<_NotificationBell> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 36, height: 36,
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
                   color: n.color.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(10),
@@ -1206,27 +1335,47 @@ class _NotificationBellState extends State<_NotificationBell> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(children: [
-                      Expanded(
-                        child: Text(n.title,
-                          style: TextStyle(fontFamily: 'Poppins', fontSize: 12,
-                            fontWeight: FontWeight.w600, color: t.text),
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                      ),
-                      if (n.at != null) ...[
-                        const SizedBox(width: 8),
-                        Text(noticeTimeAgo(n.at!),
-                          style: TextStyle(fontFamily: 'Poppins',
-                            fontSize: 10, color: t.sub)),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            n.title,
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: t.text,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (n.at != null) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            noticeTimeAgo(n.at!),
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 10,
+                              color: t.sub,
+                            ),
+                          ),
+                        ],
                       ],
-                    ]),
+                    ),
                     const SizedBox(height: 2),
                     // Admin decisions carry the reason — show it in full.
-                    Text(n.subtitle,
-                      style: TextStyle(fontFamily: 'Poppins',
-                        fontSize: 11, height: 1.45, color: t.sub),
+                    Text(
+                      n.subtitle,
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 11,
+                        height: 1.45,
+                        color: t.sub,
+                      ),
                       maxLines: n.at != null ? 5 : 1,
-                      overflow: TextOverflow.ellipsis),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ),
               ),
@@ -1241,8 +1390,12 @@ class _NotificationBellState extends State<_NotificationBell> {
                       opacity: isNew ? 1 : 0,
                       duration: const Duration(milliseconds: 350),
                       child: Container(
-                        width: 7, height: 7,
-                        decoration: const BoxDecoration(color: kGold, shape: BoxShape.circle),
+                        width: 7,
+                        height: 7,
+                        decoration: const BoxDecoration(
+                          color: kGold,
+                          shape: BoxShape.circle,
+                        ),
                       ),
                     ),
                   ),
@@ -1259,7 +1412,7 @@ class _NotificationBellState extends State<_NotificationBell> {
 
   @override
   Widget build(BuildContext context) {
-    final t     = WebTk(Theme.of(context).brightness == Brightness.dark);
+    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final count = _loaded ? _unreadIds.length : 0;
     final label = count == 0
         ? 'Notifications'
@@ -1277,12 +1430,14 @@ class _NotificationBellState extends State<_NotificationBell> {
               onTap: _toggle,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 130),
-                width: 36, height: 36,
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
                   color: _open ? t.divider : Colors.transparent,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: _open ? t.border : Colors.transparent),
+                    color: _open ? t.border : Colors.transparent,
+                  ),
                 ),
                 child: Stack(
                   clipBehavior: Clip.none,
@@ -1293,11 +1448,13 @@ class _NotificationBellState extends State<_NotificationBell> {
                             ? Icons.notifications_active_rounded
                             : Icons.notifications_rounded,
                         size: 18,
-                        color: count > 0 ? kGold : t.sub),
+                        color: count > 0 ? kGold : t.sub,
+                      ),
                     ),
                     if (count > 0)
                       Positioned(
-                        top: 2, right: 1,
+                        top: 2,
+                        right: 1,
                         child: Container(
                           constraints: const BoxConstraints(minWidth: 16),
                           height: 16,

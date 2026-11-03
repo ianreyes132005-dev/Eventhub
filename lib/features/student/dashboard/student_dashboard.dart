@@ -35,14 +35,6 @@ String _greeting() {
   return 'Good evening';
 }
 
-String _todayFormatted() {
-  final now    = DateTime.now();
-  const days   = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const months = ['Jan','Feb','Mar','Apr','May','Jun',
-                  'Jul','Aug','Sep','Oct','Nov','Dec'];
-  return '${days[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
-}
-
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 class StudentDashboard extends StatefulWidget {
@@ -56,6 +48,8 @@ class _StudentDashboardState extends State<StudentDashboard>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _selectedIndex     = 0;
   int _notificationCount = 0;
+  final _eventsController = StudentEventsController();
+  bool _handledNotificationRoute = false;
   /// What the bell lists — the open sheet follows it live.
   final _bellNotifs = ValueNotifier<List<StudentNotif>>(const []);
 
@@ -75,7 +69,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   int     _finishedAttended   = 0;
 
   /// The latest announcements (Home lists the first three; the rest are
-  /// counted in "N new" — the bell doesn't count announcements).
+  /// counted in "N new").
   List<Map<String, dynamic>> _announcements         = [];
   List<Map<String, dynamic>> _upcomingRegistrations = [];
   /// Every registration from the last load, so the clock can re-sort them
@@ -125,6 +119,19 @@ class _StudentDashboardState extends State<StudentDashboard>
       if (mounted && !_homeLoading) setState(_applyClock);
     });
     NotifReadStore.unreadNotifier.addListener(_onNotifCountChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_handledNotificationRoute) return;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is! Map || args['event_id'] is! String) return;
+    _handledNotificationRoute = true;
+    final eventId = args['event_id'] as String;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_openEventNotification(eventId));
+    });
   }
 
   void _onNotifCountChanged() {
@@ -441,6 +448,13 @@ class _StudentDashboardState extends State<StudentDashboard>
     if (backHome && !_homeLoading) _loadHomeData(silent: true);
   }
 
+  Future<void> _openEventNotification(String eventId) async {
+    if (!mounted) return;
+    _onNavBarTapped(1);
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) await _eventsController.openEvent(eventId);
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   // BUILD
   // ══════════════════════════════════════════════════════════════════════════
@@ -455,7 +469,7 @@ class _StudentDashboardState extends State<StudentDashboard>
           index: _selectedIndex,
           children: [
             _buildHomeScreen(t),
-            const StudentAllEventsPage(),
+            StudentAllEventsPage(controller: _eventsController),
             const ProfileBody(),
           ],
         ),
@@ -616,8 +630,6 @@ class _StudentDashboardState extends State<StudentDashboard>
                         color: t.muted,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    _DateChip(t: t),
                   ],
                 ),
                 const SizedBox(height: 1),
@@ -649,7 +661,11 @@ class _StudentDashboardState extends State<StudentDashboard>
     return GestureDetector(
       onTap: () {
         HapticFeedback.lightImpact();
-        showStudentNotifications(context, _bellNotifs);
+        showStudentNotifications(
+          context,
+          _bellNotifs,
+          onOpenEvent: _openEventNotification,
+        );
       },
       child: Semantics(
         button: true,
@@ -1684,39 +1700,6 @@ class _VertDivider extends StatelessWidget {
       width: 1,
       margin: const EdgeInsets.symmetric(vertical: 16),
       color: t.divider,
-    );
-  }
-}
-
-class _DateChip extends StatelessWidget {
-  final AppTk t;
-  const _DateChip({required this.t});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: kGold.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: kGold.withValues(alpha: 0.22)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.calendar_today_rounded, size: 9, color: kGold),
-          const SizedBox(width: 4),
-          Text(
-            _todayFormatted(),
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 9.5,
-              fontWeight: FontWeight.w700,
-              color: kGold,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

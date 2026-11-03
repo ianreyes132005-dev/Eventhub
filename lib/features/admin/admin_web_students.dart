@@ -16,6 +16,15 @@ import 'admin_shared.dart';
 import 'admin_web_student_import.dart';
 import '../../shared/utils/lrn_input_formatter.dart';
 
+const _studentNameColumnWidth = 220.0;
+const _studentLrnColumnWidth = 160.0;
+const _studentGradeColumnWidth = 120.0;
+const _studentSectionColumnWidth = 100.0;
+const _studentRegsColumnWidth = 80.0;
+const _studentStatusColumnWidth = 110.0;
+const _studentCreatedColumnWidth = 130.0;
+const _studentActionsColumnWidth = 108.0;
+
 class AdminStudentsPage extends StatefulWidget {
   const AdminStudentsPage({super.key});
   @override
@@ -136,8 +145,10 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
         setState(() {
           _loading = false;
           _error = true;
-          _errorMsg = friendlyError(e,
-              fallback: 'The students couldn’t be loaded. Please try again.');
+          _errorMsg = friendlyError(
+            e,
+            fallback: 'The students couldn’t be loaded. Please try again.',
+          );
         });
     }
   }
@@ -184,6 +195,10 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
       } else if (_sortField == 'year_level') {
         cmp = ((a['year_level'] as int?) ?? 0).compareTo(
           (b['year_level'] as int?) ?? 0,
+        );
+      } else if (_sortField == 'section') {
+        cmp = (a['section'] as String? ?? '').compareTo(
+          b['section'] as String? ?? '',
         );
       } else if (_sortField == 'is_active') {
         final ai = a['is_active'] == true ? 1 : 0;
@@ -267,8 +282,9 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
           .toSet();
       if (updatedLrns.isEmpty) {
         throw const FriendlyException(
-            'None of the selected students could be updated. They may have '
-            'been removed, or you don’t have permission to change them.');
+          'None of the selected students could be updated. They may have '
+          'been removed, or you don’t have permission to change them.',
+        );
       }
 
       for (final student in _all) {
@@ -290,14 +306,20 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
                 '${updatedLrns.length} student accounts have been deactivated.',
           );
         } else {
-          adminErrorAlert(context,
-              FriendlyException('${updatedLrns.length} students were deactivated, but '
-                  '$failedCount couldn’t be updated. Please try those again.'),
-              title: 'Some students weren’t updated', icon: SwalIcon.warning);
+          adminErrorAlert(
+            context,
+            FriendlyException(
+              '${updatedLrns.length} students were deactivated, but '
+              '$failedCount couldn’t be updated. Please try those again.',
+            ),
+            title: 'Some students weren’t updated',
+            icon: SwalIcon.warning,
+          );
         }
       }
     } catch (e) {
-      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t deactivate the students');
+      if (mounted)
+        adminErrorAlert(context, e, title: 'Couldn’t deactivate the students');
     } finally {
       if (mounted) setState(() => _bulkWorking = false);
     }
@@ -331,8 +353,9 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
           .toSet();
       if (updatedLrns.isEmpty) {
         throw const FriendlyException(
-            'None of the selected students could be updated. They may have '
-            'been removed, or you don’t have permission to change them.');
+          'None of the selected students could be updated. They may have '
+          'been removed, or you don’t have permission to change them.',
+        );
       }
 
       for (final student in _all) {
@@ -353,14 +376,20 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
             message: '${updatedLrns.length} student accounts are active again.',
           );
         } else {
-          adminErrorAlert(context,
-              FriendlyException('${updatedLrns.length} students were activated, but '
-                  '$failedCount couldn’t be updated. Please try those again.'),
-              title: 'Some students weren’t updated', icon: SwalIcon.warning);
+          adminErrorAlert(
+            context,
+            FriendlyException(
+              '${updatedLrns.length} students were activated, but '
+              '$failedCount couldn’t be updated. Please try those again.',
+            ),
+            title: 'Some students weren’t updated',
+            icon: SwalIcon.warning,
+          );
         }
       }
     } catch (e) {
-      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t activate the students');
+      if (mounted)
+        adminErrorAlert(context, e, title: 'Couldn’t activate the students');
     } finally {
       if (mounted) setState(() => _bulkWorking = false);
     }
@@ -375,7 +404,8 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
     try {
       kept = await _withArchivedAttendance(lrns);
     } catch (e) {
-      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t delete the students');
+      if (mounted)
+        adminErrorAlert(context, e, title: 'Couldn’t delete the students');
       return;
     }
     if (!mounted) return;
@@ -383,7 +413,10 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
       await _offerDeactivate(lrns);
       return;
     }
-    lrns = [for (final l in lrns) if (!kept.contains(l)) l];
+    lrns = [
+      for (final l in lrns)
+        if (!kept.contains(l)) l,
+    ];
 
     final ok = await WebAlert.confirm(
       context: context,
@@ -392,12 +425,12 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
           : 'Delete ${lrns.length} of the Selected Students?',
       message: kept.isEmpty
           ? 'This permanently removes the selected profiles, revokes '
-            'their login access, and deletes their event registration history. '
-            'This cannot be undone.'
+                'their login access, and deletes their event registration history. '
+                'This cannot be undone.'
           : '${kept.length} of the selected students ${kept.length == 1 ? 'has' : 'have'} '
-            'attendance in archived events, so they can only be deactivated — they stay '
-            'selected. Deleting the other ${lrns.length} permanently removes their profiles, '
-            'login access and registration history. This cannot be undone.',
+                'attendance in archived events, so they can only be deactivated — they stay '
+                'selected. Deleting the other ${lrns.length} permanently removes their profiles, '
+                'login access and registration history. This cannot be undone.',
       confirmLabel: kept.isEmpty ? 'Delete Students' : 'Delete ${lrns.length}',
       confirmColor: const Color(0xFFEF4444),
       iconColor: const Color(0xFFEF4444),
@@ -420,7 +453,9 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
               ? Map<String, dynamic>.from(response.data as Map)
               : null;
           if (response.status != 200) {
-            failures.add('$lrn: ${friendlyError(body?['message'], fallback: 'It couldn’t be deleted.')}');
+            failures.add(
+              '$lrn: ${friendlyError(body?['message'], fallback: 'It couldn’t be deleted.')}',
+            );
           } else {
             deletedLrns.add(lrn);
           }
@@ -445,10 +480,15 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
                 'registration history have been removed.',
           );
         } else {
-          adminErrorAlert(context,
-              FriendlyException('${deletedLrns.length} students were deleted, but '
-                  '${failures.length} couldn’t be and are still selected. ${failures.first}'),
-              title: 'Some students weren’t deleted', icon: SwalIcon.warning);
+          adminErrorAlert(
+            context,
+            FriendlyException(
+              '${deletedLrns.length} students were deleted, but '
+              '${failures.length} couldn’t be and are still selected. ${failures.first}',
+            ),
+            title: 'Some students weren’t deleted',
+            icon: SwalIcon.warning,
+          );
         }
       }
     } finally {
@@ -465,6 +505,7 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
           field == 'full_name' ||
           field == 'lrn' ||
           field == 'year_level' ||
+          field == 'section' ||
           field == 'is_active';
     }
     _applyFilter(resetPage: true);
@@ -492,8 +533,13 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
           .select();
       if ((updated as List).isEmpty) {
         if (mounted) {
-          adminErrorAlert(context, _notUpdated,
-              title: cur ? 'Couldn’t deactivate the student' : 'Couldn’t activate the student');
+          adminErrorAlert(
+            context,
+            _notUpdated,
+            title: cur
+                ? 'Couldn’t deactivate the student'
+                : 'Couldn’t activate the student',
+          );
         }
         return;
       }
@@ -517,15 +563,21 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
       }
     } catch (e) {
       if (mounted) {
-        adminErrorAlert(context, e,
-            title: cur ? 'Couldn’t deactivate the student' : 'Couldn’t activate the student');
+        adminErrorAlert(
+          context,
+          e,
+          title: cur
+              ? 'Couldn’t deactivate the student'
+              : 'Couldn’t activate the student',
+        );
       }
     }
   }
 
   static const _notUpdated = FriendlyException(
-      'This student couldn’t be updated — the record may have been removed, '
-      'or you don’t have permission to change it.');
+    'This student couldn’t be updated — the record may have been removed, '
+    'or you don’t have permission to change it.',
+  );
 
   Future<void> _editStudent(Map<String, dynamic> student) async {
     final result = await showDialog<Map<String, dynamic>?>(
@@ -541,7 +593,12 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
           .eq('lrn', student['lrn'] as String)
           .select();
       if ((updated as List).isEmpty) {
-        if (mounted) adminErrorAlert(context, _notUpdated, title: 'Couldn’t save the student');
+        if (mounted)
+          adminErrorAlert(
+            context,
+            _notUpdated,
+            title: 'Couldn’t save the student',
+          );
         return;
       }
       final idx = _all.indexWhere((s) => s['lrn'] == student['lrn']);
@@ -558,9 +615,14 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
         );
         if (err != null) {
           if (mounted) {
-            adminErrorAlert(context,
-                FriendlyException('The profile was saved, but the password wasn’t reset. $err'),
-                title: 'Password not reset', icon: SwalIcon.warning);
+            adminErrorAlert(
+              context,
+              FriendlyException(
+                'The profile was saved, but the password wasn’t reset. $err',
+              ),
+              title: 'Password not reset',
+              icon: SwalIcon.warning,
+            );
           }
           return;
         }
@@ -576,7 +638,8 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
         );
       }
     } catch (e) {
-      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t save the student');
+      if (mounted)
+        adminErrorAlert(context, e, title: 'Couldn’t save the student');
     }
   }
 
@@ -605,14 +668,18 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
                 ? Map<String, dynamic>.from(res.data as Map)
                 : null;
             if (res.status != 200) {
-              return friendlyError(body?['message'],
-                  fallback: 'The account couldn’t be created. Please try again.');
+              return friendlyError(
+                body?['message'],
+                fallback: 'The account couldn’t be created. Please try again.',
+              );
             }
             return null; // success
           } catch (e) {
             debugPrint('create-student failed: $e');
-            return friendlyError(e,
-                fallback: 'The account couldn’t be created. Please try again.');
+            return friendlyError(
+              e,
+              fallback: 'The account couldn’t be created. Please try again.',
+            );
           }
         },
       ),
@@ -644,7 +711,8 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
   Future<Set<String>> _withArchivedAttendance(List<String> lrns) async {
     final byLrn = {for (final s in _all) s['lrn'] as String?: s};
     final counts = await EventArchiveService.archivedAttendanceByStudent(
-        lrns.map((l) => byLrn[l]?['user_id'] as String?));
+      lrns.map((l) => byLrn[l]?['user_id'] as String?),
+    );
     return {
       for (final l in lrns)
         if ((counts[byLrn[l]?['user_id']] ?? 0) > 0) l,
@@ -660,27 +728,35 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
     ];
     final one = lrns.length == 1;
     final who = one ? _studentName(lrns.first) : '${lrns.length} students';
-    final r = await Swal.fire(context,
+    final r = await Swal.fire(
+      context,
       icon: SwalIcon.info,
-      title: one ? 'This student can’t be deleted' : 'These students can’t be deleted',
-      text: '$who ${one ? 'has' : 'have'} attendance in archived events. Archived attendance '
+      title: one
+          ? 'This student can’t be deleted'
+          : 'These students can’t be deleted',
+      text:
+          '$who ${one ? 'has' : 'have'} attendance in archived events. Archived attendance '
           'is kept as the school’s record, so ${one ? 'this account' : 'these accounts'} can '
           'be deactivated but not deleted. '
-          '${active.isEmpty
-              ? (one ? 'It’s already deactivated.' : 'They’re already deactivated.')
-              : 'A deactivated student can’t sign in, and their records stay complete.'}',
+          '${active.isEmpty ? (one ? 'It’s already deactivated.' : 'They’re already deactivated.') : 'A deactivated student can’t sign in, and their records stay complete.'}',
       showCancelButton: active.isNotEmpty,
       confirmButtonText: active.isEmpty
           ? 'OK'
-          : one ? 'Deactivate instead' : 'Deactivate ${active.length}',
-      confirmButtonColor: active.isEmpty ? kSwalConfirmColor : const Color(0xFFB45309),
+          : one
+          ? 'Deactivate instead'
+          : 'Deactivate ${active.length}',
+      confirmButtonColor: active.isEmpty
+          ? kSwalConfirmColor
+          : const Color(0xFFB45309),
       cancelButtonText: 'Close',
       preConfirm: active.isEmpty
           ? null
           : (_) async {
               try {
                 final done = await _deactivate(active);
-                return done.isEmpty ? 'Nothing was changed. Please try again.' : null;
+                return done.isEmpty
+                    ? 'Nothing was changed. Please try again.'
+                    : null;
               } catch (e) {
                 return friendlyError(e);
               }
@@ -689,11 +765,13 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
     if (!r.isConfirmed || active.isEmpty || !mounted) return;
     await WebAlert.success(
       context: context,
-      title: active.length == 1 ? 'Student Deactivated' : 'Students Deactivated',
+      title: active.length == 1
+          ? 'Student Deactivated'
+          : 'Students Deactivated',
       message: active.length == 1
           ? 'The student can no longer log in. Their attendance records are kept.'
           : '${active.length} student accounts have been deactivated. Their attendance '
-            'records are kept.',
+                'records are kept.',
     );
   }
 
@@ -705,7 +783,8 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
         .in_('lrn', lrns)
         .select('lrn');
     final done = {
-      for (final r in updated as List) (r as Map<String, dynamic>)['lrn'] as String,
+      for (final r in updated as List)
+        (r as Map<String, dynamic>)['lrn'] as String,
     };
     for (final s in _all) {
       if (done.contains(s['lrn'])) s['is_active'] = false;
@@ -724,7 +803,8 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
         return;
       }
     } catch (e) {
-      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t delete the student');
+      if (mounted)
+        adminErrorAlert(context, e, title: 'Couldn’t delete the student');
       return;
     }
     final ok = await WebAlert.confirm(
@@ -746,9 +826,12 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
           : null;
       if (res.status != 200) {
         if (mounted) {
-          adminErrorAlert(context, body?['message'],
-              title: 'Couldn’t delete the student',
-              fallback: 'The student couldn’t be deleted. Please try again.');
+          adminErrorAlert(
+            context,
+            body?['message'],
+            title: 'Couldn’t delete the student',
+            fallback: 'The student couldn’t be deleted. Please try again.',
+          );
         }
         return;
       }
@@ -761,7 +844,8 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
           message: 'Student record removed and login access revoked.',
         );
     } catch (e) {
-      if (mounted) adminErrorAlert(context, e, title: 'Couldn’t delete the student');
+      if (mounted)
+        adminErrorAlert(context, e, title: 'Couldn’t delete the student');
     }
   }
 
@@ -1032,7 +1116,9 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
                               icon: Icons.person_add_outlined,
                               backgroundColor: const Color(0xFFE4F8EE),
                               foregroundColor: const Color(0xFF087443),
-                              onTap: _bulkWorking ? () {} : _bulkActivateStudents,
+                              onTap: _bulkWorking
+                                  ? () {}
+                                  : _bulkActivateStudents,
                             ),
                             const SizedBox(width: 8),
                             _StudentBulkActionButton(
@@ -1183,8 +1269,8 @@ class _StudentRowState extends State<_StudentRow> {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
     final s = widget.student;
     final active = s['is_active'] == true;
-    final linked = s['user_id'] != null;
     final yr = s['year_level'] as int?;
+    final section = (s['section'] as String?)?.trim();
     final initials = (s['full_name'] as String? ?? '?')
         .trim()
         .split(' ')
@@ -1255,9 +1341,9 @@ class _StudentRowState extends State<_StudentRow> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      // Name + "no auth" warning
-                      Expanded(
-                        flex: 3,
+                      // Name
+                      SizedBox(
+                        width: _studentNameColumnWidth,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -1272,22 +1358,12 @@ class _StudentRowState extends State<_StudentRow> {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            if (!linked)
-                              const Text(
-                                'No auth account',
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 10,
-                                  color: Color(0xFFF59E0B),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
                           ],
                         ),
                       ),
                       // LRN
-                      Expanded(
-                        flex: 2,
+                      SizedBox(
+                        width: _studentLrnColumnWidth,
                         child: Text(
                           formatLrn(s['lrn'] as String? ?? '—'),
                           style: TextStyle(
@@ -1300,7 +1376,8 @@ class _StudentRowState extends State<_StudentRow> {
                         ),
                       ),
                       // Year level badge
-                      Expanded(
+                      SizedBox(
+                        width: _studentGradeColumnWidth,
                         child: yr != null
                             ? Container(
                                 padding: const EdgeInsets.symmetric(
@@ -1342,8 +1419,23 @@ class _StudentRowState extends State<_StudentRow> {
                                 ),
                               ),
                       ),
+                      // Section
+                      SizedBox(
+                        width: _studentSectionColumnWidth,
+                        child: Text(
+                          section == null || section.isEmpty ? '—' : section,
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12,
+                            color: t.sub,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       // Registration count
-                      Expanded(
+                      SizedBox(
+                        width: _studentRegsColumnWidth,
                         child: widget.regCount > 0
                             ? Container(
                                 padding: const EdgeInsets.symmetric(
@@ -1400,46 +1492,16 @@ class _StudentRowState extends State<_StudentRow> {
                               ),
                       ),
                       // Status badge
-                      Expanded(
+                      SizedBox(
+                        width: _studentStatusColumnWidth,
                         child: WebStatusBadge(
                           label: active ? 'Active' : 'Inactive',
                           color: active ? const Color(0xFF10B981) : t.muted,
                         ),
                       ),
-                      // Account link status — amber when unlinked
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 7,
-                              height: 7,
-                              decoration: BoxDecoration(
-                                color: linked
-                                    ? const Color(0xFF10B981)
-                                    : const Color(0xFFF59E0B),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              linked ? 'Linked' : 'No account',
-                              style: TextStyle(
-                                fontFamily: 'Poppins',
-                                fontSize: 11.5,
-                                fontWeight: linked
-                                    ? FontWeight.w400
-                                    : FontWeight.w600,
-                                color: linked
-                                    ? const Color(0xFF10B981)
-                                    : const Color(0xFFF59E0B),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                       // Created date
-                      Expanded(
-                        flex: 2,
+                      SizedBox(
+                        width: _studentCreatedColumnWidth,
                         child: Text(
                           webFmtDate(s['created_at'] as String?),
                           style: TextStyle(
@@ -1449,10 +1511,11 @@ class _StudentRowState extends State<_StudentRow> {
                           ),
                         ),
                       ),
+                      const Spacer(),
                       // Actions — always visible so they're discoverable without hovering
                       // (and never focusable/clickable while invisible).
                       SizedBox(
-                        width: 108,
+                        width: _studentActionsColumnWidth,
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
@@ -1860,30 +1923,17 @@ class _StudentTableHeader extends StatelessWidget {
     required this.onToggleAll,
   });
 
-  Widget _sortCol(String label, String field, {int flex = 1}) => Expanded(
-    flex: flex,
-    child: AdminSortColBtn(
-      label: label,
-      field: field,
-      active: sortField == field,
-      asc: sortAsc && sortField == field,
-      onSort: onSort,
-    ),
-  );
-
-  Widget _staticCol(String label, Color color, {int flex = 1}) => Expanded(
-    flex: flex,
-    child: Text(
-      label,
-      style: TextStyle(
-        fontFamily: 'Poppins',
-        fontSize: 10.5,
-        fontWeight: FontWeight.w700,
-        color: color,
-        letterSpacing: 0.8,
-      ),
-    ),
-  );
+  Widget _sortCol(String label, String field, {required double width}) =>
+      SizedBox(
+        width: width,
+        child: AdminSortColBtn(
+          label: label,
+          field: field,
+          active: sortField == field,
+          asc: sortAsc && sortField == field,
+          onSort: onSort,
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -1910,17 +1960,19 @@ class _StudentTableHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          _sortCol('FULL NAME', 'full_name', flex: 3),
-          _sortCol('LRN', 'lrn', flex: 2),
-          _sortCol('GRADE', 'year_level'),
-          _sortCol('REGS', 'reg_count'),
-          _sortCol('STATUS', 'is_active'),
-          _staticCol('AUTH', t.sub),
-          _sortCol('CREATED', 'created_at', flex: 2),
+          const SizedBox(width: 52),
+          _sortCol('FULL NAME', 'full_name', width: _studentNameColumnWidth),
+          _sortCol('LRN', 'lrn', width: _studentLrnColumnWidth),
+          _sortCol('GRADE', 'year_level', width: _studentGradeColumnWidth),
+          _sortCol('SECTION', 'section', width: _studentSectionColumnWidth),
+          _sortCol('REGS', 'reg_count', width: _studentRegsColumnWidth),
+          _sortCol('STATUS', 'is_active', width: _studentStatusColumnWidth),
+          _sortCol('CREATED', 'created_at', width: _studentCreatedColumnWidth),
+          const Spacer(),
           // Same width as the row's 3 action buttons (3×32 + 2×6 gaps), so
           // centring it puts it over the middle (Activate/Deactivate) button.
           SizedBox(
-            width: 108,
+            width: _studentActionsColumnWidth,
             child: Text(
               'ACTIONS',
               textAlign: TextAlign.center,
@@ -1943,9 +1995,8 @@ class _StudentTableHeader extends StatelessWidget {
 // Three short sections — Student · Grade level · Login — with labels above
 // every field and errors shown inline under the field that caused them.
 //   • LRN: the school prefix (123456 - 26) is filled in and the admin types
-//     only the last 4 digits; "Different LRN prefix?" switches to all 12
-//     (transferees, other enrollment years). The student signs in with the
-//     full LRN, shown live under the field.
+//     only the last 4 digits. The student signs in with the full LRN, shown
+//     live under the field.
 //   • Grade: compact number chips grouped by level; Strand slides in for 11–12.
 //   • Password: one visible field + Generate, since the admin has to hand it
 //     to the student and there is no self-service reset.
@@ -1964,10 +2015,8 @@ class _StudentDialogState extends State<_StudentDialog>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double> _scale, _fade;
-  // The last 4 digits after kSchoolLrnPrefix — or, with _fullLrn, the whole
-  // 12-digit LRN (auto-formatted).
+  // The last 4 digits after kSchoolLrnPrefix.
   final _lrnCtrl = TextEditingController();
-  bool _fullLrn = false;
   final _sectionCtrl = TextEditingController();
   final _lastCtrl = TextEditingController();
   final _firstCtrl = TextEditingController();
@@ -1982,7 +2031,6 @@ class _StudentDialogState extends State<_StudentDialog>
   int? _selectedYear;
   String? _selectedStrand;
   Map<String, String> _errors = {};
-
 
   static const _strandNames = {
     'STEM': 'Science, Technology, Engineering & Mathematics',
@@ -2054,17 +2102,13 @@ class _StudentDialogState extends State<_StudentDialog>
   // ── Validation / submit ────────────────────────────────────────────────────
 
   // The full 12-digit LRN the form describes.
-  String get _lrn => _fullLrn
-      ? lrnDigits(_lrnCtrl.text)
-      : '$kSchoolLrnPrefix${lrnDigits(_lrnCtrl.text)}';
+  String get _lrn => '$kSchoolLrnPrefix${lrnDigits(_lrnCtrl.text)}';
 
   Map<String, String> _validate() {
     final yr = _selectedYear;
     return {
-      if (!_isEdit && lrnDigits(_lrnCtrl.text).length != (_fullLrn ? 12 : 4))
-        'lrn': _fullLrn
-            ? 'Enter the full 12-digit LRN'
-            : 'Enter the last 4 digits of the LRN',
+      if (!_isEdit && lrnDigits(_lrnCtrl.text).length != 4)
+        'lrn': 'Enter the last 4 digits of the LRN',
       if (_lastCtrl.text.trim().isEmpty) 'last': 'Last name is required',
       if (_firstCtrl.text.trim().isEmpty) 'first': 'First name is required',
       if (yr == null || yr < 7 || yr > 12) 'grade': 'Select a grade level',
@@ -2116,7 +2160,11 @@ class _StudentDialogState extends State<_StudentDialog>
     if (err != null) {
       setState(() => _saving = false);
       // [err] is already in plain words (friendlyError in onCreate).
-      adminErrorAlert(context, FriendlyException(err), title: 'Couldn’t create the account');
+      adminErrorAlert(
+        context,
+        FriendlyException(err),
+        title: 'Couldn’t create the account',
+      );
       return;
     }
     Navigator.of(context).pop(true); // true = success
@@ -2163,7 +2211,6 @@ class _StudentDialogState extends State<_StudentDialog>
               body: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-
                   // ── Student ────────────────────────────────────────────────
                   _section('STUDENT', t),
                   _label('LRN', t),
@@ -2385,86 +2432,46 @@ class _StudentDialogState extends State<_StudentDialog>
       '${kSchoolLrnPrefix.substring(0, 6)} - ${kSchoolLrnPrefix.substring(6)}';
 
   // Add mode: the school prefix sits inside the field and only the last 4
-  // digits are typed. "Different LRN prefix?" switches to all 12 digits.
+  // digits are typed.
   Widget _lrnField(WebTk t) {
-    final complete = lrnDigits(_lrnCtrl.text).length == (_fullLrn ? 12 : 4);
+    final complete = lrnDigits(_lrnCtrl.text).length == 4;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         TextField(
-          key: ValueKey(_fullLrn),   // a fresh field (and focus) after switching
           controller: _lrnCtrl,
           enabled: !_saving,
           autofocus: true,
           keyboardType: TextInputType.number,
           textInputAction: TextInputAction.next,
-          inputFormatters: _fullLrn
-              ? const [LrnInputFormatter()]
-              : [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(4),
-                ],
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(4),
+          ],
           onChanged: (_) {
             _clearError('lrn');
-            setState(() {});   // keeps the "signs in with …" line live
+            setState(() {}); // keeps the "signs in with …" line live
           },
           style: _inputStyle(t).copyWith(
             fontFeatures: const [FontFeature.tabularFigures()],
             letterSpacing: 0.5,
           ),
-          decoration: _deco(_fullLrn ? '123456 - 26 - 0001' : '0001', t,
-              error: _errors['lrn']).copyWith(
+          decoration: _deco('0001', t, error: _errors['lrn']).copyWith(
             // The school prefix is shown as part of the field — never typed.
-            prefixIcon: _fullLrn ? null : adminFieldPrefix('$_schoolPrefix -', t),
-            prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+            prefixIcon: adminFieldPrefix('$_schoolPrefix -', t),
+            prefixIconConstraints: const BoxConstraints(
+              minWidth: 0,
+              minHeight: 0,
+            ),
             helperText: _errors['lrn'] != null
                 ? null
                 : complete
-                    ? 'The student signs in with ${formatLrn(_lrn)}'
-                    : _fullLrn
-                        ? 'Type all 12 digits — the student signs in with this LRN.'
-                        : 'Type the last 4 digits — the student signs in with the full LRN.',
-          ),
-        ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton(
-            onPressed: _saving ? null : _toggleLrnMode,
-            style: TextButton.styleFrom(
-              foregroundColor: kAdminAccent,
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              textStyle: const TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                  fontWeight: FontWeight.w600),
-            ),
-            child: Text(_fullLrn
-                ? 'Use the school prefix ($_schoolPrefix)'
-                : 'Different LRN prefix?'),
+                ? 'The student signs in with ${formatLrn(_lrn)}'
+                : 'Type the last 4 digits — the student signs in with the full LRN.',
           ),
         ),
       ],
     );
-  }
-
-  void _toggleLrnMode() {
-    final digits = lrnDigits(_lrnCtrl.text);
-    setState(() {
-      _errors.remove('lrn');
-      _fullLrn = !_fullLrn;
-      if (_fullLrn) {
-        // Start from the school prefix so only the part that differs is retyped.
-        _lrnCtrl.text = const LrnInputFormatter()
-            .formatEditUpdate(TextEditingValue.empty,
-                TextEditingValue(text: '$kSchoolLrnPrefix$digits'))
-            .text;
-      } else {
-        // Keep the last 4 digits when the LRN already uses the school prefix.
-        _lrnCtrl.text = digits.length == 12 && digits.startsWith(kSchoolLrnPrefix)
-            ? digits.substring(8)
-            : '';
-      }
-    });
   }
 
   Widget _nameField(
@@ -2544,8 +2551,6 @@ class _StudentDialogState extends State<_StudentDialog>
 
   Widget _inlineError(String text, {bool indent = false}) =>
       adminFormInlineError(text, indent: indent ? 96 : 0);
-
-
 
   TextStyle _inputStyle(WebTk t) => adminInputStyle(t);
 

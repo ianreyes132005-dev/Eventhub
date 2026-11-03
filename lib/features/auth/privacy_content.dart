@@ -14,7 +14,8 @@ const eventHubPrivacy = <({IconData icon, String title, String body})>[
         '• Organizers: name, username and organization\n'
         '• Events: your registrations, QR ticket and Ticket ID, check-in status and time, the reason if a check-in is declined, and the reason if you were checked in by hand or your attendance was corrected by the school administrator\n'
         '• Photos: the selfie taken during check-in, and a profile photo if you add one\n'
-        '• Activity: sign-in records (name, role, LRN or username, app or web, and time), records of organizer and administrator actions (such as event approvals, check-ins and attendance corrections, with who did them, when, and the student concerned), your AI assistant chats, which notifications you have read, and your app settings\n\n'
+        '• Activity: sign-in records (name, role, LRN or username, app or web, and time), records of organizer and administrator actions (such as event approvals, check-ins and attendance corrections, with who did them, when, and the student concerned), your AI assistant chats, which notifications you have read, and your app settings\n'
+        '• Phone notifications: if you allow them, a notification token for your phone, so EventHub can send notifications to it\n\n'
         'EventHub does not ask for your email address, phone number or home address. You sign in with your LRN or username.',
   ),
   (
@@ -24,7 +25,7 @@ const eventHubPrivacy = <({IconData icon, String title, String body})>[
         '• Signing you in and keeping your account secure\n'
         '• Registering you for events and issuing your ticket — your grade and strand decide which events you can register for, as some are only for certain grades or strands\n'
         '• Checking you in, including the check-in selfie\n'
-        '• Showing announcements and event updates\n'
+        '• Showing announcements and event updates, in the app and, if you allow it, as notifications on your phone\n'
         '• Attendance records and reports for organizers and the school\n'
         '• Answering the questions you ask the AI assistant',
   ),
@@ -47,12 +48,13 @@ const eventHubPrivacy = <({IconData icon, String title, String body})>[
     title: 'Services We Use',
     body: 'EventHub runs on Supabase, which stores the database and photos and handles sign-in, over encrypted connections.\n\n'
         'Messages you type into the AI assistant are sent to Groq, an AI service, to write the answer. The assistant is not given your profile or records. Do not type passwords or personal details into it.\n\n'
+        'Phone notifications are delivered through Firebase Cloud Messaging, a Google service. It receives your phone’s notification token and the notification’s title and text, such as an event name or a check-in update.\n\n'
         'Your information is not sold or used for advertising.',
   ),
   (
     icon: Icons.access_time_outlined,
     title: 'How Long It Is Kept',
-    body: 'Records are kept for as long as the school uses them for events and attendance. Sign-in and activity records are kept for at least 90 days; after that, the school administrator can clear them. When the school administrator archives a finished event, its check-in selfies are deleted and its attendance is kept as a read-only record. The administrator can permanently delete archived events, which deletes their registrations and attendance.\n\n'
+    body: 'Records are kept for as long as the school uses them for events and attendance. Sign-in and activity records are kept until the school administrator clears them. Your phone’s notification token is removed when you log out or when it stops working. When the school administrator archives a finished event, its check-in selfies are deleted and its attendance is kept as a read-only record. The administrator can permanently delete archived events, which deletes their registrations and attendance.\n\n'
         'Accounts can be deleted, except accounts with attendance in archived events: those are deactivated instead, so the school’s records stay complete.',
   ),
   (
@@ -64,7 +66,8 @@ const eventHubPrivacy = <({IconData icon, String title, String body})>[
         '• Cancel a registration until check-in opens (1 hour before the event starts), if your ticket hasn’t been scanned\n'
         '• Ask the school administrator to correct your attendance if it’s wrong once check-in has closed\n'
         '• Say Not now when asked for a check-in photo (you may not be checked in without one)\n'
-        '• Choose which notifications you get in Profile → Notifications',
+        '• Choose which notifications you get in Profile → Notifications\n'
+        '• Allow or turn off phone notifications for EventHub in your phone’s settings',
   ),
   (
     icon: Icons.mail_outline_rounded,

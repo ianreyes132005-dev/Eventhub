@@ -8,8 +8,8 @@ import 'user_settings_cloud.dart';
 /// Categories default to enabled — only disabled ones are persisted.
 /// Verification requests (selfie required / photo submitted) are intentionally
 /// NOT a category: organizers depend on them for attendance, so they can
-/// never be silenced. Announcements aren't one either — they're on Home, not
-/// under the bell (an old saved 'announcements' entry is simply ignored).
+/// never be silenced. Announcements aren't a category either; they appear in
+/// the Home feed and notification bell.
 class StudentNotifPrefs {
   static const checkins = 'checkins';
 

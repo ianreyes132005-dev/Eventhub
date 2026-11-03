@@ -51,31 +51,21 @@ class _ProfileBodyState extends State<ProfileBody> {
       : _isShs ? 'Senior High' : (_year! >= 7 && _year! <= 10 ? 'Junior High' : '');
   String  memberSince     = '';
   String? profilePhotoUrl;
-  /// The student's registrations with their events — the stats card counts
-  /// them as it builds, so the clock can move events into "finished".
-  List<Map<String, dynamic>> _regs = [];
-  int get registeredEvents => _regs.length;
-  int get checkedIn => _regs.where((r) => r['status'] == 'checked_in').length;
 
   String _langCode = AppLangPrefs.english;
   /// From the installed build (pubspec version), not typed by hand.
   String _version = '';
   String _build = '';
 
-  // Live: registering, every check-in step, an admin editing the student's
-  // name, grade or section, and event changes all refresh the tab.
+  // Live: an admin editing the student's name, grade or section.
   RealtimeChannel? _channel;
   Timer? _debounce;
-  Timer? _clock;
 
   @override
   void initState() {
     super.initState();
     _loadProfile();
     _subscribe();
-    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
-    });
     PackageInfo.fromPlatform().then((info) {
       if (mounted) {
         setState(() {
@@ -88,7 +78,6 @@ class _ProfileBodyState extends State<ProfileBody> {
 
   @override
   void dispose() {
-    _clock?.cancel();
     _debounce?.cancel();
     if (_channel != null) SupabaseService.client.removeChannel(_channel!);
     super.dispose();
@@ -104,19 +93,7 @@ class _ProfileBodyState extends State<ProfileBody> {
       });
     }
 
-    // registrations and events aren't filtered: RLS limits them to what the
-    // student can see, and a filtered channel never hears deletes.
     _channel = SupabaseService.client.channel('student-profile-$uid')
-      ..on(
-        RealtimeListenTypes.postgresChanges,
-        ChannelFilter(event: '*', schema: 'public', table: 'registrations'),
-        (_, [_]) => soon(),
-      )
-      ..on(
-        RealtimeListenTypes.postgresChanges,
-        ChannelFilter(event: '*', schema: 'public', table: 'events'),
-        (_, [_]) => soon(),
-      )
       ..on(
         RealtimeListenTypes.postgresChanges,
         ChannelFilter(
@@ -136,11 +113,6 @@ class _ProfileBodyState extends State<ProfileBody> {
       if (user == null) { setState(() => _loading = false); return; }
 
       final studentRow = await SupabaseService.getProfile();
-
-      final regs = await SupabaseService.client
-          .from('registrations')
-          .select('status, events(*)')
-          .eq('student_user_id', user.id);
 
       final langCode = await AppLangPrefs.code(user.id);
 
@@ -164,7 +136,6 @@ class _ProfileBodyState extends State<ProfileBody> {
         _section         = sec == null || sec.isEmpty ? null : sec;
         memberSince      = dt != null ? '${mos[dt.month - 1]} ${dt.year}' : '—';
         profilePhotoUrl  = studentRow?['profile_image_url'] as String?;
-        _regs            = List<Map<String, dynamic>>.from(regs as List);
         _loading = false;
       });
     } catch (e) {
@@ -195,8 +166,6 @@ class _ProfileBodyState extends State<ProfileBody> {
                   _buildTitle(t),
                   const SizedBox(height: 18),
                   _buildIdentityCard(t),
-                  const SizedBox(height: 14),
-                  _buildStatsCard(t),
                   const SizedBox(height: 24),
                   _buildSectionHeader('Account', t),
                   const SizedBox(height: 8),
@@ -390,102 +359,6 @@ class _ProfileBodyState extends State<ProfileBody> {
           letterSpacing: highlight ? 0.4 : 0,
           color: highlight ? const Color(0xFFB8861C) : t.sub)),
   );
-
-  // ── Stats card ────────────────────────────────────────────────────────────
-
-  Widget _buildStatsCard(AppTk t) {
-    if (registeredEvents == 0) {
-      return Container(
-        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
-        decoration: BoxDecoration(
-          color: t.card,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: t.border),
-          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 12, offset: const Offset(0, 4))],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 52, height: 52,
-              decoration: BoxDecoration(
-                color: t.border,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.event_busy_rounded, size: 24, color: t.muted),
-            ),
-            const SizedBox(height: 14),
-            Text('No events yet',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
-                  fontWeight: FontWeight.w700, color: t.text)),
-            const SizedBox(height: 4),
-            Text('Register for an event to start\ntracking your activity',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                  color: t.muted, height: 1.55)),
-          ],
-        ),
-      );
-    }
-
-    // Same as Home: attended ÷ events that are over (check-in closed, not
-    // cancelled) — an event still ahead can't have been attended yet.
-    final now      = DateTime.now();
-    final finished = _regs.where((r) => registrationIsFinished(r, now: now)).toList();
-    final attendancePct = finished.isEmpty
-        ? null
-        : (finished.where((r) => r['status'] == 'checked_in').length /
-                finished.length * 100)
-            .round();
-    return Container(
-      decoration: BoxDecoration(
-        color: t.card,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: t.border),
-        boxShadow: [BoxShadow(color: t.shadow, blurRadius: 12, offset: const Offset(0, 4))],
-      ),
-      child: Row(
-        children: [
-          _statTile(Icons.event_rounded,        registeredEvents.toString(), 'Registered', kGold,                    t),
-          _vertDivider(t),
-          _statTile(Icons.check_circle_rounded, checkedIn.toString(),        'Attended',   const Color(0xFF10B981), t),
-          _vertDivider(t),
-          _statTile(Icons.insights_rounded,     attendancePct == null ? '—' : '$attendancePct%',           'Attendance', const Color(0xFF3B82F6), t),
-        ],
-      ),
-    );
-  }
-
-  Widget _vertDivider(AppTk t) => Container(width: 1, height: 60, color: t.divider);
-
-  Widget _statTile(IconData icon, String value, String label, Color color, AppTk t) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 34, height: 34,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, size: 16, color: color),
-            ),
-            const SizedBox(height: 9),
-            Text(value,
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 20,
-                  fontWeight: FontWeight.w800, color: t.text)),
-            const SizedBox(height: 2),
-            Text(label,
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 9.5,
-                  fontWeight: FontWeight.w500, color: t.muted, letterSpacing: 0.2)),
-          ],
-        ),
-      ),
-    );
-  }
 
   // ── Section header ────────────────────────────────────────────────────────
 
@@ -904,7 +777,7 @@ class _ProfileBodyState extends State<ProfileBody> {
   Widget _buildLanguageTile(AppTk t) => _prefTile(t,
       icon:     Icons.translate_rounded,
       title:    'Language',
-      trailing: AppLangPrefs.label(_langCode),
+      trailing: 'English',
       onTap:    _showLanguageSheet);
 
   Future<void> _showLanguageSheet() async {
@@ -1029,26 +902,9 @@ class _ProfileBodyState extends State<ProfileBody> {
                 Navigator.pop(ctx);
               },
             ),
-            langRow(
-              badge:      'FIL',
-              name:       'Filipino',
-              subtitle:   'Tagalog',
-              comingSoon: true,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Filipino (Tagalog) is coming soon.'),
-                    behavior: SnackBarBehavior.floating,
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              },
-            ),
             const SizedBox(height: 12),
             _sheetNote(t,
-                'More languages are on the way. Your choice is saved and '
-                'will apply across the app once available.'),
+                'English is currently the only available language.'),
           ],
         );
       },

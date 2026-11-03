@@ -88,17 +88,25 @@ WITH checks (topic, finding, ok) AS (
                      FROM storage.buckets WHERE id = 'event-banners'), 'no bucket'),
          EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'event-banners' AND public)
   UNION ALL
-  -- Clearing logs keeps the last 90 days (202610270001). Any other DELETE (or
-  -- ALL) policy on the log tables, e.g. one added in the dashboard, would let
-  -- recent entries be deleted again.
-  SELECT 'Log entries from the last 90 days can''t be deleted',
+  -- Log clearing is available to admins for entries of any age (202611040002).
+  -- Check that both policies are admin-scoped and no 90-day restriction remains.
+  SELECT 'Admins can clear login and event logs of any age',
          COALESCE((SELECT string_agg(tablename || ': ' || policyname, ', ') FROM pg_policies
                     WHERE schemaname = 'public' AND tablename IN ('event_logs', 'login_logs')
                       AND cmd IN ('DELETE', 'ALL')), 'no delete policy'),
-         NOT EXISTS (SELECT 1 FROM pg_policies
+         EXISTS (SELECT 1 FROM pg_policies
+                  WHERE schemaname = 'public' AND tablename = 'event_logs'
+                    AND policyname = 'admin_delete_event_logs'
+                    AND cmd = 'DELETE' AND qual ILIKE '%admins%')
+         AND EXISTS (SELECT 1 FROM pg_policies
+                  WHERE schemaname = 'public' AND tablename = 'login_logs'
+                    AND policyname = 'admin_delete_login_logs'
+                    AND cmd = 'DELETE' AND qual ILIKE '%admins%')
+         AND NOT EXISTS (SELECT 1 FROM pg_policies
                       WHERE schemaname = 'public' AND tablename IN ('event_logs', 'login_logs')
                         AND cmd IN ('DELETE', 'ALL')
-                        AND COALESCE(qual, '') NOT ILIKE '%90 days%')
+                        AND (COALESCE(qual, '') NOT ILIKE '%admins%'
+                             OR COALESCE(qual, '') ILIKE '%90 days%'))
 )
 SELECT CASE WHEN ok THEN '✓' ELSE '✗' END AS status, topic, finding
 FROM checks

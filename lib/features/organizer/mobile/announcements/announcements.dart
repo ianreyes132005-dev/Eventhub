@@ -203,13 +203,6 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                   'Announcements',
                   style: TextStyle(fontFamily: 'Poppins', fontSize: 22, fontWeight: FontWeight.w800, color: t.text, height: 1.1),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  _loading
-                      ? 'Loading…'
-                      : '${_all.length} announcement${_all.length == 1 ? '' : 's'}',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.sub),
-                ),
               ],
             ),
           ),

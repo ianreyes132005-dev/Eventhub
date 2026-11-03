@@ -10,6 +10,7 @@ import '../../core/services/supabase_service.dart';
 import '../../core/services/audit_service.dart';
 import '../../core/services/rate_limit_service.dart';
 import '../../core/services/notif_read_store.dart';
+import '../../core/services/push_notification_service.dart';
 import '../../shared/widgets/gradient_button.dart';
 import '../../shared/widgets/app_alert.dart';
 import '../../shared/widgets/error_alert.dart';
@@ -995,6 +996,20 @@ class _AuthScreenState extends State<AuthScreen> {
           timer: const Duration(milliseconds: 1200),
           timerProgressBar: true,
           allowOutsideClick: false,
+        );
+      }
+      final pushResult = await PushNotificationService.enableForUser(user.id);
+      if ((pushResult == PushSetupResult.notConfigured ||
+              pushResult == PushSetupResult.unavailable) &&
+          mounted) {
+        await AppAlert.info(
+          context,
+          title: 'Push notifications are not ready',
+          message:
+              'EventHub can still be used, but outside-the-app notifications '
+              'could not be enabled. Firebase and the Supabase push setup '
+              'must be configured for this Android app.'
+              '${PushNotificationService.lastSetupError == null ? '' : '\n\nSetup detail: ${PushNotificationService.lastSetupError}'}',
         );
       }
       if (mounted) {

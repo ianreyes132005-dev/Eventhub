@@ -68,6 +68,23 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
         count:        (prev?.count ?? 0) + (inTab ? 1 : 0),
       );
     }
+    if (_tab == 'all') {
+      for (final request in _changeRequests) {
+        final event = request['events'] as Map<String, dynamic>?;
+        final id = event?['organizer_id'] as String?;
+        if (id == null) continue;
+        final org = event?['organizers'] as Map<String, dynamic>?;
+        final prev = byId[id];
+        byId[id] = _OrgOption(
+          id: id,
+          name: (org?['full_name'] as String?)?.trim().isNotEmpty == true
+              ? org!['full_name'] as String
+              : id,
+          organization: org?['organization'] as String?,
+          count: (prev?.count ?? 0) + 1,
+        );
+      }
+    }
     return byId.values.toList()
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   }
@@ -204,6 +221,27 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
     setState(() => _filtered = list);
   }
 
+  int _compareEvents(Map<String, dynamic> a, Map<String, dynamic> b) {
+    int comparison;
+    if (_sortField == 'title') {
+      comparison = (a['title'] as String? ?? '')
+          .compareTo(b['title'] as String? ?? '');
+    } else if (_sortField == 'organizer_name') {
+      final aName =
+          ((a['organizers'] as Map<String, dynamic>?)?['full_name'] as String? ?? '');
+      final bName =
+          ((b['organizers'] as Map<String, dynamic>?)?['full_name'] as String? ?? '');
+      comparison = aName.compareTo(bName);
+    } else if (_sortField == 'event_date') {
+      comparison = (a['event_date'] as String? ?? '')
+          .compareTo(b['event_date'] as String? ?? '');
+    } else {
+      comparison = (a['created_at'] as String? ?? '')
+          .compareTo(b['created_at'] as String? ?? '');
+    }
+    return _sortAsc ? comparison : -comparison;
+  }
+
   void _clearFilters() {
     _search = ''; _orgFilter = null;
     _searchCtrl.clear();
@@ -308,7 +346,8 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
       if (q.isEmpty) return true;
       final title = (ev?['title'] as String? ?? '').toLowerCase();
       final org   = ((ev?['organizers'] as Map?)?['full_name'] as String? ?? '').toLowerCase();
-      return title.contains(q) || org.contains(q);
+      final type  = (ev?['event_type'] as String? ?? '').toLowerCase();
+      return title.contains(q) || org.contains(q) || type.contains(q);
     }).toList();
   }
 
@@ -371,26 +410,36 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
     final approvedCount = countFor('approved');
     final rejectedCount = countFor('rejected');
     final tabTotal      = switch (_tab) {
-      'all' => _all.length,
+      'all' => _all.length + _changeRequests.length,
       'changes' => _changeRequests.length,
       _ => countFor(_tab),
     };
 
     final hasFilter = _search.isNotEmpty || _orgFilter != null;
     final orgOpts   = _orgOptions;
+    final tableRows = <_EventTableEntry>[
+      for (final event in _filtered) _EventTableEntry(event: event),
+      if (_tab == 'all')
+        for (final request in _visibleChangeRequests)
+          _EventTableEntry(
+            event: Map<String, dynamic>.from(request['events'] as Map? ?? const {}),
+            changeRequest: request,
+          ),
+    ]..sort((a, b) => _compareEvents(a.event, b.event));
     // Current page (clamped — a review or filter can shrink the list).
-    final pageCount = _filtered.isEmpty
-        ? 1 : (_filtered.length + kAdminPageSize - 1) ~/ kAdminPageSize;
+    final pageCount = tableRows.isEmpty
+        ? 1 : (tableRows.length + kAdminPageSize - 1) ~/ kAdminPageSize;
     final page      = _page.clamp(0, pageCount - 1);
-    final pageRows  = _filtered.skip(page * kAdminPageSize).take(kAdminPageSize).toList();
-    // Review column: always on Pending; on All only when a pending row is
-    // on this page. Every row reserves it so STATUS lines up in a mixed list.
+    final pageRows  = tableRows.skip(page * kAdminPageSize).take(kAdminPageSize).toList();
+    // Keep the review column visible on pages containing actionable rows.
     final showAction = _tab == 'pending' || (_tab == 'all' &&
-        pageRows.any((e) => approvalStatusOf(e) == 'pending'));
+        pageRows.any((row) =>
+            row.changeRequest != null || approvalStatusOf(row.event) == 'pending'));
     final tabLabel = switch (_tab) {
       'pending'  => 'events pending review',
       'approved' => 'approved events',
       'rejected' => 'rejected events',
+      'all'      => 'events and change requests',
       _          => 'events',
     };
     final emptySubtitle = hasFilter
@@ -451,7 +500,7 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
                     WebFilterOption(
                       value: 'all',
                       label: 'All',
-                      count: _all.length,
+                      count: _all.length + _changeRequests.length,
                     ),
                     WebFilterOption(
                       value: 'pending',
@@ -519,7 +568,7 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
               onReview: _reviewChangeRequest,
             ),
           )
-        else if (_filtered.isEmpty)
+        else if (tableRows.isEmpty)
           Padding(
             padding: const EdgeInsets.all(kWebPad),
             child: WebEmptyState(
@@ -550,21 +599,32 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: pageRows.length,
-                  separatorBuilder: (_, _) => Divider(height: 1, color: t.border),
+                  separatorBuilder: (_, _) =>
+                      Divider(height: 1, color: t.border),
                   itemBuilder: (_, i) {
-                    final e = pageRows[i];
-                    final isPending = approvalStatusOf(e) == 'pending';
+                    final row = pageRows[i];
+                    final request = row.changeRequest;
+                    if (request != null) {
+                      return _ChangeRequestRow(
+                        request: request,
+                        onReview: () => _reviewChangeRequest(request),
+                      );
+                    }
+                    final event = row.event;
+                    final isPending = approvalStatusOf(event) == 'pending';
                     return _EventRow(
-                      event: e,
-                      onReview: isPending ? () => _openReview(e) : null,
+                      event: event,
+                      onReview: isPending ? () => _openReview(event) : null,
                       reserveAction: showAction,
-                      resubmittedAfter: isPending ? _lastRejection[e['event_id']] : null,
+                      resubmittedAfter: isPending
+                          ? _lastRejection[event['event_id']]
+                          : null,
                     );
                   },
                 ),
                 AdminPaginationBar(
                   page:       page,
-                  total:      _filtered.length,
+                  total:      tableRows.length,
                   unfiltered: hasFilter ? tabTotal : null,
                   noun:       tabLabel,
                   onPage:     (p) => setState(() => _page = p),
@@ -575,6 +635,13 @@ class _AdminEventsPageState extends State<AdminEventsPage> {
       ]),
     );
   }
+}
+
+class _EventTableEntry {
+  final Map<String, dynamic> event;
+  final Map<String, dynamic>? changeRequest;
+
+  const _EventTableEntry({required this.event, this.changeRequest});
 }
 
 // ─── Event type color helper ──────────────────────────────────────────────────
@@ -1657,6 +1724,12 @@ class _ChangeRequestRow extends StatelessWidget {
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5, color: t.muted)),
                 ],
               )),
+              Expanded(
+                child: WebStatusBadge(
+                  label: 'Change request',
+                  color: _kChangeBlue,
+                ),
+              ),
               SizedBox(width: 96, child: Align(
                 alignment: Alignment.centerRight,
                 child: _EventReviewBtn(onTap: onReview),

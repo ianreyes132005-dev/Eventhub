@@ -52,34 +52,19 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     'organization': 'Not set',
     'memberSince': '—',
     'profileImage': null,
-    'managedEvents': 0,
-    'activeEvents': 0,
-    'registeredParticipants': 0,
     'status': 'Active',
   };
 
-  // Live while the tab is on screen: an admin editing the account and any
-  // change to this organizer's events (approvals, sign-ups through the
-  // participant count, cancellations) refresh it in place. Hidden, it waits
-  // and reloads when the tab is opened again.
+  // Live while the tab is on screen: an admin editing the account. Hidden, it
+  // waits and reloads when the tab is opened again.
   RealtimeChannel? _channel;
   Timer? _debounce;
-  // "Active events" (upcoming or ongoing) moves with the clock.
-  Timer? _clock;
-  List<Map<String, dynamic>> _events = [];
   bool _loaded = false;     // shown once — later loads are quiet
 
   @override
   void initState() {
     super.initState();
     _loadProfile();
-    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (!mounted || !_loaded || !widget.isVisible) return;
-      final active = activeApprovedEventCount(_events);
-      if (active != _organizer['activeEvents']) {
-        setState(() => _organizer['activeEvents'] = active);
-      }
-    });
   }
 
   @override
@@ -90,7 +75,6 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
 
   @override
   void dispose() {
-    _clock?.cancel();
     _debounce?.cancel();
     if (_channel != null) SupabaseService.client.removeChannel(_channel!);
     super.dispose();
@@ -114,16 +98,6 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
           schema: 'public',
           table: 'organizers',
           filter: 'user_id=eq.$userId',
-        ),
-        (_, [_]) => soon(),
-      )
-      ..on(
-        RealtimeListenTypes.postgresChanges,
-        ChannelFilter(
-          event: '*',
-          schema: 'public',
-          table: 'events',
-          filter: 'organizer_id=eq.$organizerId',
         ),
         (_, [_]) => soon(),
       )
@@ -162,27 +136,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
 
       final orgId = orgRow['organizer_id'] as String;
 
-      final events = await SupabaseService.client
-          .from('events')
-          .select(
-            'event_id, event_status, approval_status, archived_at, event_date, '
-            'end_date, start_time, end_time, current_participants',
-          )
-          .eq('organizer_id', orgId);
-
-      final eventList = List<Map<String, dynamic>>.from(events as List);
       _subscribe(user.id, orgId);
-      final activeCount = activeApprovedEventCount(eventList);
-      final totalCount = totalApprovedEventCount(eventList);
-      // History: archived events still count (archiving only hides them).
-      final totalParticipants = eventList.fold<int>(
-        0,
-        (sum, e) =>
-            sum +
-            (eventIsApproved(e)
-                ? (e['current_participants'] as int? ?? 0)
-                : 0),
-      );
 
       final fn = orgRow['full_name'] as String? ?? '';
       final created = orgRow['created_at'] as String?;
@@ -220,12 +174,8 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
             return '${mos[dt.month - 1]} ${dt.year}';
           }(),
           'profileImage': orgRow['profile_image_url'],
-          'managedEvents': totalCount,
-          'activeEvents': activeCount,
-          'registeredParticipants': totalParticipants,
           'status': orgRow['is_active'] == true ? 'Active' : 'Inactive',
         };
-        _events = eventList;
         _langCode = langCode;
         _appVersion = packageInfo.version;
         _appBuild = packageInfo.buildNumber;
@@ -314,8 +264,6 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
                     _buildTitle(t),
                     const SizedBox(height: 18),
                     _buildIdentityCard(t),
-                    const SizedBox(height: 14),
-                    _buildStatsCard(t),
                     const SizedBox(height: 24),
                     _listLabel('Account', t),
                     const SizedBox(height: 8),
@@ -752,138 +700,6 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
       ],
     ),
   );
-
-  // ── Stats card ────────────────────────────────────────────────────────────
-
-  Widget _buildStatsCard(AppTk t) {
-    final total = _organizer['managedEvents'] as int? ?? 0;
-    final active = _organizer['activeEvents'] as int? ?? 0;
-    final registered = _organizer['registeredParticipants'] as int? ?? 0;
-
-    if (total == 0) {
-      return _card(
-        t: t,
-        margin: const EdgeInsets.symmetric(horizontal: 20),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: t.border,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.event_busy_rounded, size: 24, color: t.muted),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'No events yet',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: t.text,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Create your first event to\nstart tracking your activity',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 11.5,
-                  color: t.muted,
-                  height: 1.55,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return _card(
-      t: t,
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        children: [
-          _statTile(Icons.event_rounded, '$total', 'Total Events', kGold, t),
-          _vertDivider(t),
-          _statTile(
-            Icons.bolt_rounded,
-            '$active',
-            'Active',
-            const Color(0xFF10B981),
-            t,
-          ),
-          _vertDivider(t),
-          _statTile(
-            Icons.people_rounded,
-            '$registered',
-            'Registered',
-            const Color(0xFF3B82F6),
-            t,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _vertDivider(AppTk t) =>
-      Container(width: 1, height: 60, color: t.divider);
-
-  Widget _statTile(
-    IconData icon,
-    String value,
-    String label,
-    Color color,
-    AppTk t,
-  ) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, size: 17, color: color),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: t.text,
-                height: 1.0,
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 9.5,
-                color: t.muted,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   // ── Account information ────────────────────────────────────────────────────
 
@@ -1349,7 +1165,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     t,
     icon: Icons.translate_rounded,
     title: 'Language',
-    trailing: AppLangPrefs.label(_langCode),
+    trailing: 'English',
     onTap: _showLanguageSheet,
   );
 
@@ -1568,22 +1384,6 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
                   Navigator.pop(ctx);
                 },
               ),
-              langRow(
-                badge: 'FIL',
-                name: 'Filipino',
-                subtitle: 'Tagalog',
-                comingSoon: true,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Filipino (Tagalog) is coming soon.'),
-                      behavior: SnackBarBehavior.floating,
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                },
-              ),
               const SizedBox(height: 12),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1598,8 +1398,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'More languages are on the way. Your choice is saved '
-                        'and will apply across the app once available.',
+                        'English is currently the only available language.',
                         style: TextStyle(
                           fontFamily: 'Poppins',
                           fontSize: 10,

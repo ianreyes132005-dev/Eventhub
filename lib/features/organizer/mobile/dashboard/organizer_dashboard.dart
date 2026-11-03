@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:math' as math;
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../registrations/organizer_registrations_ui.dart'
+    show registrationInitials, registrationStatusColor, registrationStatusLabel;
 import '../registrations/organizer_registrations.dart' as regs;
 import '../events/organizer_events.dart' as events;
 import '../profile/profile.dart';
@@ -15,10 +15,16 @@ import '../../../../shared/widgets/app_loader.dart';
 import '../../../../shared/widgets/app_alert.dart';
 import '../../../../shared/widgets/live_countdown.dart';
 import '../../../../shared/widgets/notification_sheet.dart';
+import '../../../../shared/widgets/registration_progress_card.dart';
+import '../../../../shared/utils/registration_progress.dart'
+    show dailySignups, kSignupChartDays, registrationProgressEvents;
 import '../../../../core/app_colors.dart';
 import '../../../../core/services/org_notif_prefs.dart';
 import '../../../../core/services/account_session_guard.dart';
 import '../../../../core/services/organizer_notices.dart';
+import '../../../../core/services/registration_service.dart';
+import '../../../../core/services/student_count_service.dart';
+import '../../../../core/event_audience.dart' show GradeCount;
 import '../../../../shared/widgets/error_alert.dart';
 import '../../../../shared/utils/realtime_utils.dart';
 import 'dashboard_metrics.dart';
@@ -30,26 +36,6 @@ String _greeting() {
   if (h < 12) return 'Good morning';
   if (h < 17) return 'Good afternoon';
   return 'Good evening';
-}
-
-String _todayFormatted() {
-  final now = DateTime.now();
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  return '${days[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
 }
 
 String _fmtNotifTime(String? t) {
@@ -91,9 +77,12 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
   bool _dashError = false;
   bool _hasAnyEvents = false;
   String? _organizerName;
-  String? _photoUrl;
-  List<int> _weeklyRegistrations = List<int>.filled(DateTime.daysPerWeek, 0);
-  List<Map<String, dynamic>> _eventAttendance = [];
+  // Registration progress card (shared with the web Dashboard).
+  List<Map<String, dynamic>> _events = [];
+  List<Map<String, dynamic>> _registrations = [];
+  List<Map<String, dynamic>> _recentRegistrations = [];
+  List<GradeCount>? _gradeCounts;
+  int? _allStudents;
 
   Map<String, dynamic>? _nextEvent;
   List<NotificationItem> _notifs = [];
@@ -105,9 +94,11 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
   // Live updates — see _watchLive.
   RealtimeChannel? _eventsChannel;
+
   /// This organizer's events, from the last load — keeps the registrations
   /// listener to them.
   Set<String> _myEventIds = {};
+
   /// Sign-ups or check-ins came in while another tab was open — Home
   /// reloads when it's opened again instead of after every one of them.
   bool _homeStale = false;
@@ -181,8 +172,9 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       });
     }
 
-    final channel =
-        Supabase.instance.client.channel('org-mobile-dashboard-$organizerId');
+    final channel = Supabase.instance.client.channel(
+      'org-mobile-dashboard-$organizerId',
+    );
     for (final (table, column) in const [
       ('events', 'organizer_id'),
       ('event_revisions', 'organizer_id'),
@@ -301,9 +293,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
 
       final orgRow = await client
           .from('organizers')
-          .select(
-            'organizer_id, full_name, organization, profile_image_url, is_active',
-          )
+          .select('organizer_id, full_name, organization, is_active')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -320,8 +310,9 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       final eventRows = await client
           .from('events')
           .select(
-            'event_id, title, event_date, end_date, start_time, end_time, event_status, '
-            'event_image_url, approval_status, rejection_reason, reviewed_at',
+            'event_id, title, event_date, end_date, start_time, end_time, location, '
+            'event_status, event_image_url, approval_status, rejection_reason, reviewed_at, '
+            'archived_at, registration_deadline, audience_grades, audience_strands',
           )
           .eq('organizer_id', organizerId)
           .order('event_date', ascending: true);
@@ -329,45 +320,58 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
       final allEvents = List<Map<String, dynamic>>.from(eventRows as List);
       final eventIds = allEvents.map((e) => e['event_id'] as String).toList();
       final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
-      final weekStart = todayStart.subtract(
-        Duration(days: todayStart.weekday - DateTime.monday),
-      );
-      final nextWeekStart = weekStart.add(const Duration(days: 7));
+      // Each event's goal: the active students in its group (cached a minute).
+      final countsFuture = StudentCountService.gradeCounts();
+      final studentsFuture = StudentCountService.activeStudents();
 
-      List<Map<String, dynamic>> regList = [];
-      if (eventIds.isNotEmpty) {
-        final regRows = await client
-            .from('registrations')
-            .select('registered_at')
-            .in_('event_id', eventIds)
-            .gte('registered_at', weekStart.toUtc().toIso8601String())
-            .lt('registered_at', nextWeekStart.toUtc().toIso8601String());
-        regList = List<Map<String, dynamic>>.from(regRows as List);
-      }
-      final weeklyRegistrations = weeklyRegistrationsByDay(regList, now: now);
-      final attendanceEvents = recentPastEventsForAttendance(
+      // Registration progress: every registration of the events still
+      // running, plus the last two weeks' across all events (the chart).
+      final runningIds = registrationProgressEvents(
         allEvents,
         now: now,
+      ).map((e) => e['event_id'] as String).toList();
+      final chartStart = DateTime(
+        now.year,
+        now.month,
+        now.day - (kSignupChartDays - 1),
       );
-      List<Map<String, dynamic>> attendanceRegistrations = [];
-      final attendanceEventIds = attendanceEvents
-          .map((event) => event['event_id'] as String)
-          .toList();
-      if (attendanceEventIds.isNotEmpty) {
-        final attendanceRows = await client
+      final byId = <String, Map<String, dynamic>>{};
+      var recentRegistrations = <Map<String, dynamic>>[];
+      if (eventIds.isNotEmpty) {
+        const columns = 'id, event_id, status, registered_at';
+        final Future<dynamic> recent = client
             .from('registrations')
-            .select('event_id, status')
-            .in_('event_id', attendanceEventIds);
-        attendanceRegistrations = List<Map<String, dynamic>>.from(
-          attendanceRows as List,
+            .select(columns)
+            .in_('event_id', eventIds)
+            .gte('registered_at', chartStart.toUtc().toIso8601String());
+        final Future<dynamic> running = runningIds.isEmpty
+            ? Future.value(const [])
+            : client
+                  .from('registrations')
+                  .select(columns)
+                  .in_('event_id', runningIds);
+        for (final rows in [await recent, await running]) {
+          for (final r in rows as List) {
+            final row = Map<String, dynamic>.from(r as Map);
+            byId[row['id'] as String] = row;
+          }
+        }
+        final recentRows = await client
+            .from('registrations')
+            .select(
+              'id, event_id, student_name, student_school_id, event_title, '
+              'status, registered_at',
+            )
+            .in_('event_id', eventIds)
+            .order('registered_at', ascending: false)
+            .limit(5);
+        recentRegistrations = List<Map<String, dynamic>>.from(
+          recentRows as List,
         );
       }
-      final eventAttendance = eventAttendanceBreakdown(
-        attendanceEvents,
-        attendanceRegistrations,
-      );
-
+      final progressRegistrations = byId.values.toList();
+      final gradeCounts = await countsFuture;
+      final allStudents = await studentsFuture;
       // Next event: the earliest approved one that's on now or still ahead,
       // by date and start time.
       final nextEvt = nextApprovedEvent(allEvents, now: now);
@@ -380,7 +384,11 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
           '${notifTomDt.year}-${notifTomDt.month.toString().padLeft(2, '0')}-${notifTomDt.day.toString().padLeft(2, '0')}';
       final notifResult = <NotificationItem>[];
 
-      final todayRegCount = weeklyRegistrations[now.weekday - 1];
+      // Today's bar of the Registration progress chart (all events).
+      final todayRegCount = dailySignups(
+        progressRegistrations,
+        now: now,
+      ).last.count;
       if (todayRegCount > 0) {
         notifResult.add(
           NotificationItem(
@@ -498,13 +506,15 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
         final recovering = _dashError;
         setState(() {
           _organizerName = orgRow['full_name'] as String? ?? 'Organizer';
-          _photoUrl = orgRow['profile_image_url'] as String?;
           _myEventIds = eventIds.toSet();
           _homeStale = false;
           _nextEvent = nextEvt;
           _hasAnyEvents = allEvents.isNotEmpty;
-          _weeklyRegistrations = weeklyRegistrations;
-          _eventAttendance = eventAttendance;
+          _events = allEvents;
+          _registrations = progressRegistrations;
+          _recentRegistrations = recentRegistrations;
+          _gradeCounts = gradeCounts;
+          _allStudents = allStudents;
           _notifs = notifResult;
           _unreadIds = {
             for (final n in notifResult)
@@ -576,12 +586,7 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             _buildHomeContent(t),
             const events.OrganizerEventsScreen(showAsEmbedded: true),
             const regs.RegistrationsScreen(showAsEmbedded: true),
-            OrganizerProfileScreen(
-              isVisible: _selectedIndex == 3,
-              onPhotoUpdated: (url) {
-                if (mounted) setState(() => _photoUrl = url);
-              },
-            ),
+            OrganizerProfileScreen(isVisible: _selectedIndex == 3),
           ],
         ),
       ),
@@ -741,18 +746,22 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             ),
           if (_hasAnyEvents)
             SliverToBoxAdapter(
+              child: _stagger(_buildProgressCard(t), start: 0.28, end: 0.66),
+            ),
+          if (_hasAnyEvents)
+            SliverToBoxAdapter(
               child: _stagger(
-                _buildWeeklyRegistrationsCard(t),
-                start: 0.28,
-                end: 0.66,
+                _buildRecentRegistrationsCard(t),
+                start: 0.32,
+                end: 0.70,
               ),
             ),
           if (_hasAnyEvents)
             SliverToBoxAdapter(
               child: _stagger(
-                _buildEventAttendanceCard(t),
-                start: 0.34,
-                end: 0.72,
+                _buildUpcomingEventsCard(t),
+                start: 0.36,
+                end: 0.74,
               ),
             ),
           if (!_hasAnyEvents)
@@ -809,8 +818,6 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                         color: t.muted,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    _OrgDateChip(t: t),
                   ],
                 ),
                 const SizedBox(height: 1),
@@ -827,62 +834,8 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
               ],
             ),
           ),
-          const SizedBox(width: 10),
-          _buildHeaderAvatar(displayName),
-          const SizedBox(width: 10),
           _buildBellButton(t),
         ],
-      ),
-    );
-  }
-
-  // ── Header avatar — taps through to the Profile tab ───────────────────────
-
-  Widget _buildHeaderAvatar(String displayName) {
-    final initials = displayName
-        .trim()
-        .split(' ')
-        .where((w) => w.isNotEmpty)
-        .map((w) => w[0].toUpperCase())
-        .take(2)
-        .join();
-    final url = _photoUrl;
-    final fallback = Center(
-      child: Text(
-        initials.isEmpty ? 'O' : initials,
-        style: const TextStyle(
-          fontFamily: 'Poppins',
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
-          color: Colors.white,
-        ),
-      ),
-    );
-    return GestureDetector(
-      onTap: () => setState(() => _selectedIndex = 3),
-      child: Container(
-        width: 46,
-        height: 46,
-        decoration: BoxDecoration(
-          gradient: kGoldGradient,
-          shape: BoxShape.circle,
-          border: Border.all(color: kGold.withValues(alpha: 0.40), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: kGold.withValues(alpha: 0.25),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAliasWithSaveLayer,
-        child: (url != null && url.isNotEmpty)
-            ? Image.network(
-                url,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => fallback,
-              )
-            : fallback,
       ),
     );
   }
@@ -974,7 +927,8 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
         // Not a tear-off: _markRead swaps in a new set.
         isUnread: (id) => _unreadIds.contains(id),
         onRead: _markRead,
-        emptyHint: 'Admin approvals, sign-ups and event reminders show up here.',
+        emptyHint:
+            'Admin approvals, sign-ups and event reminders show up here.',
       ),
     );
   }
@@ -1102,27 +1056,8 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
     );
   }
 
-  Widget _buildWeeklyRegistrationsCard(AppTk t) {
-    const purple = Color(0xFF7C3AED);
-    const indigo = Color(0xFF4F46E5);
-    const green = Color(0xFF059669);
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-    final todayIndex = DateTime.now().weekday - 1;
-    final todayCount = _weeklyRegistrations[todayIndex];
-    final total = _weeklyRegistrations.fold<int>(
-      0,
-      (sum, count) => sum + count,
-    );
-    var peakIndex = -1;
-    var peakCount = 0;
-    for (var i = 0; i < _weeklyRegistrations.length; i++) {
-      if (_weeklyRegistrations[i] > peakCount) {
-        peakIndex = i;
-        peakCount = _weeklyRegistrations[i];
-      }
-    }
-
+  // Registration progress — the same card as the web Dashboard's.
+  Widget _buildProgressCard(AppTk t) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Container(
@@ -1139,489 +1074,269 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: purple.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.how_to_reg_rounded,
-                    color: purple,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Weekly Registrations',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: t.text,
-                        ),
-                      ),
-                      Text(
-                        'Sign-up activity · this week',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 11,
-                          color: t.sub,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _weeklyRegistrationKpi(
-                    t,
-                    value: '$total',
-                    label: 'This Week',
-                    color: purple,
-                    icon: Icons.how_to_reg_rounded,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _weeklyRegistrationKpi(
-                    t,
-                    value: peakIndex >= 0 ? '$peakCount' : '—',
-                    label: peakIndex >= 0
-                        ? 'Peak · ${days[peakIndex]}'
-                        : 'Peak Day',
-                    color: indigo,
-                    icon: Icons.trending_up_rounded,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _weeklyRegistrationKpi(
-                    t,
-                    value: '$todayCount',
-                    label: 'Today',
-                    color: green,
-                    icon: Icons.today_rounded,
-                  ),
-                ),
-              ],
-            ),
-            if (total > 0) ...[
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Today vs. this week',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: t.sub,
-                    ),
-                  ),
-                  Text(
-                    '$todayCount of $total',
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: purple,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 7),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: TweenAnimationBuilder<double>(
-                  tween: Tween(
-                    begin: 0,
-                    end: (todayCount / total).clamp(0.0, 1.0),
-                  ),
-                  duration: const Duration(milliseconds: 700),
-                  curve: Curves.easeOut,
-                  builder: (_, value, _) => LinearProgressIndicator(
-                    value: value,
-                    minHeight: 6,
-                    backgroundColor: purple.withValues(alpha: 0.10),
-                    valueColor: const AlwaysStoppedAnimation<Color>(purple),
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 180,
-              child: _buildWeeklyRegistrationsChart(t, days, todayIndex),
-            ),
-            if (total > 0) ...[
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _weeklyRegistrationLegend(t, purple, 'Registrations'),
-                  const SizedBox(width: 20),
-                  _weeklyRegistrationLegend(t, kGold, 'Today'),
-                ],
-              ),
-            ],
-          ],
+        child: RegistrationProgressCard(
+          events: _events,
+          registrations: _registrations,
+          gradeCounts: _gradeCounts,
+          allStudents: _allStudents,
+          loadGroups: RegistrationService.registrantGroups,
+          colors: RegistrationProgressColors(
+            dark: t.dark,
+            text: t.text,
+            sub: t.sub,
+            muted: t.muted,
+            border: t.border,
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildAnalyticsHeading(AppTk t) {
+  List<Map<String, dynamic>> get _upcomingEventsPreview {
+    final events =
+        _events.where((event) {
+          if (!eventIsApproved(event) || eventIsArchived(event)) return false;
+          return const {
+            'upcoming',
+            'ongoing',
+          }.contains(eventStatusValue(event));
+        }).toList()..sort((a, b) {
+          final aWindow = eventWindow(a);
+          final bWindow = eventWindow(b);
+          final byStart = (aWindow?.start ?? DateTime(9999)).compareTo(
+            bWindow?.start ?? DateTime(9999),
+          );
+          if (byStart != 0) return byStart;
+          return (a['title'] as String? ?? '').compareTo(
+            b['title'] as String? ?? '',
+          );
+        });
+    return events.take(5).toList();
+  }
+
+  Widget _buildRecentRegistrationsCard(AppTk t) {
+    return _dashboardListCard(
+      t,
+      icon: Icons.how_to_reg_rounded,
+      accent: const Color(0xFF16A34A),
+      title: 'Recent Registrations',
+      child: _recentRegistrations.isEmpty
+          ? _dashboardEmptyMessage(
+              t,
+              'Students who register for your events will appear here.',
+            )
+          : Column(
+              children: _recentRegistrations.asMap().entries.map((entry) {
+                final registration = entry.value;
+                final event = _events.cast<Map<String, dynamic>?>().firstWhere(
+                  (event) => event?['event_id'] == registration['event_id'],
+                  orElse: () => null,
+                );
+                final row = {
+                  ...registration,
+                  if (registration['event_title'] == null)
+                    'event_title': event?['title'],
+                };
+                return Column(
+                  children: [
+                    if (entry.key > 0) Divider(height: 1, color: t.divider),
+                    _buildRecentRegistrationRow(row, t),
+                  ],
+                );
+              }).toList(),
+            ),
+    );
+  }
+
+  Widget _buildRecentRegistrationRow(Map<String, dynamic> row, AppTk t) {
+    final name = (row['student_name'] as String?)?.trim();
+    final displayName = name == null || name.isEmpty ? 'Student' : name;
+    final status = row['status'] as String? ?? 'pending';
+    final color = registrationStatusColor(status);
+    final eventTitle = row['event_title'] as String? ?? 'Event';
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
-      child: Text(
-        'Analytics',
-        style: TextStyle(
-          fontFamily: 'Poppins',
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
-          color: t.text,
-        ),
-      ),
-    );
-  }
-
-  Widget _weeklyRegistrationKpi(
-    AppTk t, {
-    required String value,
-    required String label,
-    required Color color,
-    required IconData icon,
-  }) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 70),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.12)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
+      padding: const EdgeInsets.symmetric(vertical: 11),
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 13, color: color),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  label,
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: color.withValues(alpha: 0.12),
+            child: Text(
+              registrationInitials(displayName),
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  displayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontFamily: 'Poppins',
-                    fontSize: 9,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: t.text,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  eventTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 11,
                     color: t.sub,
                   ),
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                registrationStatusLabel(status),
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                _relativeRegistrationTime(row['registered_at'] as String?),
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 9.5,
+                  color: t.muted,
+                ),
               ),
             ],
-          ),
-          const SizedBox(height: 3),
-          Text(
-            value,
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 19,
-              height: 1.1,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildWeeklyRegistrationsChart(
-    AppTk t,
-    List<String> days,
-    int todayIndex,
-  ) {
-    const purple = Color(0xFF7C3AED);
-    final maxCount = _weeklyRegistrations.isEmpty
-        ? 0
-        : _weeklyRegistrations.reduce(math.max);
-
-    if (maxCount == 0) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: purple.withValues(alpha: 0.07),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(
-                Icons.bar_chart_rounded,
-                size: 27,
-                color: purple,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'No registrations this week',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: t.text,
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              'Appears once students sign up',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 10,
-                color: t.sub,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final maxY = math.max(maxCount.toDouble() + 1.5, 5.0);
-    return BarChart(
-      BarChartData(
-        alignment: BarChartAlignment.spaceAround,
-        maxY: maxY,
-        minY: 0,
-        barGroups: List.generate(7, (index) {
-          final value = _weeklyRegistrations[index].toDouble();
-          final isToday = index == todayIndex;
-          return BarChartGroupData(
-            x: index,
-            showingTooltipIndicators: value > 0 ? [0] : [],
-            barRods: [
-              BarChartRodData(
-                toY: value > 0 ? value : 0.18,
-                gradient: isToday
-                    ? const LinearGradient(
-                        colors: [Color(0xFFC49230), Color(0xFFEAB866)],
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                      )
-                    : value > 0
-                    ? LinearGradient(
-                        colors: [
-                          purple.withValues(alpha: 0.50),
-                          purple.withValues(alpha: 0.85),
-                        ],
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                      )
-                    : LinearGradient(
-                        colors: [
-                          Colors.grey.withValues(alpha: 0.10),
-                          Colors.grey.withValues(alpha: 0.18),
-                        ],
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                      ),
-                width: 20,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(7),
-                ),
-              ),
-            ],
-          );
-        }),
-        titlesData: FlTitlesData(
-          show: true,
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 30,
-              getTitlesWidget: (value, meta) {
-                final index = value.toInt();
-                if (index < 0 || index >= days.length) {
-                  return const SizedBox.shrink();
-                }
-                final isToday = index == todayIndex;
-                return SideTitleWidget(
-                  meta: meta,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 5,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: isToday ? kGold : Colors.transparent,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        days[index],
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 9,
-                          fontWeight: isToday
-                              ? FontWeight.w700
-                              : FontWeight.w400,
-                          color: isToday ? kGold : t.sub,
-                        ),
-                      ),
-                    ],
-                  ),
+  Widget _buildUpcomingEventsCard(AppTk t) {
+    final upcoming = _upcomingEventsPreview;
+    return _dashboardListCard(
+      t,
+      icon: Icons.event_available_rounded,
+      accent: const Color(0xFF2563EB),
+      title: 'Upcoming Events',
+      child: upcoming.isEmpty
+          ? _dashboardEmptyMessage(t, 'No upcoming events scheduled.')
+          : Column(
+              children: upcoming.asMap().entries.map((entry) {
+                final event = entry.value;
+                final status = eventStatusValue(event);
+                final statusColor = status == 'ongoing'
+                    ? const Color(0xFF16A34A)
+                    : const Color(0xFF2563EB);
+                final date = DateTime.tryParse(
+                  event['event_date'] as String? ?? '',
                 );
-              },
-            ),
-          ),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 24,
-              interval: math.max(1.0, (maxY / 4).ceilToDouble()),
-              getTitlesWidget: (value, meta) {
-                if (value == meta.max) return const SizedBox.shrink();
-                return SideTitleWidget(
-                  meta: meta,
-                  child: Text(
-                    value.toInt().toString(),
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 8,
-                      color: t.muted,
+                final dateLabel = date == null
+                    ? 'Date to be announced'
+                    : '${_monthNames[date.month - 1]} ${date.day}, ${date.year}';
+                final time = _fmtNotifTime(event['start_time'] as String?);
+                final location = (event['location'] as String?)?.trim() ?? '';
+                return Column(
+                  children: [
+                    if (entry.key > 0) Divider(height: 1, color: t.divider),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 4,
+                            height: 46,
+                            decoration: BoxDecoration(
+                              color: statusColor,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  event['title'] as String? ?? 'Untitled event',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamily: 'Poppins',
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: t.text,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Wrap(
+                                  spacing: 10,
+                                  runSpacing: 4,
+                                  children: [
+                                    _eventMeta(
+                                      Icons.calendar_today_rounded,
+                                      '$dateLabel${time.isEmpty ? '' : ' · $time'}',
+                                      t,
+                                    ),
+                                    if (location.isNotEmpty)
+                                      _eventMeta(
+                                        Icons.location_on_rounded,
+                                        location,
+                                        t,
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            status == 'ongoing' ? 'Live' : 'Upcoming',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: statusColor,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 );
-              },
+              }).toList(),
             ),
-          ),
-          rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-        ),
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          getDrawingHorizontalLine: (_) => FlLine(
-            color: Colors.grey.withValues(alpha: 0.09),
-            strokeWidth: 1,
-            dashArray: [4, 4],
-          ),
-        ),
-        borderData: FlBorderData(show: false),
-        barTouchData: BarTouchData(
-          enabled: true,
-          touchTooltipData: BarTouchTooltipData(
-            getTooltipColor: (_) => const Color(0xFF1C1814),
-            tooltipBorder: const BorderSide(color: Color(0xFF2C2419)),
-            tooltipPadding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 7,
-            ),
-            getTooltipItem: (group, _, rod, _) {
-              final count = _weeklyRegistrations[group.x];
-              if (count <= 0) return null;
-              return BarTooltipItem(
-                '$count reg${count == 1 ? '' : 's'}',
-                const TextStyle(
-                  fontFamily: 'Poppins',
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 11,
-                ),
-                children: [
-                  TextSpan(
-                    text: group.x == todayIndex
-                        ? '\nToday'
-                        : '\n${days[group.x]}',
-                    style: const TextStyle(
-                      fontFamily: 'Poppins',
-                      fontWeight: FontWeight.w400,
-                      fontSize: 9,
-                      color: Colors.white60,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeOut,
     );
   }
 
-  Widget _weeklyRegistrationLegend(AppTk t, Color color, String label) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.sub),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEventAttendanceCard(AppTk t) {
-    const blue = Color(0xFF2563EB);
-    final totalCheckedIn = _eventAttendance.fold<int>(
-      0,
-      (sum, event) => sum + (event['checkedIn'] as int),
-    );
-    final totalRegistered = _eventAttendance.fold<int>(
-      0,
-      (sum, event) => sum + (event['total'] as int),
-    );
-    final hasRateData = totalRegistered > 0;
-    final rate = hasRateData
-        ? (totalCheckedIn / totalRegistered * 100).round()
-        : 0;
-    final rateColor = !hasRateData
-        ? t.muted
-        : rate >= 70
-        ? const Color(0xFF16A34A)
-        : rate >= 40
-        ? kGold
-        : const Color(0xFFDC2626);
-
+  Widget _dashboardListCard(
+    AppTk t, {
+    required IconData icon,
+    required Color accent,
+    required String title,
+    required Widget child,
+  }) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -1642,38 +1357,26 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
             Row(
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 38,
+                  height: 38,
                   decoration: BoxDecoration(
-                    color: blue.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(12),
+                    color: accent.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(11),
                   ),
-                  child: const Icon(
-                    Icons.people_alt_rounded,
-                    color: blue,
-                    size: 20,
-                  ),
+                  child: Icon(icon, size: 19, color: accent),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 11),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Event Attendance',
+                        title,
                         style: TextStyle(
                           fontFamily: 'Poppins',
-                          fontSize: 15,
+                          fontSize: 14,
                           fontWeight: FontWeight.w700,
                           color: t.text,
-                        ),
-                      ),
-                      Text(
-                        'Check-in data · last 5 past events',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 11,
-                          color: t.sub,
                         ),
                       ),
                     ],
@@ -1681,303 +1384,79 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen>
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _attendanceKpi(
-                    t,
-                    value: '$totalCheckedIn',
-                    label: 'Checked In',
-                    icon: Icons.check_circle_rounded,
-                    color: blue,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _attendanceKpi(
-                    t,
-                    value: hasRateData ? '$rate%' : '—',
-                    label: 'Avg Rate',
-                    icon: Icons.trending_up_rounded,
-                    color: rateColor,
-                  ),
-                ),
-              ],
-            ),
-            if (_eventAttendance.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Overall attendance',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: t.sub,
-                    ),
-                  ),
-                  Text(
-                    hasRateData ? '$rate%' : '—',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: rateColor,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 7),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: TweenAnimationBuilder<double>(
-                  tween: Tween(
-                    begin: 0,
-                    end: totalRegistered > 0
-                        ? totalCheckedIn / totalRegistered
-                        : 0.0,
-                  ),
-                  duration: const Duration(milliseconds: 700),
-                  curve: Curves.easeOut,
-                  builder: (_, value, _) => LinearProgressIndicator(
-                    value: value,
-                    minHeight: 6,
-                    backgroundColor: t.divider,
-                    valueColor: AlwaysStoppedAnimation<Color>(rateColor),
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 16),
-            _buildAttendanceBreakdown(t),
+            const SizedBox(height: 10),
+            child,
           ],
         ),
       ),
     );
   }
 
-  Widget _attendanceKpi(
-    AppTk t, {
-    required String value,
-    required String label,
-    required IconData icon,
-    required Color color,
-  }) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 66),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.12)),
+  Widget _dashboardEmptyMessage(AppTk t, String message) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 4),
+    child: Center(
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 14, color: color),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: t.sub,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 3),
-          Text(
-            value,
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 19,
-              height: 1.1,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-        ],
+    ),
+  );
+
+  Widget _eventMeta(IconData icon, String label, AppTk t) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 11, color: t.muted),
+      const SizedBox(width: 4),
+      Flexible(
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontFamily: 'Poppins', fontSize: 10, color: t.sub),
+        ),
       ),
-    );
+    ],
+  );
+
+  String _relativeRegistrationTime(String? value) {
+    final date = DateTime.tryParse(value ?? '')?.toLocal();
+    if (date == null) return '';
+    final difference = DateTime.now().difference(date);
+    if (difference.inMinutes < 1) return 'Just now';
+    if (difference.inHours < 1) return '${difference.inMinutes}m ago';
+    if (difference.inDays < 1) return '${difference.inHours}h ago';
+    if (difference.inDays < 30) return '${difference.inDays}d ago';
+    return '${_monthNames[date.month - 1]} ${date.day}';
   }
 
-  Widget _buildAttendanceBreakdown(AppTk t) {
-    const blue = Color(0xFF2563EB);
-    const green = Color(0xFF16A34A);
-    const red = Color(0xFFDC2626);
+  static const _monthNames = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
 
-    if (_eventAttendance.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Center(
-          child: Column(
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: blue.withValues(alpha: 0.07),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(
-                  Icons.people_alt_rounded,
-                  size: 28,
-                  color: blue,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'No attendance data yet',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: t.text,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Appears after your first check-in',
-                style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 11,
-                  color: t.sub,
-                ),
-              ),
-            ],
-          ),
+  Widget _buildAnalyticsHeading(AppTk t) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+      child: Text(
+        'Analytics',
+        style: TextStyle(
+          fontFamily: 'Poppins',
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          color: t.text,
         ),
-      );
-    }
-
-    return Column(
-      children: _eventAttendance.asMap().entries.map((entry) {
-        final index = entry.key;
-        final event = entry.value;
-        final total = event['total'] as int;
-        final checkedIn = event['checkedIn'] as int;
-        final hasRateData = total > 0;
-        final eventRate = hasRateData ? (checkedIn / total * 100).round() : 0;
-        final eventRateColor = !hasRateData
-            ? t.muted
-            : eventRate >= 70
-            ? green
-            : eventRate >= 40
-            ? kGold
-            : red;
-        final fraction = total > 0 ? (checkedIn / total).clamp(0.0, 1.0) : 0.0;
-
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: index < _eventAttendance.length - 1 ? 14 : 0,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: eventRateColor,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          event['title'] as String,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: t.text,
-                          ),
-                        ),
-                        Text(
-                          event['label'] as String,
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 10,
-                            color: t.muted,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: eventRateColor.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: eventRateColor.withValues(alpha: 0.25),
-                          ),
-                        ),
-                        child: Text(
-                          hasRateData ? '$eventRate%' : '—',
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: eventRateColor,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        total > 0 ? '$checkedIn / $total' : 'No registrations',
-                        style: TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
-                          color: t.muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 7),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(5),
-                child: TweenAnimationBuilder<double>(
-                  tween: Tween<double>(begin: 0, end: fraction),
-                  duration: Duration(milliseconds: 500 + index * 80),
-                  curve: Curves.easeOut,
-                  builder: (_, value, _) => LinearProgressIndicator(
-                    value: value,
-                    minHeight: 7,
-                    backgroundColor: eventRateColor.withValues(alpha: 0.10),
-                    valueColor: AlwaysStoppedAnimation<Color>(eventRateColor),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
+      ),
     );
   }
 
@@ -2411,41 +1890,6 @@ class _OrganizerBottomNavItem extends StatelessWidget {
             ),
             maxLines: 1,
             textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Date chip (matches student dashboard style) ───────────────────────────────
-
-class _OrgDateChip extends StatelessWidget {
-  final AppTk t;
-  const _OrgDateChip({required this.t});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: kGold.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: kGold.withValues(alpha: 0.22)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.calendar_today_rounded, size: 9, color: kGold),
-          const SizedBox(width: 4),
-          Text(
-            _todayFormatted(),
-            style: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 9.5,
-              fontWeight: FontWeight.w700,
-              color: kGold,
-            ),
           ),
         ],
       ),

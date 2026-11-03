@@ -3726,7 +3726,6 @@ class _EventDetailsDialogState extends State<_EventDetailsDialog> {
         onTap: () async {
           final changed = await showStudentRegistrationPanel(context,
               registration: r,
-              organizerId: _e['organizer_id'] as String?,
               profile: p,
               archived: eventIsArchived(_e));
           if (changed == true && mounted) _load();

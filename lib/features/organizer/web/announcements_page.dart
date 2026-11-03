@@ -210,29 +210,6 @@ class _WebAnnouncementsPageState extends State<WebAnnouncementsPage> with Single
               )),
           ],
         ),
-        const Spacer(),
-        // Stat pill
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: kGold.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: kGold.withValues(alpha: 0.22)),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text('${_announcements.length}',
-              style: const TextStyle(
-                fontFamily: 'Poppins', fontSize: 14,
-                fontWeight: FontWeight.w800, color: kGold,
-              )),
-            const SizedBox(width: 6),
-            Text('Posted',
-              style: TextStyle(
-                fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w500, color: t.sub,
-              )),
-          ]),
-        ),
       ],
     );
   }

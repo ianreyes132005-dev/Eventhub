@@ -16,10 +16,16 @@ class AppLangPrefs {
     final prefs = await SharedPreferences.getInstance();
     final cloud = await UserSettingsCloud.fetch(userId);
     if (cloud != null) {
-      await prefs.setString(_key(userId), cloud.language);
-      return cloud.language;
+      final language = cloud.language == filipino ? english : cloud.language;
+      await prefs.setString(_key(userId), language);
+      return language;
     }
-    return prefs.getString(_key(userId)) ?? english;
+    final saved = prefs.getString(_key(userId)) ?? english;
+    if (saved == filipino) {
+      await prefs.setString(_key(userId), english);
+      return english;
+    }
+    return saved;
   }
 
   static Future<void> setCode(String userId, String code) async {
@@ -27,7 +33,4 @@ class AppLangPrefs {
     await prefs.setString(_key(userId), code);
     await UserSettingsCloud.save(userId, language: code);
   }
-
-  static String label(String code) =>
-      code == filipino ? 'Filipino' : 'English';
 }

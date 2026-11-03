@@ -85,6 +85,7 @@ VALUES (
 | Deep links | `app_links` |
 | Secure store | `flutter_secure_storage` |
 | Preferences | `shared_preferences` (organizer theme persistence) |
+| Android push | Firebase Cloud Messaging + `flutter_local_notifications` |
 
 ---
 
@@ -95,8 +96,13 @@ VALUES (
 - Register for events and receive a unique QR code
 - View registered events with ticket-style cards — **live updates on status changes**
 - Check-in flow: QR scan → selfie capture (triggered by organizer)
+- Notification bell for announcements, recently approved events, check-in updates, cancellations, and schedule changes
+- Tapping an event or check-in notification opens that event's details from the Events tab
+- Android push notifications for announcements, newly approved events, and registration status changes
 - Announcements feed — **live via Supabase Realtime**
-- Profile management
+- Android notification permission is requested after sign-in; notification delivery requires Firebase and Supabase push setup
+- Profile management, account settings, and English language preference
+- The profile focuses on identity and settings; registration and attendance summary cards are not shown there
 
 ### Organizer (mobile + web)
 - Create, edit, and manage events with banner image upload
@@ -109,16 +115,24 @@ VALUES (
 - AI assistant chatbot (Groq / LLaMA 3.1) with organizer-specific quick questions
 - Customisable sidebar theme (primary colour + sidebar variant)
 - Web-only: collapsible sidebar (inset / floating / minimal variants)
+- Profiles focus on identity and settings rather than event-stat cards; language preference is English
+- Dashboard headers omit the profile photo and date; announcement pages do not show an announcement-count label
 
 ### Admin (web dashboard only)
-- Full sidebar navigation: Overview · Students · Organizers · Events · Registrations — **all pages live via Supabase Realtime (600 ms debounce)**
+- Full sidebar navigation: Overview · Students · Organizers · Events · Registrations · Logs — **all pages live via Supabase Realtime (600 ms debounce)**
 - **Overview** — 4 stat cards (total students / organizers / events / registrations), recent events list, quick-access shortcuts, system status panel, recent registrations
 - **Students** — search + Active/Inactive filter, data table with LRN / name / year / status / account-linked, row actions: Edit profile, Activate/Deactivate, Delete. **Add Student** creates auth account + DB row atomically via Edge Function
 - **Organizers** — same as Students with Organizer ID / Organization columns, auto-generates next `Org####` ID when adding. **Add Organizer** creates auth account + DB row atomically via Edge Function; organizer logs in with `{id.lowercase()}@gmail.com`
-- **Events** — system-wide read-only view with status filter chips and participant capacity progress bar
+- **Events** — system-wide events table with status filters; organizer change requests appear in the same table and are available in **All**, with review actions
 - **Registrations** — system-wide read-only view with all status filters and checked-in timestamps
+- **Logs** — login and event logs with role, platform, period, and action filters; confirmed clearing can remove all logs and is not limited to 90 days (requires the migration described below)
 - Animated sidebar with cascade stagger entrance, collapsible to icon-only mode
 - Sign-out confirmation dialog
+
+### Interface notes
+- Organizer web announcements do not show the posted-count badge; organizer app announcements omit the count subtitle.
+- The organizer app and student dashboard headers omit the profile photo and date chip, respectively.
+- Filipino has been removed as a selectable language in organizer web, organizer app, and student app. Existing Filipino language preferences resolve to English.
 
 ---
 
@@ -171,11 +185,12 @@ lib/
 ├── core/
 │   ├── services/
 │   │   ├── supabase_service.dart
-│   │   └── registration_service.dart
+│   │   ├── registration_service.dart
+│   │   └── push_notification_service.dart  # Android FCM token, foreground, and tap routing
 │   ├── app_colors.dart               # kGold, kGoldGradient, kText, etc.
 │   └── app_theme.dart                # Material 3 theme
 ├── shared/
-│   └── widgets/                      # Shared widgets
+│   └── widgets/                      # Shared widgets, including notification_sheet.dart
 ├── app.dart                          # Routes + auth state listener + app links
 └── main.dart
 
@@ -183,7 +198,8 @@ supabase/
 └── functions/
     ├── ai-chat/index.ts              # Groq / LLaMA 3.1 AI assistant
     ├── create-student/index.ts       # Atomically creates auth user + students row
-    └── create-organizer/index.ts     # Atomically creates auth user + organizers row
+    ├── create-organizer/index.ts     # Atomically creates auth user + organizers row
+    └── send-push/index.ts            # Sends Android pushes through FCM HTTP v1
 ```
 
 ---
@@ -202,6 +218,71 @@ flutter run -d chrome
 
 > Supabase credentials are in `lib/core/services/supabase_service.dart`.
 
+### Clearing admin logs
+
+The Admin Dashboard's Logs tab can clear all login or event logs, regardless of
+age. The action requires confirmation and is restricted to admins. Run
+`supabase/migrations/202611040002_admin_log_clear_all.sql` in the Supabase SQL
+Editor to remove the previous 90-day deletion restriction.
+
+---
+
+## Android Push Notifications
+
+Android uses Firebase Cloud Messaging (FCM) for notifications outside the app.
+The in-app notification feed remains available independently. After a successful
+sign-in, the app requests Android notification permission, obtains an FCM
+registration token, and registers it with the authenticated Supabase account.
+Foreground pushes are displayed as local notifications.
+
+Student push/in-app notifications include announcements, newly approved events
+visible to the student's grade/strand audience, and registration status
+updates including successful check-in. Newly approved event notices are
+derived from `events.reviewed_at` and shown in the in-app feed for 14 days.
+Tapping a notification that includes an event ID opens that event's details
+from the Events tab. Push payloads include the event ID for both published
+events and registration status changes.
+
+### Firebase Android configuration
+
+1. In Firebase Console, register an Android app with package name
+   `com.ianreyes132005.eventhub`.
+2. Enable Firebase Cloud Messaging HTTP v1.
+3. Download `google-services.json` and place it at
+   `android/app/google-services.json`. It is ignored by Git and must not be
+   committed.
+4. Rebuild and install the Android app.
+
+### Supabase delivery setup
+
+1. Add Edge Function secrets:
+   - `FCM_SERVICE_ACCOUNT_JSON`: the complete Firebase service-account JSON.
+   - `PUSH_WEBHOOK_SECRET`: a long random secret.
+   Keep both values private. Set the same webhook secret in Supabase Vault.
+2. Deploy the sender from the repository root:
+
+   ```bash
+   supabase functions deploy send-push --no-verify-jwt
+   ```
+
+3. In Vault, create/update `eventhub_push_function_url` to
+   `https://<supabase-project-ref>.supabase.co/functions/v1/send-push` and
+   `eventhub_push_webhook_secret` to the same value as
+   `PUSH_WEBHOOK_SECRET`.
+4. Run these migrations in order in the Supabase SQL Editor:
+   - `supabase/migrations/202611030003_android_push_notifications.sql`
+   - `supabase/migrations/202611040001_student_event_push_notifications.sql`
+
+The Android push service migration configures token registration and pushes
+for announcements and supported event/registration updates. The second
+migration adds pushes when an event is first published or approved; it sends
+only to active students eligible for that event's audience. Existing events
+aren't resent retroactively. No Edge Function redeployment is required when
+only the SQL migration changes.
+
+Additional setup details are in
+[`docs/android-push-notifications.md`](docs/android-push-notifications.md).
+
 ---
 
 ## Edge Functions
@@ -211,6 +292,7 @@ flutter run -d chrome
 | `ai-chat` | `supabase/functions/ai-chat/index.ts` | Groq / LLaMA 3.1 AI assistant for the organizer web dashboard |
 | `create-student` | `supabase/functions/create-student/index.ts` | Admin-only: creates Supabase auth user + `students` row atomically |
 | `create-organizer` | `supabase/functions/create-organizer/index.ts` | Admin-only: creates Supabase auth user + `organizers` row atomically |
+| `send-push` | `supabase/functions/send-push/index.ts` | Sends authenticated Supabase-triggered Android notifications using FCM HTTP v1 |
 
 ### Deploying
 

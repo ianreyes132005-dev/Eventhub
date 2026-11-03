@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// When the Terms and Conditions or the Privacy Policy last changed — shown
 /// in both legal dialogs (app and web portal). Update it with the text.
-const eventHubLegalUpdated = 'November 3, 2026';
+const eventHubLegalUpdated = 'November 4, 2026';
 
 /// The Terms and Conditions shown from the login screens (app and web
 /// portal). Keep them true to how EventHub works — see also
@@ -71,7 +71,7 @@ const eventHubTerms = <({IconData icon, String title, String body})>[
   (
     icon: Icons.sync_rounded,
     title: 'Availability and Changes',
-    body: 'The school may update, pause, or discontinue a feature for maintenance, operational, or security reasons. EventHub may not always be available or display information without delay. Notifications appear inside the app; EventHub does not send push notifications, text messages, or emails, so check the app for updates. These terms and the system may be updated as the service changes; the date at the top shows when these terms last changed. Continued use after updated terms are made available constitutes acceptance of the revised terms.',
+    body: 'The school may update, pause, or discontinue a feature for maintenance, operational, or security reasons. EventHub may not always be available or display information without delay. Notifications appear inside the app and, on Android phones where you allow them, as phone notifications (delivered through Google’s Firebase Cloud Messaging), which can arrive late or not at all; EventHub does not send text messages or emails, so check the app for updates. These terms and the system may be updated as the service changes; the date at the top shows when these terms last changed. Continued use after updated terms are made available constitutes acceptance of the revised terms.',
   ),
   (
     icon: Icons.gpp_maybe_outlined,

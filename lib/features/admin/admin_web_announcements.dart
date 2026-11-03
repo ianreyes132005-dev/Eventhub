@@ -268,9 +268,9 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ══ Band 1: White header ════════════════════════════════════════════
+          // ══ Band 1: Page-background header ════════════════════════════════
           Container(
-            color: t.card,
+            color: t.bg,
             padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

@@ -6,10 +6,12 @@ import 'core/services/supabase_config.dart';
 import 'core/services/notif_read_store.dart';
 import 'core/theme_store.dart';
 import 'core/app_router.dart';
+import 'core/services/push_notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Supabase.initialize(url: kSupabaseBaseUrl, anonKey: kSupabaseAnonKey);
+  await PushNotificationService.initialize();
 
   if (kIsWeb) {
     await ThemeStore.init();

@@ -68,9 +68,21 @@ void main() {
       expect(privacy, contains('your grade and strand decide which events you can register for'));
     });
 
-    test('say that notifications are in the app only, and when the text changed', () {
-      expect(terms, contains('does not send push notifications'));
+    test('say how phone notifications work, and when the text changed', () {
+      // Push via Firebase Cloud Messaging (migration 202611030003): a new
+      // outside service, a stored token, and the permission is the user's.
+      expect(terms, contains('Firebase Cloud Messaging'));
+      expect(terms, contains('does not send text messages or emails'));
+      expect(privacy, contains('Firebase Cloud Messaging'));
+      expect(privacy, contains('notification token'));
+      expect(privacy, contains('in your phone’s settings'));
       expect(eventHubLegalUpdated, isNotEmpty);
+    });
+
+    test('say that activity records are kept until the administrator clears them', () {
+      // Migration 202611040002: no 90-day minimum any more.
+      expect(privacy, isNot(contains('90 days')));
+      expect(privacy, contains('kept until the school administrator clears them'));
     });
   });
 

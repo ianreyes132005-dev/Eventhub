@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:app_links/app_links.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/supabase_service.dart';
 import 'services/notif_read_store.dart';
+import 'services/push_notification_service.dart';
 import 'theme_store.dart';
 
 // Exposed so MaterialApp widgets in app.dart can reference it.
@@ -26,6 +29,10 @@ void setupAuthStateListener() {
 
     if (skipRestore) {
       skipRestore = false;
+      final restoredUser = event.session?.user;
+      if (restoredUser != null) {
+        unawaited(PushNotificationService.enableForUser(restoredUser.id));
+      }
       return;
     }
 
@@ -37,6 +44,7 @@ void setupAuthStateListener() {
     if (user == null) return;
 
     try {
+      unawaited(PushNotificationService.enableForUser(user.id));
       final organizerRow = await SupabaseService.client
           .from('organizers')
           .select('organizer_id')
@@ -67,6 +75,7 @@ void setupAppLinks() async {
       final user = SupabaseService.client.auth.currentUser;
       if (user == null) return;
       try {
+        unawaited(PushNotificationService.enableForUser(user.id));
         final organizerRow = await SupabaseService.client
             .from('organizers')
             .select('organizer_id')

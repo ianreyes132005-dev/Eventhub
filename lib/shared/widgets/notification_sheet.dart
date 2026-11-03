@@ -14,6 +14,7 @@ class NotificationItem {
   /// When it happened. Rows without one (the organizer's reminders) show a
   /// one-line message; rows with one show it in full (a reason, a new date).
   final DateTime? at;
+  final String? eventId;
 
   const NotificationItem({
     required this.id,
@@ -22,6 +23,7 @@ class NotificationItem {
     required this.icon,
     required this.color,
     this.at,
+    this.eventId,
   });
 }
 
@@ -42,6 +44,7 @@ class NotificationSheet extends StatefulWidget {
 
   /// Under "You're all caught up!" when there's nothing to show.
   final String emptyHint;
+  final ValueChanged<NotificationItem>? onActivate;
 
   const NotificationSheet({
     super.key,
@@ -49,6 +52,7 @@ class NotificationSheet extends StatefulWidget {
     required this.isUnread,
     required this.onRead,
     required this.emptyHint,
+    this.onActivate,
   });
 
   @override
@@ -206,7 +210,14 @@ class _NotificationSheetState extends State<NotificationSheet> {
     // Tapping an unread row reads it (the web reads on hover or click).
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => _read([n.id]),
+      onTap: () {
+        _read([n.id]);
+        final onActivate = widget.onActivate;
+        if (n.eventId != null && onActivate != null) {
+          Navigator.of(context).pop();
+          onActivate(n);
+        }
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 350),
         curve: Curves.easeOut,

@@ -9,10 +9,7 @@ class WebCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Web-only dark check — organizer web never enables dark mode, so this
-    // branch only ever fires for the admin dashboard, using the same cool
-    // graphite palette as its AdminTk tokens (kept literal here since this
-    // is a shared widget with no access to a feature-local token class).
+    // Keep shared web cards aligned with the graphite dashboard palette.
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
@@ -43,25 +40,37 @@ class WebSectionHeader extends StatelessWidget {
   const WebSectionHeader({super.key, required this.title, this.subtitle, this.action});
 
   @override
-  Widget build(BuildContext context) => Row(
-    crossAxisAlignment: CrossAxisAlignment.center,
-    children: [
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(title, style: const TextStyle(fontFamily: 'Poppins', fontSize: 15, fontWeight: FontWeight.w800, color: kText)),
-            if (subtitle != null) ...[
-              const SizedBox(height: 2),
-              Text(subtitle!, style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: kSubText)),
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(title, style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: dark ? const Color(0xFFE7EAEE) : kText,
+              )),
+              if (subtitle != null) ...[
+                const SizedBox(height: 2),
+                Text(subtitle!, style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 11,
+                  color: dark ? const Color(0xFF9AA3B2) : kSubText,
+                )),
+              ],
             ],
-          ],
+          ),
         ),
-      ),
-      ?action,
-    ],
-  );
+        ?action,
+      ],
+    );
+  }
 }
 
 class WebColHeader extends StatelessWidget {

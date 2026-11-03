@@ -59,6 +59,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
     'Awaiting Selfie',
     'Photo Submitted',
     'Checked In',
+    'Absent',
     'Rejected',
   ];
 
@@ -128,7 +129,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
       final eventsRaw = await SupabaseService.client
           .from('events')
           .select('event_id, title, event_date, end_date, start_time, end_time, '
-              'event_status, archived_at')
+              'event_status, approval_status, archived_at')
           .eq('organizer_id', widget.orgId!);
       final events = List<Map<String, dynamic>>.from(eventsRaw as List);
       final eventIds = events.map((e) => e['event_id'] as String).toList();
@@ -300,6 +301,15 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
     return event != null && attendanceFinal(event);
   }
 
+  bool _isAbsent(Map<String, dynamic> r) {
+    final event = _eventsById[r['event_id']];
+    return event != null &&
+        eventIsApproved(event) &&
+        !eventIsCancelled(event) &&
+        countsAsRegistered(r) &&
+        registrationMissed(r, event);
+  }
+
   // Bulk Approve / Reject decide submitted selfies, as on the app: a
   // check-in without one is done by hand, one student at a time, with a
   // reason.
@@ -323,7 +333,9 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
     final statusKey = _statusKeyMap[_statusFilter];
     setState(() {
       _displayed = _all.where((r) {
-        final matchStatus = statusKey == null || r['status'] == statusKey;
+        final matchStatus = _statusFilter == 'Absent'
+            ? _isAbsent(r)
+            : statusKey == null || r['status'] == statusKey;
         final matchEvent =
             _eventFilter == 'All' ||
             (r['event_id'] as String? ?? '') == _eventFilter;
@@ -485,6 +497,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
 
   static const _statusKeyMap = {
     'All': null,
+    'Absent': null,
     'Pending': 'pending',
     'QR Scanned': 'qr_scanned',
     'Awaiting Selfie': 'photo_required',
@@ -548,7 +561,6 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
     final changed = await showStudentRegistrationPanel(
       context,
       registration: reg,
-      organizerId: widget.orgId,
       profile: _profiles[reg['student_user_id'] as String? ?? ''],
       archived: _isArchived(reg),
       attendanceFinal: _isFinal(reg),
@@ -993,7 +1005,8 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
     // organizer sees how many are in each state without clicking through.
     final counts = <String, int>{
       'All': _all.length,
-      for (final f in _statusFilters.skip(1))
+      'Absent': _all.where(_isAbsent).length,
+      for (final f in _statusFilters.skip(1).where((f) => f != 'Absent'))
         f: _all.where((r) => r['status'] == _statusKeyMap[f]).length,
     };
     final events = _events;
@@ -1024,7 +1037,7 @@ class _WebRegistrationsPageState extends State<WebRegistrationsPage>
                 value: f,
                 label: f,
                 count: counts[f] ?? 0,
-                color: f == 'All' ? kGold : webStatusColor(_statusKeyMap[f]),
+                color: f == 'All' ? kGold : f == 'Absent' ? const Color(0xFFDC2626) : webStatusColor(_statusKeyMap[f]),
               ),
           ],
           selected: _statusFilter,
@@ -1791,6 +1804,7 @@ Future<String?> _promptBulkRejectReason(BuildContext context, int count) {
 
 class _StatusMenu extends StatefulWidget {
   final String? currentStatus;
+
   /// A Registered (unscanned) student can be checked in by hand only while
   /// tickets can be scanned (scanBlockedReason).
   final bool canStart;

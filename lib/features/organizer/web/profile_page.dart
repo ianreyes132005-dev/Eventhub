@@ -49,10 +49,6 @@ class _WebProfilePageState extends State<WebProfilePage> {
   String  _memberSince = '—';
   String  _appVersion  = '—';
   String  _appBuild    = '';
-  int     _totalEvents = 0;
-  int     _activeEvents = 0;
-  int     _registeredParticipants = 0;
-
   String _langCode = AppLangPrefs.english;
 
   @override
@@ -94,14 +90,6 @@ class _WebProfilePageState extends State<WebProfilePage> {
       )) return;
 
       final organizerId = row['organizer_id'] as String;
-      final events = await SupabaseService.client
-          .from('events')
-          .select(
-            'event_id, approval_status, archived_at, event_date, end_date, '
-            'start_time, end_time, current_participants',
-          )
-          .eq('organizer_id', organizerId);
-      final eventList = List<Map<String, dynamic>>.from(events as List);
       final version = await PackageInfo.fromPlatform();
       final created = row['created_at'] as String?;
       final createdAt = created == null ? null : DateTime.tryParse(created);
@@ -121,17 +109,6 @@ class _WebProfilePageState extends State<WebProfilePage> {
         _memberSince = createdAt == null
             ? '—'
             : '${months[createdAt.month - 1]} ${createdAt.year}';
-        _totalEvents = totalApprovedEventCount(eventList);
-        _activeEvents = activeApprovedEventCount(eventList);
-        // History: archived events still count (archiving only hides them).
-        _registeredParticipants = eventList.fold<int>(
-          0,
-          (sum, event) => sum + (
-            eventIsApproved(event)
-                ? (event['current_participants'] as int? ?? 0)
-                : 0
-          ),
-        );
         _appVersion = version.version;
         _appBuild = version.buildNumber;
         _loading = false;
@@ -303,8 +280,6 @@ class _WebProfilePageState extends State<WebProfilePage> {
             )),
           const SizedBox(height: 20),
           _buildBanner(t),
-          const SizedBox(height: 16),
-          _buildStatsCard(t),
           const SizedBox(height: 24),
           _buildSettingsGrid(t),
         ],
@@ -384,7 +359,7 @@ class _WebProfilePageState extends State<WebProfilePage> {
           t: t, icon: Icons.translate_rounded, color: const Color(0xFF3B82F6),
           title: 'Language',
           subtitle: 'Dashboard display language',
-          trailing: AppLangPrefs.label(_langCode),
+          trailing: 'English',
           trailingIcon: Icons.expand_more_rounded,
           onTap: _openLanguageDialog,
         ),
@@ -422,46 +397,6 @@ class _WebProfilePageState extends State<WebProfilePage> {
       ]);
     });
   }
-
-  Widget _buildStatsCard(WebTk t) => WebCard(
-    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-    child: Row(children: [
-      _profileStat(t, Icons.event_rounded, '$_totalEvents', 'Total Events', kGold),
-      Container(width: 1, height: 58, color: t.border),
-      _profileStat(t, Icons.bolt_rounded, '$_activeEvents', 'Active', const Color(0xFF10B981)),
-      Container(width: 1, height: 58, color: t.border),
-      _profileStat(
-        t,
-        Icons.people_rounded,
-        '$_registeredParticipants',
-        'Registered',
-        const Color(0xFF3B82F6),
-      ),
-    ]),
-  );
-
-  Widget _profileStat(
-    WebTk t,
-    IconData icon,
-    String value,
-    String label,
-    Color color,
-  ) => Expanded(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 17, color: color),
-        const SizedBox(height: 7),
-        Text(value,
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 19,
-                fontWeight: FontWeight.w800, color: t.text)),
-        const SizedBox(height: 2),
-        Text(label, textAlign: TextAlign.center,
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 10,
-                fontWeight: FontWeight.w600, color: t.sub)),
-      ],
-    ),
-  );
 
   // ── Profile identity card ──────────────────────────────────────────────────────
 
@@ -1075,13 +1010,8 @@ class _LanguageDialogState extends State<_LanguageDialog> {
         children: [
           _langCard(t, code: AppLangPrefs.english, badge: 'EN',
               name: 'English', desc: 'Default'),
-          const SizedBox(height: 10),
-          _langCard(t, code: AppLangPrefs.filipino, badge: 'FIL',
-              name: 'Filipino', desc: 'Tagalog', comingSoon: true),
-          const SizedBox(height: 18),
           _prefNote(t,
-              'More languages are on the way. Your choice is saved and will '
-              'apply across the dashboard once available.'),
+              'English is currently the only available language.'),
         ],
       ),
     );
@@ -1092,23 +1022,16 @@ class _LanguageDialogState extends State<_LanguageDialog> {
     required String badge,
     required String name,
     required String desc,
-    bool comingSoon = false,
   }) {
     final selected = _code == code;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
-        onTap: comingSoon
-            ? () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Filipino (Tagalog) is coming soon.'),
-                  behavior: SnackBarBehavior.floating,
-                ))
-            : () {
-                setState(() => _code = code);
-                AppLangPrefs.setCode(widget.userId, code);
-                widget.onChanged(code);
-              },
+        onTap: () {
+          setState(() => _code = code);
+          AppLangPrefs.setCode(widget.userId, code);
+          widget.onChanged(code);
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           padding: const EdgeInsets.all(14),
@@ -1141,27 +1064,13 @@ class _LanguageDialogState extends State<_LanguageDialog> {
                 children: [
                   Text(name,
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: comingSoon ? t.muted : t.text)),
+                        fontWeight: FontWeight.w700, color: t.text)),
                   Text(desc,
                     style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted)),
                 ],
               ),
             ),
-            if (comingSoon)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                      color: const Color(0xFFF59E0B).withValues(alpha: 0.30)),
-                ),
-                child: const Text('Soon',
-                  style: TextStyle(fontFamily: 'Poppins', fontSize: 10.5,
-                      fontWeight: FontWeight.w700, color: Color(0xFFD97706))),
-              )
-            else if (selected)
+            if (selected)
               const Icon(Icons.check_circle_rounded, color: kGold, size: 22)
             else
               Icon(Icons.radio_button_unchecked_rounded, color: t.muted, size: 22),

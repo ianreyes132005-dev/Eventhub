@@ -11,6 +11,7 @@ import '../../../../core/app_colors.dart';
 import '../../../../core/event_audience.dart';
 import '../../../../core/services/student_count_service.dart';
 import '../../../../core/services/supabase_service.dart';
+import 'event_student_details_sheet.dart';
 
 class EventDetailsScreen extends StatefulWidget {
   final Map<String, dynamic>? eventData;
@@ -22,28 +23,30 @@ class EventDetailsScreen extends StatefulWidget {
 
 class _EventDetailsScreenState extends State<EventDetailsScreen> {
   // ── State ──────────────────────────────────────────────────────────────────
-  bool _loading      = true;
-  bool _loadError    = false;
+  bool _loading = true;
+  bool _loadError = false;
   bool _descExpanded = false;
 
   Map<String, dynamic>? _event;
   List<Map<String, dynamic>> _registrations = [];
   String? _organizerName;
   String? _organizerId;
-  int?    _studentCount = StudentCountService.cached;   // capacity, all students
-  List<GradeCount>? _gradeCounts = StudentCountService.cachedCounts;   // …or a group
-  bool _actionBusy = false;   // cancel / restore in progress
+  int? _studentCount = StudentCountService.cached; // capacity, all students
+  List<GradeCount>? _gradeCounts =
+      StudentCountService.cachedCounts; // …or a group
+  bool _actionBusy = false; // cancel / restore in progress
 
   RealtimeChannel? _channel;
-  Timer?           _debounce;
+  Timer? _debounce;
   // Upcoming → Ongoing → Check-in open → Ended, and which of Edit / Cancel /
   // Restore are offered, follow the clock — not just database changes.
-  Timer?           _clock;
-  bool _fetching = false;     // a load is running…
-  bool _refetch  = false;     // …and another change arrived meanwhile
+  Timer? _clock;
+  bool _fetching = false; // a load is running…
+  bool _refetch = false; // …and another change arrived meanwhile
 
   String? get _eventId =>
-      widget.eventData?['id'] as String? ?? widget.eventData?['event_id'] as String?;
+      widget.eventData?['id'] as String? ??
+      widget.eventData?['event_id'] as String?;
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -107,16 +110,27 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   /// [silent]: refresh in place (live updates, pull-to-refresh, after an
   /// action) — no full-screen loader, and a failure keeps what's on screen.
   Future<void> _loadData({bool silent = false}) async {
-    if (_fetching) { _refetch = true; return; }
+    if (_fetching) {
+      _refetch = true;
+      return;
+    }
     final eventId = _eventId;
 
     if (eventId == null || eventId.isEmpty) {
-      if (mounted) setState(() { _loading = false; _loadError = true; });
+      if (mounted)
+        setState(() {
+          _loading = false;
+          _loadError = true;
+        });
       return;
     }
 
     _fetching = true;
-    if (!silent) setState(() { _loading = true; _loadError = false; });
+    if (!silent)
+      setState(() {
+        _loading = true;
+        _loadError = false;
+      });
 
     try {
       final sb = Supabase.instance.client;
@@ -130,7 +144,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
       final results = await Future.wait<dynamic>([
         eventQuery.maybeSingle(),
-        sb.from('registrations')
+        sb
+            .from('registrations')
             .select()
             .eq('event_id', eventId)
             .order('registered_at', ascending: false),
@@ -139,9 +154,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       ]);
 
       final eventRow = results[0] as Map?;
-      final regs     = results[1] as List;
+      final regs = results[1] as List;
       final students = results[2] as int?;
-      final counts   = results[3] as List<GradeCount>?;
+      final counts = results[3] as List<GradeCount>?;
 
       // The organizer's name doesn't change while this screen is open.
       var orgName = _organizerName;
@@ -157,17 +172,21 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
       if (!mounted) return;
       setState(() {
-        _event         = eventRow != null ? Map<String, dynamic>.from(eventRow) : null;
+        _event = eventRow != null ? Map<String, dynamic>.from(eventRow) : null;
         _registrations = List<Map<String, dynamic>>.from(regs);
         _organizerName = orgName;
-        _studentCount  = students;
-        _gradeCounts   = counts;
-        _loading       = false;
-        _loadError     = false;
+        _studentCount = students;
+        _gradeCounts = counts;
+        _loading = false;
+        _loadError = false;
       });
     } catch (e) {
       debugPrint('EventDetailsScreen load error: $e');
-      if (mounted && !silent) setState(() { _loading = false; _loadError = true; });
+      if (mounted && !silent)
+        setState(() {
+          _loading = false;
+          _loadError = true;
+        });
     } finally {
       _fetching = false;
       if (_refetch && mounted) {
@@ -184,8 +203,12 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   void _openEdit() {
     Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => CreateEventScreen(existing: _d)))
-        .then((_) { if (mounted) _loadData(silent: true); });
+        .push(
+          MaterialPageRoute(builder: (_) => CreateEventScreen(existing: _d)),
+        )
+        .then((_) {
+          if (mounted) _loadData(silent: true);
+        });
   }
 
   Future<void> _runAction(Future<bool> Function() action) async {
@@ -201,17 +224,19 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   Map<String, dynamic> get _d => _event ?? widget.eventData ?? {};
 
-  String  get _title    => _d['title']        as String? ?? _d['name']  as String? ?? '—';
-  String  get _location => _d['location']     as String? ?? _d['venue'] as String? ?? '—';
-  String  get _type     => _d['event_type']   as String? ?? _d['type']  as String? ?? '—';
-  String  get _desc     => _d['description']  as String? ?? '';
-  String? get _imgUrl   => _d['event_image_url'] as String?;
+  String get _title => _d['title'] as String? ?? _d['name'] as String? ?? '—';
+  String get _location =>
+      _d['location'] as String? ?? _d['venue'] as String? ?? '—';
+  String get _type =>
+      _d['event_type'] as String? ?? _d['type'] as String? ?? '—';
+  String get _desc => _d['description'] as String? ?? '';
+  String? get _imgUrl => _d['event_image_url'] as String?;
   // From the clock (cancellation is the only stored status that counts) —
   // the stored event_status is 'upcoming' for every live event.
-  String  get _status   => eventStatusValue(_d);
+  String get _status => eventStatusValue(_d);
   // Orthogonal to _status — admin moderation gate, not the event's own
   // lifecycle. See admin_web_events.dart / Section 18 of supabase_schema.sql.
-  String  get _approval => approvalStatusOf(_d);
+  String get _approval => approvalStatusOf(_d);
   String? get _rejectionReason => rejectionReasonOf(_d);
 
   // Who can register, and capacity = the active students in that group (0
@@ -224,18 +249,19 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   int get _registered => _registrations.isNotEmpty
       ? _registrations.where(countsAsRegistered).length
       : (_d['current_participants'] as int? ?? _d['registered'] as int? ?? 0);
-  int get _checkedIn  =>
+  int get _checkedIn =>
       _registrations.where((r) => r['status'] == 'checked_in').length;
-  int get _pending    =>
-      _registrations.where((r) =>
-          r['status'] == 'pending' || r['status'] == 'qr_scanned').length;
-  int get _remaining  =>
+  int get _pending => _registrations
+      .where((r) => r['status'] == 'pending' || r['status'] == 'qr_scanned')
+      .length;
+  int get _remaining =>
       _capacity > 0 ? (_capacity - _registered).clamp(0, _capacity) : 0;
   double get _fillRatio => capacityFill(_registered, _capacity);
   // Of the students who registered, how many came — measuring against the
   // whole school would make a packed 40-seat seminar read 20%.
-  int get _attendancePct =>
-      _registered > 0 ? (_checkedIn / _registered * 100).clamp(0, 100).toInt() : 0;
+  int get _attendancePct => _registered > 0
+      ? (_checkedIn / _registered * 100).clamp(0, 100).toInt()
+      : 0;
 
   // ── Formatting ─────────────────────────────────────────────────────────────
 
@@ -245,16 +271,28 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     try {
       final dt = DateTime.parse(d);
       const m = [
-        'January','February','March','April','May','June',
-        'July','August','September','October','November','December',
+        'January',
+        'February',
+        'March',
+        'April',
+        'May',
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
       ];
       return '${m[dt.month - 1]} ${dt.day}, ${dt.year}';
-    } catch (_) { return d; }
+    } catch (_) {
+      return d;
+    }
   }
 
   String get _fmtTime {
-    final s  = _d['start_time'] as String?;
-    final en = _d['end_time']   as String?;
+    final s = _d['start_time'] as String?;
+    final en = _d['end_time'] as String?;
     if (s == null) return _d['time'] as String? ?? '—';
     String fmt(String t) {
       final p = t.split(':');
@@ -262,6 +300,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       final h = int.tryParse(p[0]) ?? 0;
       return '${h % 12 == 0 ? 12 : h % 12}:${p[1]} ${h >= 12 ? 'PM' : 'AM'}';
     }
+
     return en != null ? '${fmt(s)} — ${fmt(en)}' : fmt(s);
   }
 
@@ -270,8 +309,20 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   String get _fmtDeadline {
     final dt = registrationClosesAt(_d);
     if (dt == null) return '—';
-    const m = ['Jan','Feb','Mar','Apr','May','Jun',
-                'Jul','Aug','Sep','Oct','Nov','Dec'];
+    const m = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
     final mm = dt.minute.toString().padLeft(2, '0');
     return '${m[dt.month - 1]} ${dt.day}, $h:$mm ${dt.hour < 12 ? 'AM' : 'PM'}';
@@ -280,10 +331,14 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   Color get _statusColor {
     if (checkInOpenUntil(_d) != null) return kCheckInOpenColor;
     switch (_status) {
-      case 'ongoing':   return const Color(0xFF16A34A);
-      case 'ended':     return kMuted;
-      case 'cancelled': return Colors.red;
-      default:          return const Color(0xFFE87A00);
+      case 'ongoing':
+        return const Color(0xFF16A34A);
+      case 'ended':
+        return kMuted;
+      case 'cancelled':
+        return Colors.red;
+      default:
+        return const Color(0xFFE87A00);
     }
   }
 
@@ -291,24 +346,30 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   String _regStatusLabel(String s) {
     const map = {
-      'pending':         'Pending',
-      'qr_scanned':      'Scanned',
-      'photo_required':  'Awaiting Selfie',
+      'pending': 'Pending',
+      'qr_scanned': 'Scanned',
+      'photo_required': 'Awaiting Selfie',
       'photo_submitted': 'Photo Submitted',
-      'checked_in':      'Checked In',
-      'rejected':        'Rejected',
+      'checked_in': 'Checked In',
+      'rejected': 'Rejected',
     };
     return map[s] ?? s;
   }
 
   Color _regStatusColor(String s) {
     switch (s) {
-      case 'checked_in':      return Colors.green;
-      case 'photo_submitted': return const Color(0xFF2563EB);
-      case 'photo_required':  return Colors.purple;
-      case 'qr_scanned':      return Colors.orange;
-      case 'rejected':        return Colors.red;
-      default:                return kMuted;
+      case 'checked_in':
+        return Colors.green;
+      case 'photo_submitted':
+        return const Color(0xFF2563EB);
+      case 'photo_required':
+        return Colors.purple;
+      case 'qr_scanned':
+        return Colors.orange;
+      case 'rejected':
+        return Colors.red;
+      default:
+        return kMuted;
     }
   }
 
@@ -321,10 +382,24 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   String _fmtRegDate(String iso) {
     try {
       final dt = DateTime.parse(iso).toLocal();
-      const m = ['Jan','Feb','Mar','Apr','May','Jun',
-                  'Jul','Aug','Sep','Oct','Nov','Dec'];
+      const m = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
       return '${m[dt.month - 1]} ${dt.day}';
-    } catch (_) { return '—'; }
+    } catch (_) {
+      return '—';
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -348,7 +423,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
           backgroundColor: Colors.black,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 16),
+            icon: const Icon(
+              Icons.arrow_back_ios_new_rounded,
+              color: Colors.white,
+              size: 16,
+            ),
             onPressed: () => Navigator.pop(context),
           ),
         ),
@@ -365,7 +444,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                     color: const Color(0xFFEF4444).withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(22),
                   ),
-                  child: const Icon(Icons.cloud_off_rounded, size: 36, color: Color(0xFFEF4444)),
+                  child: const Icon(
+                    Icons.cloud_off_rounded,
+                    size: 36,
+                    color: Color(0xFFEF4444),
+                  ),
                 ),
                 const SizedBox(height: 20),
                 Text(
@@ -405,8 +488,13 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                     backgroundColor: kGold,
                     foregroundColor: Colors.white,
                     elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 13),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 13,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ],
@@ -440,7 +528,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 ),
 
               // ── Rejection reason (only when rejected) ────────────────────────
-              if (_approval == 'rejected' && (_rejectionReason ?? '').isNotEmpty)
+              if (_approval == 'rejected' &&
+                  (_rejectionReason ?? '').isNotEmpty)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -576,9 +665,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
                       height: 1.2,
-                      shadows: [
-                        Shadow(blurRadius: 8, color: Colors.black54),
-                      ],
+                      shadows: [Shadow(blurRadius: 8, color: Colors.black54)],
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -624,10 +711,30 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   Widget _buildStatsStrip(AppTk t) {
     final data = [
-      (value: '$_registered',    label: 'Registered',  icon: Icons.confirmation_num_outlined, color: kGold),
-      (value: '$_checkedIn',     label: 'Checked In',  icon: Icons.how_to_reg_rounded,        color: const Color(0xFF16A34A)),
-      (value: _capacity > 0 ? '$_remaining' : '—', label: 'Remaining', icon: Icons.event_seat_rounded, color: const Color(0xFF2563EB)),
-      (value: '$_attendancePct%',label: 'Attendance',  icon: Icons.bar_chart_rounded,         color: const Color(0xFF7C3AED)),
+      (
+        value: '$_registered',
+        label: 'Registered',
+        icon: Icons.confirmation_num_outlined,
+        color: kGold,
+      ),
+      (
+        value: '$_checkedIn',
+        label: 'Checked In',
+        icon: Icons.how_to_reg_rounded,
+        color: const Color(0xFF16A34A),
+      ),
+      (
+        value: _capacity > 0 ? '$_remaining' : '—',
+        label: 'Remaining',
+        icon: Icons.event_seat_rounded,
+        color: const Color(0xFF2563EB),
+      ),
+      (
+        value: '$_attendancePct%',
+        label: 'Attendance',
+        icon: Icons.bar_chart_rounded,
+        color: const Color(0xFF7C3AED),
+      ),
     ];
 
     return Row(
@@ -642,7 +749,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
               color: d.color.withValues(alpha: 0.07),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: d.color.withValues(alpha: 0.2), width: 1.5,
+                color: d.color.withValues(alpha: 0.2),
+                width: 1.5,
               ),
             ),
             child: Column(
@@ -663,7 +771,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 Text(
                   d.label,
                   style: TextStyle(
-                    fontFamily: 'Poppins', fontSize: 9, color: t.muted,
+                    fontFamily: 'Poppins',
+                    fontSize: 9,
+                    color: t.muted,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -679,16 +789,52 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   Widget _buildInfoCard(AppTk t) {
     final rows = [
-      (icon: Icons.calendar_today_rounded, color: const Color(0xFF2563EB), label: 'Date',                value: _fmtDate),
-      (icon: Icons.access_time_rounded,    color: const Color(0xFF16A34A), label: 'Time',                value: _fmtTime),
-      (icon: Icons.location_on_rounded,    color: kGold,                   label: 'Venue',               value: _location),
-      (icon: Icons.groups_rounded,         color: const Color(0xFF7C3AED), label: 'Who can register',    value: _audience.label),
-      (icon: Icons.category_rounded,       color: const Color(0xFF7C3AED), label: 'Event Type',          value: _type),
-      (icon: Icons.person_rounded,         color: const Color(0xFFEA580C), label: 'Organizer',           value: _organizerName ?? '—'),
-      (icon: Icons.lock_clock_rounded,     color: t.muted,                 label: 'Registration closes', value: _fmtDeadline),
+      (
+        icon: Icons.calendar_today_rounded,
+        color: const Color(0xFF2563EB),
+        label: 'Date',
+        value: _fmtDate,
+      ),
+      (
+        icon: Icons.access_time_rounded,
+        color: const Color(0xFF16A34A),
+        label: 'Time',
+        value: _fmtTime,
+      ),
+      (
+        icon: Icons.location_on_rounded,
+        color: kGold,
+        label: 'Venue',
+        value: _location,
+      ),
+      (
+        icon: Icons.groups_rounded,
+        color: const Color(0xFF7C3AED),
+        label: 'Who can register',
+        value: _audience.label,
+      ),
+      (
+        icon: Icons.category_rounded,
+        color: const Color(0xFF7C3AED),
+        label: 'Event Type',
+        value: _type,
+      ),
+      (
+        icon: Icons.person_rounded,
+        color: const Color(0xFFEA580C),
+        label: 'Organizer',
+        value: _organizerName ?? '—',
+      ),
+      (
+        icon: Icons.lock_clock_rounded,
+        color: t.muted,
+        label: 'Registration closes',
+        value: _fmtDeadline,
+      ),
     ];
 
-    return _sectionCard(t,
+    return _sectionCard(
+      t,
       icon: Icons.info_outline_rounded,
       iconBg: kGoldLight,
       iconColor: kGold,
@@ -701,11 +847,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
             children: [
               _infoTile(r.icon, r.color, r.label, r.value, t),
               if (i < rows.length - 1)
-                Divider(
-                  height: 16,
-                  thickness: 0.8,
-                  color: t.divider,
-                ),
+                Divider(height: 16, thickness: 0.8, color: t.divider),
             ],
           );
         }).toList(),
@@ -717,10 +859,13 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   // Why and when it was cancelled — the reason registered students were shown.
 
   Widget _buildCancelledCard(AppTk t) {
-    const red    = Color(0xFFEF4444);
+    const red = Color(0xFFEF4444);
     final reason = (_d['cancel_reason'] as String?)?.trim() ?? '';
-    final when   = timeAgo(_d['cancelled_at'] as String? ?? _d['updated_at'] as String?);
-    return _sectionCard(t,
+    final when = timeAgo(
+      _d['cancelled_at'] as String? ?? _d['updated_at'] as String?,
+    );
+    return _sectionCard(
+      t,
       icon: Icons.event_busy_rounded,
       iconBg: red.withValues(alpha: 0.12),
       iconColor: red,
@@ -728,19 +873,31 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(reason.isEmpty ? 'No reason recorded.' : reason,
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 13, height: 1.5,
-                color: reason.isEmpty ? t.muted : t.text,
-                fontStyle: reason.isEmpty ? FontStyle.italic : FontStyle.normal)),
+          Text(
+            reason.isEmpty ? 'No reason recorded.' : reason,
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 13,
+              height: 1.5,
+              color: reason.isEmpty ? t.muted : t.text,
+              fontStyle: reason.isEmpty ? FontStyle.italic : FontStyle.normal,
+            ),
+          ),
           const SizedBox(height: 8),
           Text(
             organizerCanRestoreEvent(_d)
                 ? 'Registered students were notified. Registrations and attendance '
-                  'records are kept — you can restore the event before it ends.'
+                      'records are kept — you can restore the event before it ends.'
                 : 'Registered students were notified. Registrations and attendance '
-                  'records are kept.',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                color: t.muted, fontStyle: FontStyle.italic, height: 1.45)),
+                      'records are kept.',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 11.5,
+              color: t.muted,
+              fontStyle: FontStyle.italic,
+              height: 1.45,
+            ),
+          ),
         ],
       ),
     );
@@ -752,35 +909,53 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   Widget? _buildActionBar(AppTk t) {
     if (_loading || _loadError) return null;
-    final canEdit    = organizerCanEditEvent(_d);
-    final canCancel  = organizerCanCancelEvent(_d);
+    final canEdit = organizerCanEditEvent(_d);
+    final canCancel = organizerCanCancelEvent(_d);
     final canRestore = organizerCanRestoreEvent(_d);
     if (!canEdit && !canCancel && !canRestore) return null;
 
     Widget? secondary;
     if (canCancel || canRestore) {
-      final color = canRestore ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
+      final color = canRestore
+          ? const Color(0xFF16A34A)
+          : const Color(0xFFDC2626);
       secondary = OutlinedButton.icon(
         onPressed: _actionBusy
             ? null
-            : () => _runAction(() => canRestore
-                ? restoreEventFlow(context, _d)
-                : cancelEventFlow(context, _d)),
+            : () => _runAction(
+                () => canRestore
+                    ? restoreEventFlow(context, _d)
+                    : cancelEventFlow(context, _d),
+              ),
         icon: _actionBusy
-            ? SizedBox(width: 16, height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2, color: color))
-            : Icon(canRestore ? Icons.restore_rounded : Icons.event_busy_rounded,
-                size: 18, color: color),
+            ? SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: color),
+              )
+            : Icon(
+                canRestore ? Icons.restore_rounded : Icons.event_busy_rounded,
+                size: 18,
+                color: color,
+              ),
         label: FittedBox(
           fit: BoxFit.scaleDown,
-          child: Text(canRestore ? 'Restore Event' : 'Cancel Event',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
-                fontWeight: FontWeight.w700, color: color)),
+          child: Text(
+            canRestore ? 'Restore Event' : 'Cancel Event',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
         ),
         style: OutlinedButton.styleFrom(
           side: BorderSide(color: color.withValues(alpha: 0.55), width: 1.5),
           padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
         ),
       );
     }
@@ -791,16 +966,23 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
             icon: const Icon(Icons.edit_rounded, size: 18),
             label: const FittedBox(
               fit: BoxFit.scaleDown,
-              child: Text('Edit Event',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 14,
-                    fontWeight: FontWeight.w700)),
+              child: Text(
+                'Edit Event',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: kGold,
               foregroundColor: Colors.white,
               elevation: 0,
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
           )
         : null;
@@ -811,13 +993,21 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         decoration: BoxDecoration(
           color: t.card,
-          boxShadow: [BoxShadow(color: t.shadow, blurRadius: 20, offset: const Offset(0, -4))],
+          boxShadow: [
+            BoxShadow(
+              color: t.shadow,
+              blurRadius: 20,
+              offset: const Offset(0, -4),
+            ),
+          ],
         ),
-        child: Row(children: [
-          if (secondary != null) Expanded(child: secondary),
-          if (secondary != null && edit != null) const SizedBox(width: 12),
-          if (edit != null) Expanded(child: edit),
-        ]),
+        child: Row(
+          children: [
+            if (secondary != null) Expanded(child: secondary),
+            if (secondary != null && edit != null) const SizedBox(width: 12),
+            if (edit != null) Expanded(child: edit),
+          ],
+        ),
       ),
     );
   }
@@ -827,7 +1017,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   // "resubmit" action needed (see _saveChanges in create_event_screen.dart).
 
   Widget _buildRejectionCard(AppTk t) {
-    return _sectionCard(t,
+    return _sectionCard(
+      t,
       icon: Icons.block_rounded,
       iconBg: const Color(0xFFEF4444).withValues(alpha: 0.12),
       iconColor: const Color(0xFFEF4444),
@@ -837,20 +1028,38 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(_rejectionReason ?? '',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-                  color: t.text, height: 1.5)),
+            Text(
+              _rejectionReason ?? '',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 13,
+                color: t.text,
+                height: 1.5,
+              ),
+            ),
             const SizedBox(height: 8),
-            Text('Edit and save this event to resubmit it for review.',
-              style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5,
-                  color: t.muted, fontStyle: FontStyle.italic)),
+            Text(
+              'Edit and save this event to resubmit it for review.',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 11.5,
+                color: t.muted,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _infoTile(IconData icon, Color color, String label, String value, AppTk t) {
+  Widget _infoTile(
+    IconData icon,
+    Color color,
+    String label,
+    String value,
+    AppTk t,
+  ) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -871,7 +1080,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
               Text(
                 label,
                 style: TextStyle(
-                  fontFamily: 'Poppins', fontSize: 11, color: t.muted,
+                  fontFamily: 'Poppins',
+                  fontSize: 11,
+                  color: t.muted,
                 ),
               ),
               const SizedBox(height: 3),
@@ -899,7 +1110,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     // popular one — nobody is ever turned away.
     const fillColor = kGold;
 
-    return _sectionCard(t,
+    return _sectionCard(
+      t,
       icon: Icons.people_rounded,
       iconBg: kGoldLight,
       iconColor: kGold,
@@ -944,7 +1156,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                     Text(
                       'students registered',
                       style: TextStyle(
-                        fontFamily: 'Poppins', fontSize: 12, color: t.muted,
+                        fontFamily: 'Poppins',
+                        fontSize: 12,
+                        color: t.muted,
                       ),
                     ),
                   ],
@@ -967,7 +1181,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                     Text(
                       'capacity used',
                       style: TextStyle(
-                        fontFamily: 'Poppins', fontSize: 11, color: t.muted,
+                        fontFamily: 'Poppins',
+                        fontSize: 11,
+                        color: t.muted,
                       ),
                     ),
                   ],
@@ -1000,7 +1216,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _pillStat('$_pending Pending',     Colors.orange),
+              _pillStat('$_pending Pending', Colors.orange),
               _pillStat('$_checkedIn Checked In', const Color(0xFF16A34A)),
               if (_capacity > 0)
                 _pillStat('$_remaining Remaining', const Color(0xFF2563EB)),
@@ -1035,12 +1251,13 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   Widget _buildDescCard(AppTk t) {
     const maxLen = 200;
-    final isLong  = _desc.length > maxLen;
+    final isLong = _desc.length > maxLen;
     final display = _descExpanded || !isLong
         ? _desc
         : '${_desc.substring(0, maxLen)}…';
 
-    return _sectionCard(t,
+    return _sectionCard(
+      t,
       icon: Icons.notes_rounded,
       iconBg: const Color(0x1A7C3AED),
       iconColor: const Color(0xFF7C3AED),
@@ -1095,7 +1312,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   Widget _buildRegistrationsCard(AppTk t) {
     final preview = _registrations.take(5).toList();
 
-    return _sectionCard(t,
+    return _sectionCard(
+      t,
       icon: Icons.list_alt_rounded,
       iconBg: const Color(0x1A16A34A),
       iconColor: const Color(0xFF16A34A),
@@ -1124,13 +1342,23 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 final r = entry.value;
                 return Column(
                   children: [
-                    _buildRegRow(r, t),
-                    if (i < preview.length - 1)
-                      Divider(
-                        height: 16,
-                        thickness: 0.8,
-                        color: t.divider,
+                    InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () =>
+                          showEventStudentDetails(context, registration: r),
+                      child: Row(
+                        children: [
+                          Expanded(child: _buildRegRow(r, t)),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: t.muted,
+                            size: 20,
+                          ),
+                        ],
                       ),
+                    ),
+                    if (i < preview.length - 1)
+                      Divider(height: 16, thickness: 0.8, color: t.divider),
                   ],
                 );
               }).toList(),
@@ -1162,7 +1390,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
           Text(
             'Students who register will appear here',
             style: TextStyle(
-              fontFamily: 'Poppins', fontSize: 12, color: t.muted,
+              fontFamily: 'Poppins',
+              fontSize: 12,
+              color: t.muted,
             ),
           ),
         ],
@@ -1171,11 +1401,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   }
 
   Widget _buildRegRow(Map<String, dynamic> r, AppTk t) {
-    final name   = r['student_name']      as String? ?? '—';
-    final sid    = r['student_school_id'] as String? ?? '—';
-    final status = r['status']            as String? ?? 'pending';
-    final date   = r['registered_at']     as String? ?? '';
-    final color  = _regStatusColor(status);
+    final name = r['student_name'] as String? ?? '—';
+    final sid = r['student_school_id'] as String? ?? '—';
+    final status = r['status'] as String? ?? 'pending';
+    final date = r['registered_at'] as String? ?? '';
+    final color = _regStatusColor(status);
 
     return Row(
       children: [
@@ -1213,7 +1443,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
               Text(
                 '$sid  ·  ${date.isNotEmpty ? _fmtRegDate(date) : '—'}',
                 style: TextStyle(
-                  fontFamily: 'Poppins', fontSize: 11, color: t.muted,
+                  fontFamily: 'Poppins',
+                  fontSize: 11,
+                  color: t.muted,
                 ),
               ),
             ],
@@ -1243,7 +1475,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   // ── Shared section card helper ─────────────────────────────────────────────
 
-  Widget _sectionCard(AppTk t, {
+  Widget _sectionCard(
+    AppTk t, {
     required IconData icon,
     required Color iconBg,
     required Color iconColor,

@@ -19,7 +19,7 @@
 WITH fn AS (
   SELECT p.proname, p.prosrc
   FROM pg_proc p
-  JOIN pg_namespace n ON n.oid = p.pronamespac
+  JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public'
 ),
 col AS (
@@ -118,11 +118,9 @@ checks (migration, what, ok) AS (
   ('202610230004_archive_delete_notice', 'organizer told when an archived event is deleted',
     EXISTS (SELECT 1 FROM fn WHERE proname = 'admin_delete_archived_event'
                                AND prosrc ILIKE '%event_deleted%')),
-  ('202610270001_audit_log_integrity', 'logs keep the last 90 days and name their real author',
+  ('202610270001_audit_log_integrity', 'audit log entries name their real author',
     EXISTS (SELECT 1 FROM fn WHERE proname = 'stamp_event_log_author')
-    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'stamp_login_log_account')
-    AND EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'admin_delete_event_logs'
-                                            AND qual ILIKE '%90 days%')),
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'stamp_login_log_account')),
   ('202610270002_registration_status_changed_at', 'notifications show when a check-in step happened',
     EXISTS (SELECT 1 FROM col WHERE table_name = 'registrations' AND column_name = 'status_changed_at')
     AND EXISTS (SELECT 1 FROM fn WHERE proname = 'stamp_registration_status_change')),
@@ -146,7 +144,28 @@ checks (migration, what, ok) AS (
     EXISTS (SELECT 1 FROM fn WHERE proname = 'admin_delete_unused_event')
     AND EXISTS (SELECT 1 FROM fn WHERE proname = 'notify_archive_changes')
     AND EXISTS (SELECT 1 FROM fn WHERE proname = 'event_archive_rules'
-                                   AND prosrc ILIKE '%nothing to archive%'))
+                                   AND prosrc ILIKE '%nothing to archive%')),
+  ('202611030003_android_push_notifications', 'Android push token registration and notification triggers',
+    to_regclass('public.push_tokens') IS NOT NULL
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'register_push_token')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'dispatch_eventhub_push')
+    AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_push_new_announcement')
+    AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_push_new_event_registration')),
+  ('202611040001_student_event_push_notifications', 'newly approved events notify eligible students',
+    EXISTS (SELECT 1 FROM fn WHERE proname = 'push_newly_approved_event')
+    AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_push_approved_event_students')),
+  ('202611040002_admin_log_clear_all', 'admins can clear login and event logs of any age',
+    EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public'
+              AND tablename = 'event_logs' AND policyname = 'admin_delete_event_logs'
+              AND cmd = 'DELETE' AND qual ILIKE '%admins%')
+    AND EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public'
+              AND tablename = 'login_logs' AND policyname = 'admin_delete_login_logs'
+              AND cmd = 'DELETE' AND qual ILIKE '%admins%')
+    AND NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public'
+              AND tablename IN ('event_logs', 'login_logs')
+              AND cmd IN ('DELETE', 'ALL')
+              AND (COALESCE(qual, '') NOT ILIKE '%admins%'
+                   OR COALESCE(qual, '') ILIKE '%90 days%')))
 )
 SELECT CASE WHEN ok THEN '✓' ELSE '✗ run it' END AS status, migration, what
 FROM checks

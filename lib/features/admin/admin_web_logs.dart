@@ -16,11 +16,6 @@ import 'admin_shared.dart';
 // Logs page — helpers
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Log entries are kept at least this long: Clear only removes older ones.
-/// The database refuses to delete newer ones (admin_delete_event_logs /
-/// admin_delete_login_logs, migration 202610270001) — keep the two the same.
-const Duration kLogRetention = Duration(days: 90);
-
 /// How many of the newest entries each tab loads.
 const int _kLoadedLogs = 500;
 
@@ -336,26 +331,21 @@ class _AdminLogsPageState extends State<AdminLogsPage>
     final logType = isLoginTab ? 'login' : 'event';
     final tabLabel = isLoginTab ? 'Login' : 'Event';
     final loaded = isLoginTab ? _loginAll : _eventAll;
-    // The last 90 days are kept (kLogRetention); the database won't delete
-    // them. A day's margin keeps a computer clock that runs ahead from
-    // picking entries the database still keeps.
-    final cutoff = DateTime.now().subtract(kLogRetention + const Duration(days: 1));
-    bool isOld(Map<String, dynamic> row) =>
-        DateTime.tryParse(row['created_at'] as String? ?? '')?.isBefore(cutoff) ?? false;
-    final oldIds = (hasFilters ? (isLoginTab ? _loginFiltered : _eventFiltered) : loaded)
-        .where(isOld)
+    final matchingLogs =
+        hasFilters ? (isLoginTab ? _loginFiltered : _eventFiltered) : loaded;
+    final matchingIds = matchingLogs
         .map((row) => row['id'] as String? ?? '')
         .where((id) => id.isNotEmpty)
         .toList();
-    // Only the newest entries are loaded: without filters, older ones may
-    // be waiting beyond them.
+    // Without filters, delete all rows, including entries outside the loaded
+    // latest-page list.
     final mayHaveMore = !hasFilters && loaded.length >= _kLoadedLogs;
 
-    if (oldIds.isEmpty && !mayHaveMore) {
+    if (matchingIds.isEmpty && !mayHaveMore) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(hasFilters
-            ? 'None of the matching logs are older than 90 days. Logs from the last 90 days are always kept.'
-            : 'Nothing to clear yet. Logs from the last 90 days are always kept.'),
+            ? 'No matching logs to clear.'
+            : 'Nothing to clear yet.'),
         behavior: SnackBarBehavior.floating,
       ));
       return;
@@ -363,14 +353,14 @@ class _AdminLogsPageState extends State<AdminLogsPage>
 
     final confirmed = await WebAlert.confirm(
       context: context,
-      title: hasFilters ? 'Clear Matching $tabLabel Logs?' : 'Clear Old $tabLabel Logs?',
+      title: hasFilters ? 'Clear Matching $tabLabel Logs?' : 'Clear All $tabLabel Logs?',
       message: hasFilters
-          ? 'This permanently deletes ${oldIds.length} matching $logType log '
-              '${oldIds.length == 1 ? 'entry' : 'entries'} older than 90 days. '
-              'Logs from the last 90 days are kept. This action cannot be undone.'
-          : 'This permanently deletes every $logType log entry older than 90 days. '
-              'Logs from the last 90 days are kept. This action cannot be undone.',
-      confirmLabel: hasFilters ? 'Clear Matching' : 'Clear Old Logs',
+          ? 'This permanently deletes ${matchingIds.length} matching $logType log '
+              '${matchingIds.length == 1 ? 'entry' : 'entries'} from the loaded results. '
+              'This action cannot be undone.'
+          : 'This permanently deletes all $logType log entries. '
+              'This action cannot be undone.',
+      confirmLabel: hasFilters ? 'Clear Matching' : 'Clear All Logs',
       icon: Icons.delete_sweep_rounded,
     );
     if (confirmed != true || !mounted) return;
@@ -381,15 +371,15 @@ class _AdminLogsPageState extends State<AdminLogsPage>
           ? await SupabaseService.client
               .from(table)
               .delete()
-              .in_('id', oldIds)
+              .in_('id', matchingIds)
               .select('id')
           : await SupabaseService.client
               .from(table)
               .delete()
-              .lt('created_at', cutoff.toUtc().toIso8601String())
+              .not('id', 'is', null)
               .select('id');
       final count = (deleted as List).length;
-      if (count == 0 && oldIds.isNotEmpty) {
+      if (count == 0 && matchingIds.isNotEmpty) {
         _blockedDeletion(isLoginTab ? 'admin_delete_login_logs' : 'admin_delete_event_logs');
       }
 
@@ -404,10 +394,9 @@ class _AdminLogsPageState extends State<AdminLogsPage>
           context: context,
           title: count == 0 ? 'Nothing to clear' : 'Logs cleared',
           message: count == 0
-              ? 'No $logType log entries are older than 90 days yet.'
-              : '$count $logType log ${count == 1 ? 'entry' : 'entries'} older than '
-                  '90 days ${count == 1 ? 'was' : 'were'} deleted. Logs from the '
-                  'last 90 days are kept.',
+              ? 'There were no $logType log entries to clear.'
+              : '$count $logType log ${count == 1 ? 'entry' : 'entries'} '
+                  '${count == 1 ? 'was' : 'were'} deleted.',
         );
       }
     } catch (e) {
@@ -421,10 +410,11 @@ class _AdminLogsPageState extends State<AdminLogsPage>
   // delete policy is missing — the technical hint goes to the debug log.
   Never _blockedDeletion(String policy) {
     debugPrint('Log deletion blocked by RLS — apply the $policy policy '
-        'from supabase/migrations/202610270001_audit_log_integrity.sql.');
+        'from supabase/migrations/202611040002_admin_log_clear_all.sql.');
     throw const FriendlyException(
-        'The logs couldn’t be deleted because this account isn’t allowed to '
-        'delete them yet. Please contact the system administrator.');
+        'Supabase blocked the log deletion. Run '
+        '202611040002_admin_log_clear_all.sql in the correct Supabase project, '
+        'and make sure this account is listed as an admin.');
   }
 
   @override
@@ -440,24 +430,16 @@ class _AdminLogsPageState extends State<AdminLogsPage>
       Container(
         color: t.card,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Title and activity counts
+          // Title
           Padding(
             padding: const EdgeInsets.fromLTRB(kWebPad, 20, kWebPad, 16),
             child: Row(children: [
               Text('Logs',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 22,
                     fontWeight: FontWeight.w800, color: t.text)),
-              const Spacer(),
-              _LogStatChip(
-                icon: Icons.login_rounded, label: 'Logins',
-                count: loginFiltered, color: const Color(0xFF0EA5E9)),
-              const SizedBox(width: 8),
-              _LogStatChip(
-                icon: Icons.event_note_rounded, label: 'Event Actions',
-                count: eventFiltered, color: const Color(0xFF7C3AED)),
             ]),
           ),
-          // Filter bar — search first, period dropdown
+          // Filter bar — search and period filters
           Padding(
             padding: const EdgeInsets.fromLTRB(kWebPad, 0, kWebPad, 12),
             child: Row(children: [
@@ -470,71 +452,46 @@ class _AdminLogsPageState extends State<AdminLogsPage>
               const SizedBox(width: 14),
               Container(width: 1, height: 18, color: t.border),
               const SizedBox(width: 14),
-              Text('Period:',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                    fontWeight: FontWeight.w600, color: t.text)),
-              const SizedBox(width: 8),
-              Container(
-                height: 28,
-                padding: const EdgeInsets.only(left: 10, right: 6),
-                decoration: BoxDecoration(
-                  color: _dateRange != 'all'
-                      ? kAdminAccent.withValues(alpha: 0.07) : t.card,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: _dateRange != 'all'
-                        ? kAdminAccent.withValues(alpha: 0.45) : t.border,
-                    width: _dateRange != 'all' ? 1.5 : 1.0,
+              WebFilterMenu<String>(
+                icon: Icons.calendar_today_rounded,
+                label: 'Period',
+                menuWidth: 250,
+                selected: _dateRange,
+                options: [
+                  WebFilterOption(
+                    value: 'all',
+                    label: 'All time',
+                    count: _countFor(
+                      _tab.index == 0 ? _loginAll : _eventAll,
+                      'all',
+                    ),
                   ),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _dateRange,
-                    isDense: true,
-                    icon: Icon(Icons.keyboard_arrow_down_rounded, size: 14,
-                        color: _dateRange != 'all' ? kAdminAccent : t.muted),
-                    selectedItemBuilder: (_) => [
-                      for (final (label, _) in [
-                        ('Today', 'today'), ('Last 7 days', '7d'),
-                        ('Last 30 days', '30d'), ('All time', 'all'),
-                      ])
-                        Center(
-                          child: Text(label,
-                            style: TextStyle(
-                              fontFamily: 'Poppins', fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              color: _dateRange != 'all' ? kAdminAccent : t.text,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ],
-                    items: [
-                      for (final (label, val) in [
-                        ('Today', 'today'), ('Last 7 days', '7d'),
-                        ('Last 30 days', '30d'), ('All time', 'all'),
-                      ])
-                        DropdownMenuItem<String>(
-                          value: val,
-                          child: Text(
-                            '$label  (${_countFor(_tab.index == 0 ? _loginAll : _eventAll, val)})',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 12,
-                              fontWeight: val == _dateRange
-                                  ? FontWeight.w700
-                                  : FontWeight.w400,
-                              color: val == _dateRange
-                                  ? kAdminAccent
-                                  : t.text,
-                            ),
-                          ),
-                        ),
-                    ],
-                    onChanged: (v) { if (v != null) _setDateRange(v); },
+                  WebFilterOption(
+                    value: 'today',
+                    label: 'Today',
+                    count: _countFor(
+                      _tab.index == 0 ? _loginAll : _eventAll,
+                      'today',
+                    ),
                   ),
-                ),
+                  WebFilterOption(
+                    value: '7d',
+                    label: 'Last 7 days',
+                    count: _countFor(
+                      _tab.index == 0 ? _loginAll : _eventAll,
+                      '7d',
+                    ),
+                  ),
+                  WebFilterOption(
+                    value: '30d',
+                    label: 'Last 30 days',
+                    count: _countFor(
+                      _tab.index == 0 ? _loginAll : _eventAll,
+                      '30d',
+                    ),
+                  ),
+                ],
+                onSelect: _setDateRange,
               ),
             ]),
           ),
@@ -591,9 +548,6 @@ class _AdminLogsPageState extends State<AdminLogsPage>
 
   Widget _buildLoginTab(int filtered, int total) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    const roles = ['All', 'Admin', 'Organizer', 'Student'];
-    const plats = ['All', 'Web', 'Mobile'];
-
     if (_loginLoading) {
       return const Center(child: CircularProgressIndicator(color: kAdminAccent));
     }
@@ -601,12 +555,6 @@ class _AdminLogsPageState extends State<AdminLogsPage>
       return AdminErrorState(message: '', onRetry: _loadLogin);
     }
 
-    // KPI stats for the filtered set
-    final uniqueUsers = _loginFiltered
-        .map((r) => r['identifier'] as String? ?? '')
-        .where((s) => s.isNotEmpty).toSet().length;
-    final webCount    = _loginFiltered.where((r) => r['platform'] == 'web').length;
-    final mobileCount = _loginFiltered.where((r) => r['platform'] == 'mobile').length;
     final loginPeriodLabel = switch (_dateRange) {
       'today' => 'Today',
       '7d'    => 'Last 7 days',
@@ -632,51 +580,94 @@ class _AdminLogsPageState extends State<AdminLogsPage>
           border: Border(bottom: BorderSide(color: t.border)),
         ),
         child: Row(children: [
-          Text('Role:',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w600, color: t.text)),
-          const SizedBox(width: 8),
-          for (final r in roles) ...[
-            WebFilterChip(
-              label: r, selected: _loginRole == r,
-              onTap: () { setState(() => _loginRole = r); _applyLogin(); },
-              count: r == 'All'
-                  ? _loginAll.length
-                  : _loginAll.where((x) => x['user_role'] == r.toLowerCase()).length,
-              selectedColor: switch (r) {
-                'Admin'     => kAdminAccent,
-                'Organizer' => const Color(0xFF7C3AED),
-                'Student'   => const Color(0xFF0EA5E9),
-                _           => kGold,
-              },
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                WebFilterMenu<String>(
+                  icon: Icons.badge_rounded,
+                  label: 'Role',
+                  menuWidth: 230,
+                  selected: _loginRole,
+                  options: [
+                    WebFilterOption(
+                      value: 'All',
+                      label: 'All',
+                      count: _loginAll.length,
+                    ),
+                    WebFilterOption(
+                      value: 'Admin',
+                      label: 'Admin',
+                      count: _loginAll
+                          .where((r) => r['user_role'] == 'admin')
+                          .length,
+                      color: kAdminAccent,
+                    ),
+                    WebFilterOption(
+                      value: 'Organizer',
+                      label: 'Organizer',
+                      count: _loginAll
+                          .where((r) => r['user_role'] == 'organizer')
+                          .length,
+                      color: const Color(0xFF7C3AED),
+                    ),
+                    WebFilterOption(
+                      value: 'Student',
+                      label: 'Student',
+                      count: _loginAll
+                          .where((r) => r['user_role'] == 'student')
+                          .length,
+                      color: const Color(0xFF0EA5E9),
+                    ),
+                  ],
+                  onSelect: (role) {
+                    _loginRole = role;
+                    _applyLogin();
+                  },
+                ),
+                WebFilterMenu<String>(
+                  icon: Icons.devices_rounded,
+                  label: 'Platform',
+                  menuWidth: 230,
+                  accent: const Color(0xFF4F46E5),
+                  selected: _loginPlat,
+                  options: [
+                    WebFilterOption(
+                      value: 'All',
+                      label: 'All',
+                      count: _loginAll.length,
+                    ),
+                    WebFilterOption(
+                      value: 'Web',
+                      label: 'Web',
+                      count: _loginAll
+                          .where((r) => r['platform'] == 'web')
+                          .length,
+                      color: const Color(0xFF4F46E5),
+                    ),
+                    WebFilterOption(
+                      value: 'Mobile',
+                      label: 'Mobile',
+                      count: _loginAll
+                          .where((r) => r['platform'] == 'mobile')
+                          .length,
+                      color: const Color(0xFF0D9488),
+                    ),
+                  ],
+                  onSelect: (platform) {
+                    _loginPlat = platform;
+                    _applyLogin();
+                  },
+                ),
+              ],
             ),
-            const SizedBox(width: 6),
-          ],
-          const SizedBox(width: 12),
-          Container(width: 1, height: 18, color: t.border),
-          const SizedBox(width: 12),
-          Text('Platform:',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                fontWeight: FontWeight.w600, color: t.text)),
-          const SizedBox(width: 8),
-          for (final p in plats) ...[
-            WebFilterChip(
-              label: p, selected: _loginPlat == p,
-              onTap: () { setState(() => _loginPlat = p); _applyLogin(); },
-              count: p == 'All'
-                  ? _loginAll.length
-                  : _loginAll.where((x) => x['platform'] == p.toLowerCase()).length,
-              selectedColor: p == 'Web'
-                  ? const Color(0xFF4F46E5)
-                  : const Color(0xFF0D9488),
-            ),
-            const SizedBox(width: 6),
-          ],
+          ),
             const Spacer(),
             Tooltip(
               message: _hasLoginFilters
-                  ? 'Delete the matching login logs older than 90 days'
-                  : 'Delete login logs older than 90 days (the last 90 days are kept)',
+                  ? 'Delete the matching login logs'
+                  : 'Delete all login logs',
               child: MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: GestureDetector(
@@ -692,54 +683,6 @@ class _AdminLogsPageState extends State<AdminLogsPage>
             ),
         ]),
       ),
-      // KPI insight strip
-      if (_loginFiltered.isNotEmpty)
-        Container(
-          padding: const EdgeInsets.fromLTRB(kWebPad, 8, kWebPad, 8),
-          decoration: BoxDecoration(
-            color: t.inputBg,
-            border: Border(bottom: BorderSide(color: t.border)),
-          ),
-          child: Row(children: [
-            _LogKpiChip(
-              icon: Icons.people_alt_rounded,
-              label: '$uniqueUsers Unique User${uniqueUsers == 1 ? "" : "s"}',
-              color: const Color(0xFF0EA5E9),
-            ),
-            const SizedBox(width: 8),
-            _LogKpiChip(
-              icon: Icons.desktop_mac_rounded,
-              label: '$webCount Web',
-              color: const Color(0xFF4F46E5),
-            ),
-            const SizedBox(width: 8),
-            _LogKpiChip(
-              icon: Icons.smartphone_rounded,
-              label: '$mobileCount Mobile',
-              color: const Color(0xFF0D9488),
-            ),
-            const SizedBox(width: 16),
-            Container(width: 1, height: 14, color: t.border),
-            const SizedBox(width: 16),
-            _LogKpiChip(
-              icon: Icons.admin_panel_settings_rounded,
-              label: '${_loginFiltered.where((r) => r['user_role'] == 'admin').length} Admin',
-              color: kAdminAccent,
-            ),
-            const SizedBox(width: 8),
-            _LogKpiChip(
-              icon: Icons.badge_rounded,
-              label: '${_loginFiltered.where((r) => r['user_role'] == 'organizer').length} Organizer',
-              color: const Color(0xFF7C3AED),
-            ),
-            const SizedBox(width: 8),
-            _LogKpiChip(
-              icon: Icons.school_rounded,
-              label: '${_loginFiltered.where((r) => r['user_role'] == 'student').length} Student',
-              color: const Color(0xFF10B981),
-            ),
-          ]),
-        ),
       // Body
       if (_loginFiltered.isEmpty)
         Expanded(child: Center(child: WebEmptyState(
@@ -825,8 +768,18 @@ class _AdminLogsPageState extends State<AdminLogsPage>
 
   Widget _buildEventTab(int filtered, int total) {
     final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    const actions = ['All', 'created', 'updated', 'deleted', 'cancelled', 'approved',
-        'rejected', 'checked_in', 'registration_rejected', 'attendance_corrected'];
+    const actions = [
+      'All',
+      'created',
+      'updated',
+      'deleted',
+      'cancelled',
+      'approved',
+      'rejected',
+      'checked_in',
+      'registration_rejected',
+      'attendance_corrected',
+    ];
 
     if (_eventLoading) {
       return const Center(child: CircularProgressIndicator(color: kAdminAccent));
@@ -879,37 +832,38 @@ class _AdminLogsPageState extends State<AdminLogsPage>
         ),
         child: Row(children: [
           Expanded(
-            child: Row(children: [
-              Text('Action:',
-                style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-                    fontWeight: FontWeight.w600, color: t.text)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(children: [
-                    for (final a in actions) ...[
-                      WebFilterChip(
-                        label: a == 'All' ? 'All' : _logActionLabel(a),
-                        selected: _eventAction == a,
-                        onTap: () { setState(() => _eventAction = a); _applyEvent(); },
-                        count: a == 'All'
-                            ? _eventAll.length
-                            : _eventAll.where((x) => x['action'] == a).length,
-                        selectedColor: a == 'All' ? kGold : _logActionColor(a),
-                      ),
-                      const SizedBox(width: 6),
-                    ],
-                  ]),
-                ),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: WebFilterMenu<String>(
+                icon: Icons.filter_list_rounded,
+                label: 'Action',
+                menuWidth: 280,
+                selected: _eventAction,
+                options: [
+                  for (final action in actions)
+                    WebFilterOption(
+                      value: action,
+                      label: action == 'All' ? 'All' : _logActionLabel(action),
+                      count: action == 'All'
+                          ? _eventAll.length
+                          : _eventAll
+                              .where((row) => row['action'] == action)
+                              .length,
+                      color: action == 'All' ? null : _logActionColor(action),
+                    ),
+                ],
+                onSelect: (action) {
+                  _eventAction = action;
+                  _applyEvent();
+                },
               ),
-            ]),
+            ),
           ),
           const SizedBox(width: 12),
           Tooltip(
             message: _hasEventFilters
-                ? 'Delete the matching event logs older than 90 days'
-                : 'Delete event logs older than 90 days (the last 90 days are kept)',
+                ? 'Delete the matching event logs'
+                : 'Delete all event logs',
             child: MouseRegion(
               cursor: SystemMouseCursors.click,
               child: GestureDetector(
@@ -1153,33 +1107,6 @@ class _LogTab extends StatelessWidget {
             fontWeight: FontWeight.w700, color: color)),
     ),
   ]);
-}
-
-class _LogStatChip extends StatelessWidget {
-  final IconData icon; final String label; final int count; final Color color;
-  const _LogStatChip({required this.icon, required this.label,
-      required this.count, required this.color});
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.07),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: color.withValues(alpha: 0.20)),
-    ),
-    child: Row(mainAxisSize: MainAxisSize.min, children: [
-      Icon(icon, size: 14, color: color),
-      const SizedBox(width: 7),
-      Text('$count',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 13,
-            fontWeight: FontWeight.w700, color: color)),
-      const SizedBox(width: 4),
-      Text(label,
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 11,
-            fontWeight: FontWeight.w500,
-            color: color.withValues(alpha: 0.75))),
-    ]),
-  );
 }
 
 class _LogColLabel extends StatelessWidget {

@@ -8,6 +8,7 @@ import '../../../../shared/widgets/app_alert.dart';
 import '../../../../shared/widgets/error_alert.dart';
 import '../../../../core/app_colors.dart';
 import '../org_tab_ui.dart';
+import '../events/event_student_details_sheet.dart';
 import 'organizer_registrations_ui.dart';
 
 // ── Reject reason prompt ─────────────────────────────────────────────────────
@@ -464,8 +465,10 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   }
 
   List<String> get _filteredReviewableIds => _filtered
-      .where((r) =>
-          r['status'] == 'photo_submitted' && !_isArchived(r) && !_isFinal(r))
+      .where(
+        (r) =>
+            r['status'] == 'photo_submitted' && !_isArchived(r) && !_isFinal(r),
+      )
       .map((r) => r['id'] as String? ?? '')
       .where((id) => id.isNotEmpty)
       .toList();
@@ -1039,14 +1042,6 @@ class _RegistrationsScreenState extends State<RegistrationsScreen> {
   // ── Details sheet ─────────────────────────────────────────────────────────
 
   void _showDetails(Map<String, dynamic> r) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => OrgRegistrationDetailsSheet(
-        registration: r,
-        selfieUrl: _selfies[r['id'] as String? ?? ''],
-      ),
-    );
+    showEventStudentDetails(context, registration: r);
   }
 }

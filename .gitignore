@@ -46,6 +46,7 @@ app.*.map.json
 
 # Secret keys — never commit
 lib/services/app_secrets.dart
+android/app/google-services.json
 
 
 # Test logins for end-to-end testing — never commit

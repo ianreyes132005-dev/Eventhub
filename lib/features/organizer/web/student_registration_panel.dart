@@ -8,7 +8,6 @@
 //   • Profile   photo, name, LRN (copy), grade · strand · section
 //   • This event check-in progress (Registered → … → Checked in / Rejected)
 //   • Identity  profile photo next to the check-in selfie
-//   • History   registrations & attendance with THIS organizer's events only
 //   • Action    the next step for the current status (request selfie /
 //               check in / reject with reason) via RegistrationService
 //
@@ -17,7 +16,6 @@
 // view isn't installed yet, the panel still works from the registration row.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -55,7 +53,6 @@ Future<Map<String, Map<String, dynamic>>> loadRegistrantProfiles(
 Future<bool?> showStudentRegistrationPanel(
   BuildContext context, {
   required Map<String, dynamic> registration,
-  String? organizerId,
   Map<String, dynamic>? profile,
   bool archived = false,
   bool attendanceFinal = false,
@@ -69,7 +66,7 @@ Future<bool?> showStudentRegistrationPanel(
     pageBuilder: (_, _, _) => Align(
       alignment: Alignment.centerRight,
       child: StudentRegistrationPanel(
-        registration: registration, organizerId: organizerId, profile: profile,
+        registration: registration, profile: profile,
         archived: archived, attendanceFinal: attendanceFinal),
     ),
     transitionBuilder: (_, anim, _, child) => SlideTransition(
@@ -82,7 +79,6 @@ Future<bool?> showStudentRegistrationPanel(
 
 class StudentRegistrationPanel extends StatefulWidget {
   final Map<String, dynamic>  registration;
-  final String?               organizerId;
   final Map<String, dynamic>? profile;
   /// The admin archived the event: read-only, and the photo was deleted.
   final bool                  archived;
@@ -90,7 +86,7 @@ class StudentRegistrationPanel extends StatefulWidget {
   /// the attendance.
   final bool                  attendanceFinal;
   const StudentRegistrationPanel({
-    super.key, required this.registration, this.organizerId, this.profile,
+    super.key, required this.registration, this.profile,
     this.archived = false, this.attendanceFinal = false});
 
   @override
@@ -102,14 +98,11 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
   Map<String, dynamic>? _profile;
   String? _selfieUrl;
   bool _selfieLoading = false;
-  List<Map<String, dynamic>>? _history;   // null = loading
   bool _busy = false;
   bool _changed = false;
 
-  // Live: the student's check-in steps (a selfie arriving, a check-in or a
-  // rejection from another screen or the app) show while the panel is open.
+  // Live: the student's check-in steps show while the panel is open.
   RealtimeChannel? _channel;
-  Timer? _historyDebounce;
   bool _closing = false;
 
   String? get _uid    => _reg['student_user_id'] as String?;
@@ -123,13 +116,11 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
     _profile = widget.profile;
     if (_profile == null && _uid != null) _loadProfile();
     _loadSelfie();
-    _loadHistory();
     _subscribe();
   }
 
   @override
   void dispose() {
-    _historyDebounce?.cancel();
     if (_channel != null) SupabaseService.client.removeChannel(_channel!);
     super.dispose();
   }
@@ -138,8 +129,6 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
     final uid = _uid;
     if (uid == null || _regId.isEmpty) return;
     _channel = SupabaseService.client.channel('org-student-panel-$_regId')
-      // This student's registrations: this one (its status and selfie) and
-      // the others listed under "With your events".
       ..on(
         RealtimeListenTypes.postgresChanges,
         ChannelFilter(
@@ -151,7 +140,6 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
         (payload, [_]) {
           final row = (payload['new'] as Map?) ?? const {};
           if (row['id'] == _regId) _registrationChanged(Map<String, dynamic>.from(row));
-          _reloadHistorySoon();
         },
       )
       // A delete carries only the row id, and can't be filtered.
@@ -160,11 +148,7 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
         ChannelFilter(event: 'DELETE', schema: 'public', table: 'registrations'),
         (payload, [_]) {
           final id = (payload['old'] as Map?)?['id'];
-          if (id == _regId) {
-            _registrationRemoved();
-          } else if (_history?.any((h) => h['id'] == id) ?? false) {
-            _reloadHistorySoon();
-          }
+          if (id == _regId) _registrationRemoved();
         },
       )
       ..subscribe();
@@ -183,13 +167,6 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
         (path != oldPath || (_status == 'photo_submitted' && oldStatus != 'photo_submitted'))) {
       _loadSelfie();
     }
-  }
-
-  void _reloadHistorySoon() {
-    _historyDebounce?.cancel();
-    _historyDebounce = Timer(const Duration(milliseconds: 600), () {
-      if (mounted) _loadHistory();
-    });
   }
 
   // Deleted elsewhere (e.g. on the app): nothing left to show here.
@@ -220,27 +197,6 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
     }
   }
 
-  // Only this organizer's events — never other organizers' registrations.
-  Future<void> _loadHistory() async {
-    if (_uid == null || widget.organizerId == null) {
-      setState(() => _history = const []);
-      return;
-    }
-    try {
-      final rows = await SupabaseService.client
-          .from('registrations')
-          .select('id, status, registered_at, checked_in_at, rejection_reason, event_title, '
-              'events!inner(title, event_date, organizer_id)')
-          .eq('student_user_id', _uid!)
-          .eq('events.organizer_id', widget.organizerId!)
-          .order('registered_at', ascending: false);
-      if (mounted) setState(() => _history = List<Map<String, dynamic>>.from(rows as List));
-    } catch (e) {
-      debugPrint('Student history load failed: $e');
-      if (mounted) setState(() => _history = const []);
-    }
-  }
-
   // ── Actions ────────────────────────────────────────────────────────────────
 
   Future<void> _setStatus(String status, {String? reason}) async {
@@ -256,7 +212,6 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
         _busy = false;
         _changed = true;
       });
-      _loadHistory();
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
@@ -334,9 +289,6 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
                   _section('IDENTITY CHECK', t),
                   _buildIdentity(t),
                 ],
-                const SizedBox(height: 22),
-                _section('WITH YOUR EVENTS', t),
-                _buildHistory(t),
               ],
             ),
           ),
@@ -504,75 +456,6 @@ class _StudentRegistrationPanelState extends State<StudentRegistrationPanel> {
             : _status == 'photo_required' ? 'Waiting for selfie' : 'No selfie',
         name: _displayName)),
     ]);
-  }
-
-  // ── History with this organizer's events ───────────────────────────────────
-
-  Widget _buildHistory(WebTk t) {
-    final h = _history;
-    if (h == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: Center(child: SizedBox(width: 18, height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2, color: kGold))));
-    }
-    if (h.isEmpty) {
-      return Text('No other registrations with your events.',
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: t.muted));
-    }
-    final attended = h.where((r) => r['status'] == 'checked_in').length;
-    final pct = (attended / h.length * 100).round();
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text.rich(TextSpan(
-        style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5, color: t.sub),
-        children: [
-          TextSpan(text: '${h.length}', style: TextStyle(fontWeight: FontWeight.w800, color: t.text)),
-          TextSpan(text: ' registered  ·  '),
-          TextSpan(text: '$attended', style: TextStyle(fontWeight: FontWeight.w800, color: t.text)),
-          TextSpan(text: ' attended ($pct%)'),
-        ],
-      )),
-      const SizedBox(height: 8),
-      for (final r in h.take(6)) _historyRow(r, t),
-      if (h.length > 6)
-        Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text('+ ${h.length - 6} more',
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11.5, color: t.muted)),
-        ),
-    ]);
-  }
-
-  Widget _historyRow(Map<String, dynamic> r, WebTk t) {
-    final ev      = r['events'] as Map<String, dynamic>?;
-    final title   = ev?['title'] as String? ?? r['event_title'] as String? ?? '—';
-    final status  = r['status'] as String? ?? 'pending';
-    final isThis  = r['id'] == _reg['id'];
-    final reason  = (r['rejection_reason'] as String?)?.trim();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          width: 7, height: 7, margin: const EdgeInsets.only(top: 6, right: 10),
-          decoration: BoxDecoration(color: webStatusColor(status), shape: BoxShape.circle)),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text.rich(TextSpan(children: [
-            TextSpan(text: title, style: TextStyle(fontFamily: 'Poppins', fontSize: 12.5,
-                fontWeight: FontWeight.w600, color: t.text)),
-            if (isThis)
-              TextSpan(text: '  · this event', style: TextStyle(fontFamily: 'Poppins',
-                  fontSize: 11, color: t.muted)),
-          ]), maxLines: 1, overflow: TextOverflow.ellipsis),
-          Text(
-            [webFmtDate(ev?['event_date'] as String?), webStatusLabel(status)]
-                .where((s) => s.isNotEmpty && s != '—').join('  ·  ') +
-                (status == 'rejected' && reason != null && reason.isNotEmpty
-                    ? ' — “$reason”' : ''),
-            style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: t.muted),
-            maxLines: 2, overflow: TextOverflow.ellipsis),
-        ])),
-      ]),
-    );
   }
 
   // ── Footer: the next action for this status ────────────────────────────────
