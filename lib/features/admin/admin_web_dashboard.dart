@@ -946,7 +946,9 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
           _buildHeader(t),
           const SizedBox(height: 20),
           _buildKpiRow(t),
-          const SizedBox(height: 20),
+          const SizedBox(height: 28),
+          _buildAnalyticsLabel(t),
+          const SizedBox(height: 16),
           _buildChartsRow(t),
           const SizedBox(height: 20),
           _buildBottomRow(t),
@@ -959,6 +961,36 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
   }
 
   // ── Photo review alert ──────────────────────────────────────────────────────
+
+  // ── Analytics section label ──────────────────────────────────────────────────
+  // Same as the organizer web Dashboard's, in the admin portal's colour.
+
+  Widget _buildAnalyticsLabel(WebTk t) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          width: 3,
+          height: 20,
+          decoration: BoxDecoration(
+            color: _kAccent,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          'Analytics',
+          style: TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: t.text,
+            height: 1.1,
+          ),
+        ),
+      ],
+    );
+  }
 
   // ── Header ─────────────────────────────────────────────────────────────────
 
