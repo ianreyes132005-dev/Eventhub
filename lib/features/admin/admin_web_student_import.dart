@@ -306,7 +306,14 @@ ImportField? fieldForHeader(String header) {
   }
   if (h.contains('firstname') || h.contains('givenname'))
     return ImportField.firstName;
-  if (h.contains('middlename') || h.contains('middleinitial') || h == 'mi') {
+  // "Middle Name", "Middle", "Middle Initial" / "Middle Init.", "M.I.",
+  // "M. Name", "Mid. Name".
+  if (h.contains('middlename') ||
+      h.contains('middleinit') ||
+      h == 'middle' ||
+      h == 'mi' ||
+      h == 'mname' ||
+      h == 'midname') {
     return ImportField.middleName;
   }
   if (h.contains('section')) return ImportField.section;
@@ -2172,7 +2179,8 @@ class _AdminStudentImportDialogState extends State<AdminStudentImportDialog> {
                       Expanded(
                         flex: 4,
                         child: Text(
-                          s['full_name'] as String? ?? '—',
+                          // With the middle name, like the Students tab.
+                          adminFullName(s).ifEmpty('—'),
                           style: TextStyle(
                             fontFamily: 'Poppins',
                             fontSize: 12,

@@ -692,6 +692,20 @@ String adminCleanName(String raw) {
       : w[0].toUpperCase() + w.substring(1).toLowerCase()).join(' ');
 }
 
+// The name the admin Students and Organizers tables show: "First Middle
+// Last". full_name is saved as "First Last" on purpose (greetings, avatars
+// and tickets read it) and the middle name is stored on its own, so it is put
+// back here. Rows without first/last names (older ones) show full_name.
+String adminFullName(Map<String, dynamic> row) {
+  String part(String key) =>
+      (row[key] as String? ?? '').trim().replaceAll(RegExp(r'\s+'), ' ');
+  final first = part('first_name'), last = part('last_name');
+  if (first.isEmpty || last.isEmpty) return part('full_name');
+  return [first, part('middle_name'), last]
+      .where((p) => p.isNotEmpty)
+      .join(' ');
+}
+
 // 10 chars, always with an uppercase letter and a digit (rates "Strong");
 // look-alike characters (0/O, 1/l/I) left out so it can be read aloud.
 String adminGeneratePassword() {

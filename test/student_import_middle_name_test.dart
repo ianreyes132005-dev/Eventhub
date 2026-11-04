@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:eventhub/features/admin/admin_shared.dart';
 import 'package:eventhub/features/admin/admin_web_student_import.dart';
 
 // Middle names in the registrar import: read from their own column or from a
@@ -29,6 +30,20 @@ void main() {
     expect(fieldForHeader('Middle Initial'), ImportField.middleName);
     // The combined SF1 header is still the full-name column.
     expect(fieldForHeader(combined[1]), ImportField.fullName);
+  });
+
+  test('other ways of naming the middle-name column are recognized too', () {
+    for (final h in ['Middle', 'MIDDLE', 'Middle Init.', 'M. Name', 'Mid. Name', 'M.I.']) {
+      expect(fieldForHeader(h), ImportField.middleName, reason: h);
+    }
+  });
+
+  test('a "Middle" column is read like "Middle Name"', () {
+    final r = _plan([
+      ['LRN', 'Last Name', 'First Name', 'Middle', 'Grade Level', 'Section'],
+      ['123456260001', 'Dela Cruz', 'Juan', 'Reyes', '7', 'Sampaguita'],
+    ]).rows.single;
+    expect((r.last, r.first, r.middle, r.middleKnown), ('Dela Cruz', 'Juan', 'Reyes', true));
   });
 
   test('separate columns: the middle name is read and cleaned', () {
@@ -117,5 +132,13 @@ void main() {
       ['123456260001', 'DELA CRUZ', 'JUAN', 'PEREZ', '7', 'Sampaguita'],
     ], existing: [juan]).rows.single;
     expect(r.action, ImportAction.unchanged);
+  });
+
+  test('students missing from the file are listed with their middle name', () {
+    final plan = _plan([
+      separate,
+      ['123456260009', 'Santos', 'Maria', '', '7', 'Sampaguita'],
+    ], existing: [juan]);
+    expect(plan.notInList.map(adminFullName), ['Juan Perez Dela Cruz']);
   });
 }

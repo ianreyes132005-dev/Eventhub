@@ -128,11 +128,17 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
         return false;
       }
       if (q.isNotEmpty) {
-        final name = (o['full_name'] as String? ?? '').toLowerCase();
+        // The name as shown (with the middle name) or as saved (First Last).
+        final name = adminFullName(o).toLowerCase();
+        final saved = (o['full_name'] as String? ?? '').toLowerCase();
         final id = (o['organizer_id'] as String? ?? '').toLowerCase();
         final org = (o['organization'] as String? ?? '').toLowerCase();
-        if (!name.contains(q) && !id.contains(q) && !org.contains(q))
+        if (!name.contains(q) &&
+            !saved.contains(q) &&
+            !id.contains(q) &&
+            !org.contains(q)) {
           return false;
+        }
       }
       return true;
     }).toList();
@@ -140,9 +146,7 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
     list.sort((a, b) {
       int cmp;
       if (_sortField == 'full_name') {
-        cmp = (a['full_name'] as String? ?? '').compareTo(
-          b['full_name'] as String? ?? '',
-        );
+        cmp = adminFullName(a).compareTo(adminFullName(b));
       } else if (_sortField == 'organizer_id') {
         cmp = (a['organizer_id'] as String? ?? '').compareTo(
           b['organizer_id'] as String? ?? '',
@@ -596,7 +600,7 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
           message: newPassword == null
               ? 'Organizer profile updated.'
               : 'Profile updated and password reset. Share the new password '
-                    'with ${result['full_name'] ?? 'the organizer'}.',
+                    'with ${adminFullName(result)}.',
         );
       }
     } catch (e) {
@@ -616,7 +620,7 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
         suggestedId: nextId,
         onCreate: (data) async {
           try {
-            createdName = data['full_name'] as String?;
+            createdName = adminFullName(data);
             final password = data['password'] as String;
             final organizerData = Map<String, dynamic>.from(data)
               ..remove('password');
@@ -683,7 +687,7 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
       (o) => o['organizer_id'] == id,
       orElse: () => const {},
     );
-    final name = (o['full_name'] as String? ?? '').trim();
+    final name = adminFullName(o);
     return name.isEmpty ? id : name;
   }
 
@@ -1125,10 +1129,8 @@ class _AdminOrganizersPageState extends State<AdminOrganizersPage> {
                           onEdit: () => _editOrganizer(o),
                           onToggle: () =>
                               _toggleActive(id, o['is_active'] == true),
-                          onDelete: () => _deleteOrganizer(
-                            id,
-                            o['full_name'] as String? ?? '',
-                          ),
+                          onDelete: () =>
+                              _deleteOrganizer(id, adminFullName(o)),
                         );
                       },
                     ),
@@ -1301,6 +1303,7 @@ class _OrganizerRowState extends State<_OrganizerRow> {
     final active = o['is_active'] == true;
     final orgName = o['organization'] as String?;
     final orgId = o['organizer_id'] as String? ?? '—';
+    final name = adminFullName(o); // with the middle name
     final initials = (o['full_name'] as String? ?? '?')
         .trim()
         .split(' ')
@@ -1381,14 +1384,15 @@ class _OrganizerRowState extends State<_OrganizerRow> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
-                              o['full_name'] as String? ?? '—',
+                              name.isEmpty ? '—' : name,
                               style: TextStyle(
                                 fontFamily: 'Poppins',
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
                                 color: active ? t.text : t.muted,
                               ),
-                              maxLines: 1,
+                              // A long name with its middle name wraps.
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                             if (orgName != null && orgName.isNotEmpty)

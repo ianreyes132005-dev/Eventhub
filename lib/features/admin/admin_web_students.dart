@@ -177,9 +177,13 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
         if (_gradeStrand != null && _strandOf(s) != _gradeStrand) return false;
       }
       if (q.isNotEmpty) {
-        final name = (s['full_name'] as String? ?? '').toLowerCase();
+        // The name as shown (with the middle name) or as saved (First Last).
+        final name = adminFullName(s).toLowerCase();
+        final saved = (s['full_name'] as String? ?? '').toLowerCase();
         final lrn = (s['lrn'] as String? ?? '').toLowerCase();
-        if (!name.contains(q) && !lrn.contains(q)) return false;
+        if (!name.contains(q) && !saved.contains(q) && !lrn.contains(q)) {
+          return false;
+        }
       }
       return true;
     }).toList();
@@ -187,9 +191,7 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
     list.sort((a, b) {
       int cmp;
       if (_sortField == 'full_name') {
-        cmp = (a['full_name'] as String? ?? '').compareTo(
-          b['full_name'] as String? ?? '',
-        );
+        cmp = adminFullName(a).compareTo(adminFullName(b));
       } else if (_sortField == 'lrn') {
         cmp = (a['lrn'] as String? ?? '').compareTo(b['lrn'] as String? ?? '');
       } else if (_sortField == 'year_level') {
@@ -634,7 +636,7 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
           message: newPassword == null
               ? 'Student profile updated.'
               : 'Profile updated and password reset. Share the new password '
-                    'with ${result['full_name'] ?? 'the student'}.',
+                    'with ${adminFullName(result)}.',
         );
       }
     } catch (e) {
@@ -656,7 +658,7 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
         student: null,
         onCreate: (data) async {
           try {
-            createdName = data['full_name'] as String?;
+            createdName = adminFullName(data);
             final password = data['password'] as String;
             final studentData = Map<String, dynamic>.from(data)
               ..remove('password');
@@ -703,7 +705,7 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
 
   String _studentName(String lrn) {
     final s = _all.firstWhere((s) => s['lrn'] == lrn, orElse: () => const {});
-    final name = (s['full_name'] as String? ?? '').trim();
+    final name = adminFullName(s);
     return name.isEmpty ? lrn : name;
   }
 
@@ -1176,7 +1178,7 @@ class _AdminStudentsPageState extends State<AdminStudentsPage> {
                           ),
                           onDelete: () => _deleteStudent(
                             s['lrn'] as String,
-                            s['full_name'] as String? ?? '—',
+                            adminFullName(s).isEmpty ? '—' : adminFullName(s),
                           ),
                         );
                       },
@@ -1271,6 +1273,7 @@ class _StudentRowState extends State<_StudentRow> {
     final active = s['is_active'] == true;
     final yr = s['year_level'] as int?;
     final section = (s['section'] as String?)?.trim();
+    final name = adminFullName(s); // with the middle name
     final initials = (s['full_name'] as String? ?? '?')
         .trim()
         .split(' ')
@@ -1348,14 +1351,16 @@ class _StudentRowState extends State<_StudentRow> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              s['full_name'] as String? ?? '—',
+                              name.isEmpty ? '—' : name,
                               style: TextStyle(
                                 fontFamily: 'Poppins',
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
                                 color: active ? t.text : t.muted,
                               ),
-                              maxLines: 1,
+                              // A long name with its middle name wraps
+                              // (two lines fit beside the avatar).
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],
