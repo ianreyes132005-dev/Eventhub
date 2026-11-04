@@ -165,7 +165,11 @@ checks (migration, what, ok) AS (
               AND tablename IN ('event_logs', 'login_logs')
               AND cmd IN ('DELETE', 'ALL')
               AND (COALESCE(qual, '') NOT ILIKE '%admins%'
-                   OR COALESCE(qual, '') ILIKE '%90 days%')))
+                   OR COALESCE(qual, '') ILIKE '%90 days%'))),
+  ('202611040003_admin_registration_trend', 'admin dashboard counts registrations in the database (no 1,000-row limit)',
+    EXISTS (SELECT 1 FROM fn WHERE proname = 'admin_dashboard_totals')
+    AND EXISTS (SELECT 1 FROM fn WHERE proname = 'admin_registration_trend'
+                                   AND prosrc ILIKE '%attendance%'))
 )
 SELECT CASE WHEN ok THEN '✓' ELSE '✗ run it' END AS status, migration, what
 FROM checks

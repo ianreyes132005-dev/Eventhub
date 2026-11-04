@@ -10,6 +10,7 @@ import '../../core/services/student_count_service.dart';
 import '../../core/services/supabase_service.dart';
 import '../organizer/web/web_shared.dart';
 import '../../shared/widgets/event_phase_pill.dart';
+import 'admin_participation.dart';
 import 'admin_shared.dart';
 import 'admin_web_students.dart';
 import 'admin_web_organizers.dart';
@@ -717,10 +718,10 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
   int _regTotal = 0;
   double _checkInRate = 0;
 
-  List<double> _weeklyRegs = List.filled(7, 0);
-  List<double> _monthlyRegs = List.filled(30, 0);
-  int _chartDays = 7;
   List<double> _weeklyEvents = List.filled(7, 0);
+  // Bumped by every load, so the Student Participation card reloads with the
+  // dashboard after a live change.
+  int _loadCount = 0;
   List<_TopEvent> _topEvents = [];
   List<Map<String, dynamic>> _recentRegs = [];
   List<Map<String, dynamic>> _upcomingEvents = [];
@@ -790,20 +791,18 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       ]);
       // Capacity of an event for some grades or strands only.
       final gradeCounts = await StudentCountService.gradeCounts();
-      List<Map<String, dynamic>> statsRegs = [], recentRows = [];
+      // The KPI totals are counted in the database (migration 202611040003):
+      // downloading every registration stops at Supabase's 1,000-row limit.
+      final totals = await _loadTotals();
+      List<Map<String, dynamic>> recentRows = [];
       try {
-        final regResults = await Future.wait([
-          client
-              .from('registrations')
-              .select('status, registered_at, checked_in_at'),
-          client
+        recentRows = List<Map<String, dynamic>>.from(
+          await client
               .from('registrations')
               .select('student_name, event_title, status, registered_at')
               .order('registered_at', ascending: false)
-              .limit(10),
-        ]);
-        statsRegs = List<Map<String, dynamic>>.from(regResults[0] as List);
-        recentRows = List<Map<String, dynamic>>.from(regResults[1] as List);
+              .limit(10) as List,
+        );
       } catch (_) {}
 
       if (!mounted) return;
@@ -815,9 +814,8 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       final now = DateTime.now();
       final todayMid = DateTime(now.year, now.month, now.day);
       final weekStart = todayMid.subtract(const Duration(days: 6));
-      final studentActive = students
-          .where((s) => s['is_active'] == true)
-          .length;
+      int studentTotal = students.length;
+      int studentActive = students.where((s) => s['is_active'] == true).length;
       final orgActive = orgs.where((o) => o['is_active'] == true).length;
 
       // ── Event stats ───────────────────────────────────────────────────
@@ -826,31 +824,28 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
       final upcomingList = upcomingApprovedEvents(events);
       final upcomingCount = upcomingList.length;
 
-      final checkedInTotal = statsRegs
-          .where((r) => r['status'] == 'checked_in')
-          .length;
-      final countedRegs = statsRegs.where(countsAsRegistered).length;
-      final checkInRate = countedRegs == 0
-          ? 0.0
-          : checkedInTotal / countedRegs * 100;
-
-      final weeklyRegs = List<double>.filled(7, 0);
-      final monthlyRegs = List<double>.filled(30, 0);
-      final monthStart = todayMid.subtract(const Duration(days: 29));
-      for (final r in statsRegs) {
-        final regStr = r['registered_at'] as String?;
-        if (regStr != null) {
-          try {
-            final d = DateTime.parse(regStr).toLocal();
-            final dMid = DateTime(d.year, d.month, d.day);
-            if (!dMid.isBefore(weekStart) && !dMid.isAfter(todayMid)) {
-              weeklyRegs[dMid.difference(weekStart).inDays]++;
-            }
-            if (!dMid.isBefore(monthStart) && !dMid.isAfter(todayMid)) {
-              monthlyRegs[dMid.difference(monthStart).inDays]++;
-            }
-          } catch (_) {}
-        }
+      // ── Registration stats ────────────────────────────────────────────
+      // Declined registrations don't count (countsAsRegistered). The check-in
+      // rate is over events whose attendance is final (check-in has closed).
+      final int regTotal;
+      final double checkInRate;
+      if (totals != null) {
+        int n(String key) => (totals[key] as num?)?.toInt() ?? 0;
+        regTotal = n('registrations');
+        final finalRegistered = n('final_registered');
+        checkInRate = finalRegistered == 0
+            ? 0.0
+            : n('final_attended') / finalRegistered * 100;
+        studentTotal = n('students');
+        studentActive = n('students_active');
+      } else {
+        // Before migration 202611040003: count what can be downloaded.
+        final rows = List<Map<String, dynamic>>.from(
+          await client.from('registrations').select('status') as List,
+        );
+        regTotal = rows.where(countsAsRegistered).length;
+        final checkedIn = rows.where((r) => r['status'] == 'checked_in').length;
+        checkInRate = regTotal == 0 ? 0.0 : checkedIn / regTotal * 100;
       }
 
       // ── Per-day event counts (by event_date, last 7 days) ────────────
@@ -898,21 +893,20 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
               .toList();
 
       setState(() {
-        _studentTotal = students.length;
+        _studentTotal = studentTotal;
         _studentActive = studentActive;
         _orgTotal = orgs.length;
         _orgActive = orgActive;
         _eventTotal = events.length;
         _eventUpcoming = upcomingCount;
-        _regTotal = statsRegs.length;
+        _regTotal = regTotal;
         _checkInRate = checkInRate;
-        _weeklyRegs = weeklyRegs;
-        _monthlyRegs = monthlyRegs;
         _weeklyEvents = weeklyEvents;
         _topEvents = topEvents;
         _recentRegs = recentRows;
         _upcomingEvents = upcomingList.take(4).toList();
         _chartWindowStart = weekStart;
+        _loadCount++;
         _loading = false;
       });
     } catch (e) {
@@ -923,6 +917,18 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
           _dashError = true;
         });
       }
+    }
+  }
+
+  /// The KPI totals counted in the database, or null before migration
+  /// 202611040003 is run.
+  Future<Map<String, dynamic>?> _loadTotals() async {
+    try {
+      final res = await SupabaseService.client.rpc('admin_dashboard_totals');
+      return Map<String, dynamic>.from(res as Map);
+    } catch (e) {
+      debugPrint('admin_dashboard_totals unavailable: $e');
+      return null;
     }
   }
 
@@ -1040,62 +1046,7 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
     children: [
       Expanded(
         flex: 3,
-        child: WebCard(
-          padding: EdgeInsets.zero,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Registration Trend',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              color: t.text,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Daily sign-ups · Last ${_chartDays == 7 ? '7 days' : '30 days'}',
-                            style: TextStyle(
-                              fontFamily: 'Poppins',
-                              fontSize: 11,
-                              color: t.sub,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    _ChartWindowToggle(
-                      selected: _chartDays,
-                      onSelect: (value) => setState(() => _chartDays = value),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                height: 220,
-                child: _RegTrendChart(
-                  dailyRegs: _chartDays == 7 ? _weeklyRegs : _monthlyRegs,
-                  windowStart: _chartDays == 7
-                      ? (_chartWindowStart ??
-                            DateTime.now().subtract(const Duration(days: 6)))
-                      : DateTime.now().subtract(const Duration(days: 29)),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        ),
+        child: AdminParticipationCard(refreshKey: _loadCount),
       ),
       const SizedBox(width: 16),
       Expanded(
@@ -1501,252 +1452,6 @@ class _AdminOverviewPageState extends State<_AdminOverviewPage> {
 }
 
 // ─── KPI card ─────────────────────────────────────────────────────────────────
-
-// Registration trend line chart
-
-class _RegTrendChart extends StatelessWidget {
-  const _RegTrendChart({required this.dailyRegs, required this.windowStart});
-
-  final List<double> dailyRegs;
-  final DateTime windowStart;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    final n = dailyRegs.length;
-    final maxValue = dailyRegs.reduce((a, b) => a > b ? a : b);
-    if (maxValue < 1) {
-      return Center(
-        child: Text(
-          'No registrations in this period',
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 12.5,
-            color: t.muted,
-          ),
-        ),
-      );
-    }
-
-    final maxY = (maxValue * 1.3).ceilToDouble();
-    final spots = dailyRegs
-        .asMap()
-        .entries
-        .map((entry) => FlSpot(entry.key.toDouble(), entry.value))
-        .toList();
-    final todayIndex = n - 1;
-    final labelInterval = n <= 7 ? 1.0 : 5.0;
-    const months = [
-      '',
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    final labels = List.generate(n, (index) {
-      final date = windowStart.add(Duration(days: index));
-      return '${months[date.month]} ${date.day}';
-    });
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 0, 20, 8),
-      child: LineChart(
-        LineChartData(
-          minX: 0,
-          maxX: (n - 1).toDouble(),
-          minY: 0,
-          maxY: maxY,
-          gridData: FlGridData(
-            show: true,
-            drawVerticalLine: false,
-            getDrawingHorizontalLine: (_) => FlLine(
-              color: t.border.withValues(alpha: 0.35),
-              strokeWidth: 1,
-              dashArray: [4, 4],
-            ),
-          ),
-          titlesData: FlTitlesData(
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 32,
-                interval: (maxY / 4).ceilToDouble(),
-                getTitlesWidget: (value, meta) {
-                  if (value == meta.max) return const SizedBox.shrink();
-                  return SideTitleWidget(
-                    meta: meta,
-                    child: Text(
-                      value.toInt().toString(),
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 9,
-                        color: t.muted,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 24,
-                interval: labelInterval,
-                getTitlesWidget: (value, meta) {
-                  final index = value.toInt();
-                  if (index < 0 || index >= n) return const SizedBox.shrink();
-                  return SideTitleWidget(
-                    meta: meta,
-                    child: Text(
-                      labels[index],
-                      style: TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 10,
-                        fontWeight: index == todayIndex
-                            ? FontWeight.w700
-                            : FontWeight.w400,
-                        color: index == todayIndex ? _kAccent : t.muted,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            topTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            rightTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-          ),
-          borderData: FlBorderData(show: false),
-          lineTouchData: LineTouchData(
-            enabled: true,
-            touchTooltipData: LineTouchTooltipData(
-              getTooltipColor: (_) => const Color(0xFF1E293B),
-              getTooltipItems: (touchedSpots) => touchedSpots.map((spot) {
-                final count = spot.y.toInt();
-                return LineTooltipItem(
-                  '$count sign-up${count == 1 ? '' : 's'}\n',
-                  const TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                  children: [
-                    TextSpan(
-                      text: labels[spot.x.toInt()],
-                      style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 10,
-                        fontWeight: FontWeight.w400,
-                        color: Color(0xFF94A3B8),
-                      ),
-                    ),
-                  ],
-                );
-              }).toList(),
-            ),
-          ),
-          lineBarsData: [
-            LineChartBarData(
-              spots: spots,
-              isCurved: true,
-              color: _kAccent,
-              barWidth: 2.5,
-              isStrokeCapRound: true,
-              dotData: FlDotData(
-                show: true,
-                getDotPainter: (spot, _, _, _) => FlDotCirclePainter(
-                  radius: spot.x.toInt() == todayIndex ? 5 : 3.5,
-                  color: _kAccent,
-                  strokeWidth: 2,
-                  strokeColor: Colors.white,
-                ),
-              ),
-              belowBarData: BarAreaData(
-                show: true,
-                gradient: LinearGradient(
-                  colors: [
-                    _kAccent.withValues(alpha: 0.18),
-                    _kAccent.withValues(alpha: 0),
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ChartWindowToggle extends StatelessWidget {
-  const _ChartWindowToggle({required this.selected, required this.onSelect});
-
-  final int selected;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = WebTk(Theme.of(context).brightness == Brightness.dark);
-    return Container(
-      height: 28,
-      decoration: BoxDecoration(
-        color: t.border.withValues(alpha: 0.50),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [_tab(t, 7, '7D'), _tab(t, 30, '30D')],
-      ),
-    );
-  }
-
-  Widget _tab(WebTk t, int days, String label) {
-    final active = selected == days;
-    return GestureDetector(
-      onTap: () => onSelect(days),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-        decoration: BoxDecoration(
-          color: active ? t.card : Colors.transparent,
-          borderRadius: BorderRadius.circular(7),
-          boxShadow: active
-              ? [
-                  BoxShadow(
-                    color: t.shadow,
-                    blurRadius: 4,
-                    offset: const Offset(0, 1),
-                  ),
-                ]
-              : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 10,
-            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-            color: active ? _kAccent : t.muted,
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _EventsTrendChart extends StatelessWidget {
   final List<double> dailyEvents;

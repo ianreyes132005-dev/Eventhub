@@ -120,6 +120,29 @@ String? registrationCloseLabel(Map<String, dynamic> event, {DateTime? now}) {
   return 'Closes in $days days (${monthDayLabel(closes)})';
 }
 
+/// The group a student is counted in on the organizer's "By grade" list:
+/// "Grade 8" (Junior High, by grade), "Grade 11 · STEM" or "Grade 11 · no
+/// strand" (Senior High, by grade and strand), "Grade not on file".
+String studentGroupLabel(int? grade, String? strand) => grade == null
+    ? 'Grade not on file'
+    : !isSeniorHighGrade(grade)
+        ? 'Grade $grade'
+        : strand == null || strand.isEmpty
+            ? 'Grade $grade · no strand'
+            : 'Grade $grade · $strand';
+
+/// Sort key for [studentGroupLabel]'s groups: grade, then HUMSS, GAS, STEM,
+/// any other strand, no strand; no grade on file last.
+int studentGroupRank(int? grade, String? strand) {
+  if (grade == null) return 9999;
+  if (!isSeniorHighGrade(grade)) return grade * 10;
+  final known = strand == null ? -1 : kShsStrands.indexOf(strand);
+  final strandRank = strand == null || strand.isEmpty
+      ? kShsStrands.length + 1
+      : known >= 0 ? known : kShsStrands.length;
+  return grade * 10 + strandRank;
+}
+
 /// One row of the "By grade" list. [eligible] is null when the student
 /// counts couldn't be read, or for students outside the event's group (an
 /// organizer narrowed the group after they registered).
@@ -141,19 +164,8 @@ List<GradeProgress> gradeProgress({
   final order = <String, int>{};
 
   String keyOf(int? grade, String? strand) {
-    final label = grade == null
-        ? 'Grade not on file'
-        : !isSeniorHighGrade(grade)
-            ? 'Grade $grade'
-            : strand == null || strand.isEmpty
-                ? 'Grade $grade · no strand'
-                : 'Grade $grade · $strand';
-    // Grade order, then HUMSS, GAS, STEM, then any other strand, then none.
-    final known = strand == null ? -1 : kShsStrands.indexOf(strand);
-    final strandRank = strand == null || strand.isEmpty
-        ? kShsStrands.length + 1
-        : known >= 0 ? known : kShsStrands.length;
-    order[label] = grade == null ? 9999 : grade * 10 + strandRank;
+    final label = studentGroupLabel(grade, strand);
+    order[label] = studentGroupRank(grade, strand);
     return label;
   }
 
